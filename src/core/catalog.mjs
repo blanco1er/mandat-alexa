@@ -1,0 +1,44 @@
+// Simulated household catalogue: generic products from fictional online shops, used whenever live Channel3 search
+// is off (the default, and always in tests). No real brand, no real product photo: safe to film.
+// Each product lists its main ingredients/materials, so household preferences (allergies, brands) can filter it.
+export const SHOPS = {
+  shop_hearthlinen: { name: 'Hearth & Linen', delivery: 6 },
+  shop_pawpantry: { name: 'Paw Pantry', delivery: 0 },
+  shop_beanpost: { name: 'Bean Post', delivery: 0 },
+  shop_homebasics: { name: 'Home Basics Co.', delivery: 4 },
+};
+
+export const PRODUCTS = [
+  // bedding
+  { id: 'p_guestbed', shop: 'shop_hearthlinen', title: 'Guest bed bundle: queen percale sheet set + 2 pillowcases', price: 86, tags: ['bedding', 'sheets', 'queen', 'guest room', 'pillowcase', 'linen'], contains: ['cotton'] },
+  { id: 'p_sheets_king', shop: 'shop_hearthlinen', title: 'King sateen sheet set, white', price: 98, tags: ['bedding', 'sheets', 'king'], contains: ['cotton'] },
+  { id: 'p_duvet', shop: 'shop_homebasics', title: 'All-season queen duvet, hypoallergenic', price: 72, tags: ['bedding', 'duvet', 'comforter', 'queen'], contains: ['polyester'] },
+  { id: 'p_towels', shop: 'shop_homebasics', title: 'Guest towel set (2 bath, 2 hand)', price: 34, tags: ['towels', 'bath', 'guest room'], contains: ['cotton'] },
+  // dog food
+  { id: 'p_dog_chicken', shop: 'shop_pawpantry', title: 'Chicken & brown rice dry dog food, 24 lb', price: 29, tags: ['dog food', 'dog', 'kibble'], contains: ['chicken', 'rice'] },
+  { id: 'p_dog_salmon', shop: 'shop_pawpantry', title: 'Salmon & sweet potato dry dog food, 24 lb', price: 34, tags: ['dog food', 'dog', 'kibble'], contains: ['salmon', 'sweet potato'] },
+  { id: 'p_dog_lamb', shop: 'shop_pawpantry', title: 'Lamb & oatmeal dry dog food, 24 lb', price: 38, tags: ['dog food', 'dog', 'kibble'], contains: ['lamb', 'oats'] },
+  { id: 'p_dog_mix', shop: 'shop_pawpantry', title: 'Turkey & chicken meal grain-free dog food, 22 lb', price: 41, tags: ['dog food', 'dog', 'kibble'], contains: ['turkey', 'chicken'] },
+  // coffee
+  { id: 'p_coffee_northbeam', shop: 'shop_beanpost', title: 'Northbeam medium roast, whole bean, 2 × 2 lb', price: 52, tags: ['coffee', 'beans', 'medium roast', 'northbeam'], contains: ['coffee'], brand: 'Northbeam' },
+  { id: 'p_coffee_house', shop: 'shop_beanpost', title: 'House blend dark roast, ground, 2 lb', price: 24, tags: ['coffee', 'ground', 'dark roast'], contains: ['coffee'], brand: 'Bean Post' },
+  { id: 'p_coffee_decaf', shop: 'shop_beanpost', title: 'Swiss-water decaf, whole bean, 2 lb', price: 27, tags: ['coffee', 'decaf', 'beans'], contains: ['coffee'], brand: 'Bean Post' },
+];
+
+const words = (s) => String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+// A few words people say that should match a tag.
+const ALIAS = { sheets: 'bedding', bedding: 'bedding', linen: 'bedding', linens: 'bedding', pillow: 'bedding', pillows: 'bedding', kibble: 'dog', dog: 'dog', puppy: 'dog', coffee: 'coffee', espresso: 'coffee', beans: 'coffee', towels: 'towels', duvet: 'duvet' };
+
+export function searchCatalog({ query, maxPrice }) {
+  const q = words(query);
+  const keys = new Set(q.map((w) => ALIAS[w] || w));
+  const scored = PRODUCTS.map((p) => {
+    const hay = new Set([...words(p.title), ...p.tags.flatMap(words), ...(p.brand ? words(p.brand) : [])]);
+    let score = 0;
+    for (const k of keys) if (hay.has(k)) score += 2;
+    for (const w of q) if (hay.has(w)) score += 1;
+    return { p, score };
+  }).filter((x) => x.score > 0 && (!maxPrice || x.p.price <= maxPrice));
+  scored.sort((a, b) => b.score - a.score || a.p.price - b.p.price);
+  return scored.map(({ p }) => ({ ...p, shopName: SHOPS[p.shop].name, delivery: SHOPS[p.shop].delivery }));
+}

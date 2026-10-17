@@ -1,20 +1,12 @@
 // Shopping real products with Channel3: one API, 100M+ products from 25,000+ retailers, with photos, brands,
 // key features and each retailer's price, availability and buy link. Mandat searches, compares and
-// recommends; the purchase is paid with PayPal. Key from CHANNEL3_API_KEY or the private secrets file.
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+// recommends; the purchase is paid with PayPal. Key from CHANNEL3_API_KEY (environment only).
 
-let key;
+// Live Channel3 search only when explicitly switched on (MANDAT_SHOP=live) AND a key is in the environment.
+// Otherwise Mandat uses its simulated household catalogue (src/core/catalog.mjs): no external call at all.
 export function shopKey() {
-  if (key !== undefined) return key;
-  if (process.env.CHANNEL3_API_KEY) return (key = process.env.CHANNEL3_API_KEY.trim());
-  try {
-    const f = process.env.CHANNEL3_KEY_FILE || path.join(os.homedir(), 'Library/Application Support/StudioPilot/secrets/channel3.json');
-    if (fs.statSync(f).mode & 0o077) throw new Error('channel3.json permissions are too open');
-    key = JSON.parse(fs.readFileSync(f, 'utf8')).api_key?.trim() || null;
-  } catch { key = null; }
-  return key;
+  if (process.env.MANDAT_SHOP !== 'live') return null;
+  return process.env.CHANNEL3_API_KEY?.trim() || null;
 }
 export const shopEnabled = () => !!shopKey();
 

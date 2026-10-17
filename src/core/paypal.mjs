@@ -12,27 +12,18 @@
 // Without PAYPAL_CLIENT_ID/SECRET the client runs in "offline" mode: same interface, fake ids, clearly flagged
 // (mode: 'offline') so the UI never pretends money moved. Real sandbox calls are used as soon as keys exist.
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import {
   ApiError, CheckoutPaymentIntent, Client, Environment, ExperienceContextShippingPreference, OrdersController,
   PaymentsController, PaypalPaymentTokenCustomerType, PaypalPaymentTokenUsageType, UsagePattern, VaultController,
   VaultTokenRequestType,
 } from '@paypal/paypal-server-sdk';
 
-// Sandbox keys: environment variables (hosting), or a local 600-mode JSON file (development). Never logged.
+// Sandbox keys come from environment variables only (Lambda env / Secrets Manager / a local, git-ignored .env).
+// No key file is read any more. MANDAT_PAYPAL=offline forces the simulated path even when keys exist (tests).
 function sandboxKeys() {
+  if (process.env.MANDAT_PAYPAL === 'offline') return {};
   if (process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET) return { id: process.env.PAYPAL_CLIENT_ID, secret: process.env.PAYPAL_CLIENT_SECRET };
-  const file = process.env.PAYPAL_KEY_FILE || path.join(os.homedir(), 'Library/Application Support/StudioPilot/secrets/paypal-sandbox.json');
-  try {
-    if (fs.statSync(file).mode & 0o077) throw new Error('PayPal key file permissions are too open (chmod 600)');
-    const k = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return k.client_id && k.client_secret ? { id: k.client_id.trim(), secret: k.client_secret.trim() } : {};
-  } catch (e) {
-    if (e.code !== 'ENOENT') console.warn('[paypal]', e.message);
-    return {};
-  }
+  return {};
 }
 const { id: CLIENT_ID, secret: SECRET } = sandboxKeys();
 export const MODE = CLIENT_ID && SECRET ? 'sandbox' : 'offline';
@@ -44,7 +35,7 @@ export const credentials = () => (MODE === 'sandbox' ? { clientId: CLIENT_ID, cl
 // Every write carries a PayPal-Request-Id, which makes it idempotent on PayPal's side: a retried POST can
 // never charge twice, so POST is retried too (on 429 and 5xx only, within a bounded wait).
 const client = MODE === 'sandbox' ? new Client({
-  environment: process.env.PAYPAL_ENV === 'production' ? Environment.Production : Environment.Sandbox, // live only when asked for explicitly
+  environment: Environment.Sandbox, // Mandat for Alexa+ is a sandbox-only demo: no production switch at all
   clientCredentialsAuthCredentials: { oAuthClientId: CLIENT_ID, oAuthClientSecret: SECRET },
   timeout: 20_000, // per attempt; the generated default (0) would wait forever
   httpClientOptions: {
@@ -102,7 +93,7 @@ export async function createMandateSetup({ returnUrl, cancelUrl, description }) 
           usageType: PaypalPaymentTokenUsageType.Merchant,
           customerType: PaypalPaymentTokenCustomerType.Consumer,
           permitMultiplePaymentTokens: true,
-          experienceContext: { returnUrl, cancelUrl, brandName: 'Mandat', shippingPreference: ExperienceContextShippingPreference.NoShipping },
+          experienceContext: { returnUrl, cancelUrl, brandName: 'Mandat for Alexa+', shippingPreference: ExperienceContextShippingPreference.NoShipping },
         },
       },
     },

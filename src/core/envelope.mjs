@@ -2,7 +2,7 @@
 // Money states follow PayPal: an authorization HOLDS funds, a capture SPENDS them, a void or refund RELEASES them.
 // The envelope is the single source of truth the agent must ask before any payment.
 
-export function createEnvelope({ total, currency = 'EUR', approveAbove = null, purpose = '' }) {
+export function createEnvelope({ total, currency = 'USD', approveAbove = null, purpose = '' }) {
   return {
     total: round(total),
     currency,
@@ -18,7 +18,8 @@ export function totals(env) {
   let spent = 0;
   for (const e of env.entries) {
     if (e.state === 'held') held += e.amount;
-    if (e.state === 'captured') spent += e.amount - (e.refunded || 0);
+    // a partial capture spends only what was captured; the rest of the hold went back (released)
+    if (e.state === 'captured' || e.state === 'refunded') spent += (e.captured ?? e.amount) - (e.refunded || 0);
   }
   held = round(held);
   spent = round(spent);
@@ -45,10 +46,16 @@ export function hold(env, { id, merchant, label, amount, paypal }) {
   return entry;
 }
 
-export function capture(env, id, paypal = {}) {
+// amount < held: partial capture, the remainder of the authorization is released at the same time
+// (PayPal final_capture=true voids what is left).
+export function capture(env, id, paypal = {}, amount = null) {
   const e = find(env, id);
   if (e.state !== 'held') throw new Error(`Cannot capture ${id}: it is ${e.state}.`);
+  const take = amount === null || amount === undefined ? e.amount : round(amount);
+  if (!(take > 0) || take > e.amount + 1e-9) throw new Error(`Cannot capture ${fmt(take, env)}: only ${fmt(e.amount, env)} is held.`);
   e.state = 'captured';
+  e.captured = take;
+  e.releasedRest = round(e.amount - take);
   Object.assign(e.paypal, paypal);
   return e;
 }
@@ -64,8 +71,10 @@ export function release(env, id, paypal = {}) {
 export function refund(env, id, amount, paypal = {}) {
   const e = find(env, id);
   if (e.state !== 'captured') throw new Error(`Cannot refund ${id}: it is ${e.state}.`);
+  const paid = e.captured ?? e.amount;
+  if (!(amount > 0) || (e.refunded || 0) + amount > paid + 1e-9) throw new Error(`Cannot refund ${fmt(amount, env)}: ${fmt(paid - (e.refunded || 0), env)} can still be refunded.`);
   e.refunded = round((e.refunded || 0) + amount);
-  if (e.refunded >= e.amount - 1e-9) e.state = 'refunded';
+  if (e.refunded >= paid - 1e-9) e.state = 'refunded';
   Object.assign(e.paypal, paypal);
   return e;
 }
