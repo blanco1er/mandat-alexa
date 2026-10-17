@@ -1,0 +1,192 @@
+// Model client: NVIDIA Nemotron on Nebius Token Factory (OpenAI-compatible chat completions with tool calling).
+// The key is read from an environment variable or a local 600-mode JSON file; it is never logged.
+// Any OpenAI-compatible provider works with LLM_BASE_URL and the model names (the DEEPSEEK_* names of the first
+// version are still read).
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { addUsage, exhausted, budgetError } from './spend.mjs';
+
+const DEFAULT_KEY_FILE = path.join(os.homedir(), 'Library/Application Support/StudioPilot/secrets/nebius-tokenfactory.json');
+const env = (name) => process.env['LLM_' + name] || process.env['DEEPSEEK_' + name];
+const BASE = env('BASE_URL') || 'https://api.tokenfactory.nebius.com/v1';
+
+// Nemotron 3 Super runs the agent (fast tool calls); Nemotron 3 Ultra reviews every plan and takes over when a call
+// fails; Gemma 3 27B reads photos (no Nemotron vision model is served on Token Factory).
+export const MODELS = {
+  fast: env('FAST_MODEL') || 'nvidia/nemotron-3-super-120b-a12b',
+  smart: env('SMART_MODEL') || 'nvidia/Nemotron-3-Ultra-550b-a55b',
+};
+MODELS.vision = env('VISION_MODEL') || 'google/gemma-3-27b-it';
+MODELS.review = env('REVIEW_MODEL') || MODELS.smart;
+
+// Which model runs the agent and who serves it, in words people know (shown in the app; never the key).
+export function aiLabel() {
+  const id = MODELS.fast;
+  const m = /nemotron[-_ ]?(\d(?:[._]\d)?)[-_ ]?(super|ultra|nano|lightning)?/i.exec(id);
+  const model = m ? `NVIDIA Nemotron ${m[1].replace('_', '.')}${m[2] ? ' ' + m[2][0].toUpperCase() + m[2].slice(1).toLowerCase() : ''}` : id;
+  const host = /tokenfactory\.nebius/i.test(BASE) ? 'Nebius Token Factory' : new URL(BASE).host;
+  return { model, host };
+}
+
+let cachedKey = null;
+function apiKey() {
+  if (cachedKey) return cachedKey;
+  const k = process.env.NEBIUS_API_KEY || env('API_KEY');
+  if (k) return (cachedKey = k);
+  const file = env('KEY_FILE') || DEFAULT_KEY_FILE;
+  if (fs.statSync(file).mode & 0o077) throw new Error('Model key file permissions are too open');
+  const key = JSON.parse(fs.readFileSync(file, 'utf8')).api_key;
+  if (typeof key !== 'string' || !key.trim()) throw new Error('Model key missing');
+  return (cachedKey = key.trim());
+}
+
+// Health of each model. A model that hung is skipped; a tiny background probe (a few tokens)
+// checks every few minutes whether it is back, so no user ever waits on a broken model.
+const down = new Map(); // model -> next probe time (ms)
+const probing = new Set();
+const PROBE_EVERY = 5 * 60 * 1000;
+export function probe(model = MODELS.fast) {
+  if (probing.has(model) || exhausted()) return;
+  try { apiKey(); } catch (e) { return console.warn('[model]', e.message, '— the agent cannot answer until a key is set'); }
+  probing.add(model);
+  fetch(BASE + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey() },
+    body: JSON.stringify({ model, max_tokens: 8, messages: [{ role: 'user', content: 'ok' }] }),
+    signal: AbortSignal.timeout(15000),
+  })
+    .then(async (r) => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      addUsage(model, (await r.json()).usage);
+      if (down.delete(model)) console.log(`[model] ${model} is back`);
+    })
+    .catch(() => {
+      if (!down.has(model)) console.warn(`[model] ${model} not answering — using the fallback for now`);
+      down.set(model, Date.now() + PROBE_EVERY);
+    })
+    .finally(() => probing.delete(model));
+}
+
+// One chat completion. `tools` follows the OpenAI function-calling schema.
+// With `onDelta`, the reply streams: each new piece of visible text is handed over as it arrives.
+// If the model hangs or errors transiently, the call moves once to `fallback` (text-only calls), so a mission never freezes.
+// timeoutMs: for a long one-off generation (a city of businesses): it may take its time, and a slow answer
+// there never marks the fast model as down for the agent.
+export async function chat({ messages, tools, toolChoice, model = MODELS.fast, temperature = 0.4, json = false, maxTokens = 1200, fallback = null, onDelta = null, onReset = null, timeoutMs = 0 }) {
+  if (exhausted()) throw budgetError(); // the demo's model budget is used: nothing leaves the server
+  const hasImage = messages.some((m) => Array.isArray(m.content) && m.content.some((c) => c.type === 'image_url'));
+  const alt = fallback && !hasImage && fallback !== model ? fallback : null;
+  // A model known to be down is skipped outright (and re-probed in the background when due).
+  if (alt && down.has(model) && down.get(model) <= Date.now()) probe(model);
+  const plan = alt && (down.has(model) || probing.has(model)) ? [alt] : [model, alt || model]; // unsure → the safe one
+  for (let attempt = 0; attempt < plan.length; attempt++) {
+    const use = plan[attempt];
+    const body = { model: use, messages, temperature, max_tokens: maxTokens };
+    if (tools?.length) body.tools = tools;
+    if (tools?.length && toolChoice) body.tool_choice = toolChoice;
+    if (json) body.response_format = { type: 'json_object' };
+    if (onDelta) Object.assign(body, { stream: true, stream_options: { include_usage: true } });
+    const started = Date.now();
+    let streamed = false;
+    try {
+      const out = onDelta
+        ? await streamOnce(use, body, (t) => { streamed = true; onDelta(t); })
+        : await once(use, body, timeoutMs);
+      logUsage(use, out.usage, Date.now() - started);
+      return out;
+    } catch (e) {
+      if ((e.name === 'TimeoutError' && !timeoutMs) || e.retry) down.set(use, Date.now() + PROBE_EVERY);
+      const transient = e.retry || e.name === 'TimeoutError' || e.name === 'AbortError' || e.cause?.code === 'ECONNRESET';
+      if (attempt === plan.length - 1 || !transient) throw e.name === 'TimeoutError' ? new Error('The AI took too long to answer. Try again.') : e;
+      if (streamed) onReset?.(); // the half-written reply is replaced by the fallback's
+      console.warn(`[model] ${use} ${e.name === 'TimeoutError' ? 'timed out' : e.message} after ${Date.now() - started} ms → ${plan[attempt + 1]}`);
+    }
+  }
+}
+
+async function post(body, signal) {
+  const res = await fetch(BASE + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey() },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    const err = new Error(`Model HTTP ${res.status}: ${text.slice(0, 300)}`);
+    err.retry = res.status === 429 || res.status >= 500;
+    throw err;
+  }
+  return res;
+}
+
+async function once(model, body, timeoutMs = 0) {
+  const res = await post(body, AbortSignal.timeout(timeoutMs || (model === MODELS.fast ? 25000 : 60000)));
+  const data = await res.json();
+  return { message: data.choices[0].message, usage: data.usage };
+}
+
+// Streaming: a stall (no data for a while) counts as a hang, even if the reply had started.
+async function streamOnce(model, body, onDelta) {
+  const ctl = new AbortController();
+  const idleMs = model === MODELS.fast ? 20000 : 45000;
+  let idle = setTimeout(() => ctl.abort(timeoutError()), idleMs);
+  const total = setTimeout(() => ctl.abort(timeoutError()), 120000);
+  const bump = () => { clearTimeout(idle); idle = setTimeout(() => ctl.abort(timeoutError()), idleMs); };
+  let content = '';
+  let usage = null;
+  const calls = [];
+  try {
+    const res = await post(body, ctl.signal);
+    const decoder = new TextDecoder();
+    let buf = '';
+    for await (const chunk of res.body) {
+      buf += decoder.decode(chunk, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (payload === '[DONE]') continue;
+        let evt;
+        try { evt = JSON.parse(payload); } catch { continue; }
+        if (evt.usage) usage = evt.usage;
+        const d = evt.choices?.[0]?.delta;
+        if (!d) continue;
+        // Only real progress resets the stall timer; keep-alive lines while the model is stuck do not.
+        if (d.content || d.reasoning_content || d.tool_calls) bump();
+        if (d.content) { content += d.content; onDelta(d.content); }
+        for (const tc of d.tool_calls || []) {
+          const c = (calls[tc.index ?? 0] ||= { id: '', type: 'function', function: { name: '', arguments: '' } });
+          if (tc.id) c.id = tc.id;
+          if (tc.function?.name) c.function.name += tc.function.name;
+          if (tc.function?.arguments) c.function.arguments += tc.function.arguments;
+        }
+      }
+    }
+  } catch (e) {
+    throw ctl.signal.aborted && ctl.signal.reason?.name === 'TimeoutError' ? ctl.signal.reason : e;
+  } finally {
+    clearTimeout(idle);
+    clearTimeout(total);
+  }
+  const message = { role: 'assistant', content };
+  const tool_calls = calls.filter(Boolean);
+  if (tool_calls.length) message.tool_calls = tool_calls;
+  return { message, usage };
+}
+function timeoutError() {
+  const e = new Error('timeout');
+  e.name = 'TimeoutError';
+  return e;
+}
+
+// One line per call: what it cost in tokens and how much the prefix cache saved.
+function logUsage(model, u, ms) {
+  if (!u) return;
+  addUsage(model, u);
+  const hit = u.prompt_cache_hit_tokens ?? 0;
+  console.log(`[model] ${model} ${ms} ms · in ${u.prompt_tokens} (cache ${u.prompt_tokens ? Math.round((100 * hit) / u.prompt_tokens) : 0}%) · out ${u.completion_tokens}`);
+}

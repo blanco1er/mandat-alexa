@@ -1,0 +1,21 @@
+{
+  "name": "mandat-alexa",
+  "version": "0.1.0",
+  "description": "Mandat for Alexa+: an MCP server that lets Alexa+ act on a budget you set once: it finds real merchants, negotiates with their AI agents, asks before paying and pays with PayPal (sandbox).",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@paypal/paypal-server-sdk": "^2.5.0",
+    "express": "^4.22.3",
+    "zod": "^3.25.76"
+  }
+}
