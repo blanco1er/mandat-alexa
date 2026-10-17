@@ -161,7 +161,8 @@ export function decide({ utterance, session = {}, steps = [] }) {
         const order = (sc(declined.result).receipt.orders || [])[0];
         return tool('propose_plan', { item_ids: [alt.id], mandate_id: order.mandate_id, note: 'Replacement after a date change' });
       }
-      const told = steps.slice(1, changes.length + 1).map((s) => said(s.result)).join(' ');
+      // what simply moved first, then what was declined (with its replacement)
+      const told = steps.slice(1, changes.length + 1).sort((a, b) => (sc(a.result).alternatives ? 1 : 0) - (sc(b.result).alternatives ? 1 : 0)).map((s) => said(s.result)).join(' ');
       return say(`${told}${declined ? ` ${dot ? 'Say yes to confirm.' : ''}` : ''}`);
     }
 

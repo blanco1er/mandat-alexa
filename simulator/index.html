@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alexa+ Simulator · Mandat</title>
+<meta name="description" content="Unofficial Alexa+ web simulator: a voice-first MCP client and MCP Apps host for the Mandat add-on.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-device="show15" data-state="idle">
+  <div class="banner">Unofficial Alexa+ simulator · PayPal sandbox · no real money</div>
+
+  <header class="top">
+    <div class="brand"><span class="dot-logo" aria-hidden="true"></span> Mandat <span class="muted">for Alexa+</span></div>
+    <div class="controls">
+      <label class="seg" aria-label="Device">
+        <button data-dev="show15" aria-pressed="true">Show 15</button>
+        <button data-dev="show8" aria-pressed="false">Show 8</button>
+        <button data-dev="dot" aria-pressed="false">Echo Dot</button>
+      </label>
+      <button class="ghost" id="theme" title="Light / dark">◐</button>
+      <button class="ghost" id="newHousehold" title="Start a fresh household">New household</button>
+      <button class="ghost" id="devToggle" title="Developer drawer (D)">JSON-RPC</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <section class="device" aria-label="Simulated Echo Show screen">
+      <div class="screen">
+        <div class="screen-top">
+          <div class="gauge-wrap" id="gauge" hidden>
+            <div class="gbar"><span class="gspent"></span><span class="gheld"></span></div>
+            <div class="gtext" id="gaugeText"></div>
+          </div>
+          <div class="clock" id="clock"></div>
+        </div>
+        <div class="caption" id="caption" aria-live="polite"></div>
+        <div class="card-slot" id="cardSlot"><div class="hello"><p class="eyebrow">Mandat</p><h1>Give Alexa a budget,<br>not a to-do list.</h1></div></div>
+        <div class="reply" id="reply" aria-live="polite"></div>
+      </div>
+      <div class="dot-device"><div class="dot-ring" aria-hidden="true"></div><p class="dot-sub" id="dotSub" aria-live="polite"></p></div>
+    </section>
+
+    <section class="talk">
+      <button class="mic" id="mic" aria-label="Talk to Alexa"><span class="ring"></span><span class="mic-label" id="micLabel">Tap and talk</span></button>
+      <form id="typeForm" class="type"><input id="typeInput" placeholder="…or type what you would say" autocomplete="off"><button class="send">Send</button></form>
+      <div class="chips" id="chips"></div>
+    </section>
+  </main>
+
+  <aside class="drawer" id="drawer" hidden>
+    <div class="drawer-head">
+      <b>MCP traffic</b>
+      <span id="sessionInfo" class="muted"></span>
+      <button class="ghost" id="clearLog">Clear</button>
+    </div>
+    <ol class="log" id="log"></ol>
+  </aside>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

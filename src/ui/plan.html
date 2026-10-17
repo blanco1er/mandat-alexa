@@ -20,7 +20,7 @@ function render(result) {
     <div class="row"><p class="eyebrow">Mandat · ${esc(plan.purpose || 'plan')}</p>${status}</div>
     <div class="total"><h1>${plan.lines.length} ${plan.lines.length === 1 ? 'item' : 'items'}</h1><span class="num">${usd(b.total)}</span></div>
     <ul class="lines">${plan.lines.map((l) => `<li><span>${esc(l.merchant)}<br><span class="muted">${esc(l.detail || l.title)}</span></span><b>${usd(l.total)}</b></li>`).join('')}</ul>
-    <div class="breakdown"><span>Base ${usd(b.base + b.discount)}</span>${b.discount ? `<span class="good">Negotiated −${usd(b.discount)}</span>` : ''}<span>Fees ${usd(b.fees)}</span><span>Tax ${usd(b.tax)}</span><span>Total ${usd(b.total)}</span></div>
+    <div class="breakdown"><span>Base ${usd(b.base)}</span>${b.discount ? `<span class="good">Negotiated −${usd(b.discount)}</span>` : ''}<span>Fees ${usd(b.fees)}</span><span>Tax ${usd(b.tax)}</span><span>Total ${usd(b.total)}</span></div>
     ${sc.envelope ? gauge({ ...sc.envelope }) : ''}
     <div class="actions" id="actions">${plan.status === 'confirmed' ? '<span class="done">Booked. Payment holds placed.</span>' :
       `<button class="primary" id="approve">${plan.auto_approved ? 'Buy now' : 'Approve ' + usd(b.total)}</button><button class="ghost" id="expand">Expand</button>`}</div>`;
