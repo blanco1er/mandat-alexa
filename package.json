@@ -12,7 +12,8 @@
     "demo": "MANDAT_MODEL=simulated MANDAT_PAYPAL=offline node src/server.mjs",
     "dev": "node --watch src/server.mjs",
     "test": "node --test test/*.test.mjs",
-    "test:orchestrator": "cd orchestrator && npm test"
+    "test:orchestrator": "cd orchestrator && npm test",
+    "package": "sh scripts/package-lambda.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
