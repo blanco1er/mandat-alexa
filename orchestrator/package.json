@@ -1,0 +1,19 @@
+{
+  "name": "mandat-alexa-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The simulated Alexa+ brain: a Strands Agents (TypeScript SDK) agent on Amazon Bedrock that uses the Mandat MCP server as its tools. Separate package because Strands needs zod 4 and the MCP client v2, while the server stays on MCP SDK 1.x / zod 3.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.3.1",
+    "@strands-agents/sdk": "^1.21.0",
+    "zod": "^4.6.7"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}
