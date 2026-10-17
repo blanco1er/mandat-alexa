@@ -27,7 +27,7 @@ const usd = (n, currency = 'USD') => new Intl.NumberFormat('en-US', { style: 'cu
 const id = (p) => `${p}_${crypto.randomBytes(5).toString('hex')}`;
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const sameHash = (a, b) => typeof a === 'string' && typeof b === 'string' && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-const at = (slot) => String(slot || '').replace(/^(\w+day) (\d)/, '$1 at $2');
+const spokenSlot = (slot) => String(slot || '').replace(/^(\w+day) (\d)/, '$1 at $2');
 const listWords = (xs) => (xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);
 // An explicit yes: what the user said, or the Approve tap of the plan card.
 const AFFIRMATIVE = /^(\s*(yes|yeah|yep|yup|sure|ok|okay|confirm(ed)?|approve(d)?|go ahead|do it|book it|buy it|pay|sounds good|tap:approve)\b)/i;
@@ -228,7 +228,7 @@ export class Mandat {
     }
     for (const o of top) await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
     const label = { cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' }[cat];
-    const spoken = top.slice(0, 3).map((o, i) => `${i === 0 ? 'Best' : 'Then'}: ${o.merchant}, ${usd(o.total)} ${at(o.slot_label)}${o.discount ? `, down from ${usd(o.base)}` : ''}`);
+    const spoken = top.slice(0, 3).map((o, i) => `${i === 0 ? 'Best' : 'Then'}: ${o.merchant}, ${usd(o.total)} ${spokenSlot(o.slot_label)}${o.discount ? `, down from ${usd(o.base)}` : ''}`);
     return {
       speech: `I asked ${answers.length} ${label}. ${spoken.join('. ')}.`,
       data: { category: cat, asked: answers.length, offers: top, declined },
@@ -243,7 +243,9 @@ export class Mandat {
     const banned = new Map(); // ingredient -> reason
     for (const p of prefs) {
       const m = /allerg\w*\s+(?:to\s+)?([a-z ,&-]+)/i.exec(p.fact) || /\b(?:no|avoid|never)\s+([a-z ,&-]+)/i.exec(p.fact);
-      if (m) for (const w of m[1].split(/,|\band\b|&/)) if (w.trim()) banned.set(w.trim().toLowerCase(), `${p.subject} ${p.fact.replace(/\.$/, '')}`);
+      const who = p.subject.replace(/\s*\(.*\)\s*/, '');
+      const reason = `${who} ${/^(is|are)\b/i.test(p.fact) ? '' : 'is '}${p.fact.replace(/\.$/, '')}`.replace(/\s+/g, ' ');
+      if (m) for (const w of m[1].split(/,|\band\b|&/)) if (w.trim()) banned.set(w.trim().toLowerCase(), reason);
     }
     let found;
     if (shopEnabled()) {
@@ -253,7 +255,7 @@ export class Mandat {
     const skipped = [];
     const ok = found.filter((p) => {
       const hit = [...banned.keys()].find((b) => p.contains.some((c) => c.includes(b)) || p.title.toLowerCase().includes(b));
-      if (hit) skipped.push({ title: p.title, because: banned.get(hit) });
+      if (hit) skipped.push({ title: p.title, ingredient: hit, because: banned.get(hit) });
       return !hit;
     });
     // Household brand/product preferences go first.
@@ -269,7 +271,7 @@ export class Mandat {
     }));
     for (const o of offers) await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
     const best = offers[0];
-    const skip = skipped.length ? ` I skipped ${skipped.length} with ${[...new Set(skipped.map((s) => [...banned.keys()].find((b) => s.title.toLowerCase().includes(b)) || 'a banned ingredient'))].join(', ')}, because ${skipped[0].because}.` : '';
+    const skip = skipped.length ? ` I skipped ${skipped.length} with ${[...new Set(skipped.map((x) => x.ingredient))].join(', ')}, because ${skipped[0].because}.` : '';
     return {
       speech: `${best.matches_preference ? 'Your usual' : 'Best match'}: ${best.title}, ${usd(best.total)} from ${best.merchant}.${skip}`,
       data: { query, offers, skipped, source: shopEnabled() ? 'channel3' : 'sandbox catalogue' },
@@ -291,7 +293,7 @@ export class Mandat {
     await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
     const delta = before - o.total;
     return {
-      speech: delta > 0 ? `${m.name} agreed: ${usd(o.total)} instead of ${usd(before)}, ${at(o.slot_label)}.` : `${m.name} says: ${r.reply}`,
+      speech: delta > 0 ? `${m.name} agreed: ${usd(o.total)} instead of ${usd(before)}, ${spokenSlot(o.slot_label)}.` : `${m.name} says: ${r.reply}`,
       data: { offer: o, previous_total: before, changed: delta !== 0, merchant_reply: r.reply, offers: [o] },
       card: 'offers',
     };
@@ -424,7 +426,7 @@ export class Mandat {
         o.timeline.push({ state: 'changed', note: `${change.field}: ${change.value}`, at });
         await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
         await this.event(hid, 'order.changed', { order_id: o.id, change });
-        return { ...(await this.receipt(hid, [o.id], `${mer.name} agreed: ${at(o.slotLabel)}, same hold of ${usd(o.amount)}.`)), accepted: true };
+        return { ...(await this.receipt(hid, [o.id], `${mer.name} agreed: ${spokenSlot(o.slotLabel)}, same hold of ${usd(o.amount)}.`)), accepted: true };
       }
       // Declined: void the hold so the money is free again, then line up a replacement.
       const pp = await this.paypal.release({ authorizationId: o.paypal.authorizationId });
@@ -443,7 +445,7 @@ export class Mandat {
       }
       const rec = await this.receipt(hid, [o.id], '');
       const alt = alternatives[0];
-      rec.speech = `${mer.name} can't do it: ${r.reply} I voided their ${usd(o.amount)} hold, nothing was charged.${alt ? ` ${alt.merchant} can do ${at(alt.slot_label)} for ${usd(alt.total)}. Want me to book them?` : ''}`;
+      rec.speech = `${mer.name} can't do it: ${r.reply} I voided their ${usd(o.amount)} hold, nothing was charged.${alt ? ` ${alt.merchant} can do ${spokenSlot(alt.slot_label)} for ${usd(alt.total)}. Want me to book them?` : ''}`;
       rec.data.alternatives = alternatives;
       rec.accepted = false;
       return rec;

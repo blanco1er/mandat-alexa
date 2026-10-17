@@ -1,0 +1,59 @@
+// Interfaces built for AWS, tested without AWS: DynamoDB commands, Bedrock Converse input, Polly input,
+// the Lambda Function URL handler (same router, in-memory store), policy parsing.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import './helpers.mjs';
+import { commands } from '../src/store/dynamodb.mjs';
+import { converseInput, merchantSystemPrompt, BEDROCK_MODELS } from '../src/providers/bedrock.mjs';
+import { pollyInput } from '../src/providers/tts.mjs';
+import { merchant, parseGuests, parseWhen } from '../src/core/merchants.mjs';
+import { classify, wishes } from '../src/brain/policy.mjs';
+import { createStore } from '../src/store/index.mjs';
+
+test('DynamoDB: single-table keys and the conditional put used for idempotency', () => {
+  assert.deepEqual(commands.get('HOUSEHOLD#a', 'PLAN#p').Key, { PK: 'HOUSEHOLD#a', SK: 'PLAN#p' });
+  assert.equal(commands.putIfAbsent('HOUSEHOLD#a', 'IDEMP#p', {}).ConditionExpression, 'attribute_not_exists(PK)');
+  assert.match(commands.query('HOUSEHOLD#a', 'ORDER#').KeyConditionExpression, /begins_with\(SK, :p\)/);
+  assert.equal(commands.get('x', 'y').TableName, process.env.MANDAT_TABLE || 'mandat');
+});
+
+test('local store: putIfAbsent is exclusive and query is prefix-sorted', async () => {
+  const s = createStore('memory');
+  assert.equal(await s.putIfAbsent('P', 'IDEMP#1', { a: 1 }), true);
+  assert.equal(await s.putIfAbsent('P', 'IDEMP#1', { a: 2 }), false);
+  await s.put('P', 'ORDER#b', 2); await s.put('P', 'ORDER#a', 1); await s.put('P', 'PLAN#z', 3);
+  assert.deepEqual((await s.query('P', 'ORDER#')).map((r) => r.value), [1, 2]);
+});
+
+test('Bedrock: Converse input for a merchant agent carries its private terms and the chosen model', () => {
+  const m = merchant('m_hearth');
+  const input = converseInput({ modelId: BEDROCK_MODELS.merchant, system: merchantSystemPrompt(m), user: 'dinner for six' });
+  assert.equal(input.modelId, 'us.amazon.nova-2-lite-v1:0');
+  assert.match(input.system[0].text, /Closed Sunday and Monday/);
+  assert.equal(input.messages[0].role, 'user');
+  assert.equal(BEDROCK_MODELS.brain, 'us.anthropic.claude-haiku-5-5');
+});
+
+test('Polly: neural mp3 request', () => {
+  assert.deepEqual(pollyInput('Hello'), { Engine: 'neural', OutputFormat: 'mp3', VoiceId: 'Danielle', Text: 'Hello', TextType: 'text' });
+});
+
+test('Lambda Function URL handler answers MCP initialize with 2025-11-25', async () => {
+  const { handler } = await import('../src/lambda.mjs');
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'lambda-test', version: '1' } } });
+  const out = await handler({ rawPath: '/mcp', rawQueryString: '', headers: { host: 'abc.lambda-url.us-east-1.on.aws', 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, requestContext: { http: { method: 'POST' } }, body, isBase64Encoded: false });
+  assert.equal(out.statusCode, 200);
+  assert.equal(JSON.parse(out.body).result.protocolVersion, '2025-11-25');
+  const bad = await handler({ rawPath: '/mcp', headers: { host: 'abc.lambda-url.us-east-1.on.aws', origin: 'https://evil.example', 'content-type': 'application/json' }, requestContext: { http: { method: 'POST' } }, body });
+  assert.equal(bad.statusCode, 403);
+});
+
+test('policy: intents and wishes from the demo sentences', () => {
+  assert.equal(classify('Alexa, my in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400.'), 'big_plan');
+  assert.equal(classify("We're almost out of dog food and coffee."), 'restock');
+  assert.equal(classify('Their flight moved to Sunday.'), 'plans_change');
+  assert.equal(classify('yes', { pending: { plan_id: 'p' } }), 'confirm');
+  assert.deepEqual(wishes('a cleaner Friday, fresh bedding, and dinner for six at home Saturday').map((w) => w.category || w.kind), ['cleaning', 'product', 'catering']);
+  assert.equal(parseGuests('dinner for six at home'), 6);
+  assert.deepEqual(parseWhen('Saturday 7pm'), { day: 'sat', part: 'evening', hour: 19 });
+});

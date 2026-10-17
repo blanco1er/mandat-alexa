@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mandat offers</title>
+<style>/*SHARED_CSS*/
+.rail { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(240px, 46%); gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; }
+.offer { scroll-snap-align: start; border: 2px solid var(--line); border-radius: 18px; padding: 16px; display: grid; gap: 6px; background: var(--bg); cursor: pointer; text-align: left; color: inherit; font: inherit; }
+.offer[aria-pressed="true"] { border-color: var(--accent); }
+.offer .price { font-size: var(--t-title); font-weight: 700; }
+.offer .was { text-decoration: line-through; color: var(--muted); font-size: var(--t-eyebrow); margin-left: 6px; }
+.small { font-size: var(--t-eyebrow); color: var(--muted); }
+.verified { color: var(--good); font-size: var(--t-eyebrow); font-weight: 600; }
+</style></head>
+<body><main class="card" id="app"><p class="eyebrow">Mandat · options</p><h1>Asking the merchants…</h1></main>
+<script>/*BRIDGE_JS*/
+function render(result) {
+  if (result.isError) return showError(result);
+  const sc = result.structuredContent || {};
+  const offers = sc.offers || sc.alternatives || [];
+  if (!offers.length) return;
+  const head = sc.category ? `${sc.asked} ${sc.category === 'catering' ? 'caterers' : sc.category === 'cleaning' ? 'cleaners' : 'pros'} asked` : sc.query ? 'Products' : 'Updated quote';
+  $('#app').innerHTML = `
+    <div class="row"><p class="eyebrow">Mandat · ${esc(head)}</p>${sc.skipped && sc.skipped.length ? `<span class="pill">${sc.skipped.length} skipped for your household</span>` : ''}</div>
+    <h1>${esc(offers[0].merchant)} · ${usd(offers[0].total)}</h1>
+    <div class="rail" role="list">${offers.slice(0, 5).map((o, i) => `
+      <button class="offer" role="listitem" aria-pressed="${i === 0}" data-id="${esc(o.id)}">
+        <span class="small">${esc(o.kind === 'product' ? o.merchant : `${o.merchant} · ★ ${o.rating}`)}</span>
+        <span><span class="price">${usd(o.total)}</span>${o.discount ? `<span class="was">${usd(o.base)}</span>` : ''}</span>
+        <span>${esc(o.kind === 'product' ? o.title : o.slot_label)}</span>
+        ${o.kind === 'service' ? `<span class="small">“${esc(o.negotiation)}”</span><span class="verified">${o.card_verified ? '✓ Verified agent card' : 'Unverified'}</span>` : o.matches_preference ? '<span class="verified">Your usual</span>' : ''}
+      </button>`).join('')}</div>`;
+  for (const b of document.querySelectorAll('.offer')) b.onclick = () => {
+    for (const x of document.querySelectorAll('.offer')) x.setAttribute('aria-pressed', String(x === b));
+    const o = offers.find((x) => x.id === b.dataset.id);
+    mcpApp.updateModelContext([{ type: 'text', text: `The user selected ${o.merchant} (${o.title}, ${usd(o.total)}). offer_id=${o.id}` }], { selected_offer_id: o.id }).catch(() => {});
+  };
+}
+mcpApp.on('result', render);
+mcpApp.connect('mandat-offers');
+</script></body></html>

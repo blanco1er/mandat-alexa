@@ -5,17 +5,18 @@
   "type": "module",
   "license": "MIT",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node src/server.mjs",
+    "demo": "MANDAT_MODEL=simulated MANDAT_PAYPAL=offline node src/server.mjs",
     "dev": "node --watch src/server.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:orchestrator": "cd orchestrator && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@paypal/paypal-server-sdk": "^2.5.0",
-    "express": "^4.22.3",
     "zod": "^3.25.76"
   }
 }

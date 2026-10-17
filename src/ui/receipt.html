@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mandat receipt</title>
+<style>/*SHARED_CSS*/
+.order { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.order:last-child { border-bottom: 0; }
+.steps { display: flex; gap: 8px; flex-wrap: wrap; }
+.step { font-size: var(--t-eyebrow); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.step.held { border-color: var(--held); color: var(--ink); } .step.captured { background: var(--spent); color: #fff; border-color: transparent; }
+.step.released { border-style: dashed; } .step.refunded { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); border-color: transparent; }
+.small { font-size: var(--t-eyebrow); color: var(--muted); }
+</style></head>
+<body><main class="card" id="app"><p class="eyebrow">Mandat · receipt</p><h1>Working…</h1></main>
+<script>/*BRIDGE_JS*/
+const LABEL = { held: 'held', captured: 'captured', released: 'released', refunded: 'refunded', changed: 'changed' };
+function render(result) {
+  if (result.isError) return showError(result);
+  const sc = result.structuredContent || {};
+  const r = sc.receipt; if (!r) return;
+  const alts = sc.alternatives || [];
+  const total = r.orders.reduce((s, o) => s + (o.state === 'held' ? o.amount : 0), 0);
+  $('#app').innerHTML = `
+    <div class="row"><p class="eyebrow">Mandat · receipt</p><span class="pill ok">PayPal ${esc((r.orders[0] && r.orders[0].paypal_mode) || 'sandbox')}</span></div>
+    <h1>${r.orders.length === 1 ? esc(r.orders[0].merchant) : r.orders.length + ' orders'}${total ? ` · ${usd(total)} on hold` : ''}</h1>
+    <div>${r.orders.map((o) => `<div class="order">
+      <div class="row"><span>${esc(o.merchant)}<br><span class="small">${esc(o.slotLabel || o.label)}</span></span><b>${usd(o.captured ?? o.amount)}</b></div>
+      <div class="steps">${o.timeline.map((t) => `<span class="step ${t.state}">${LABEL[t.state] || t.state}${t.amount ? ' ' + usd(t.amount) : ''}</span>`).join('<span class="small">→</span>')}</div>
+    </div>`).join('')}</div>
+    ${alts.length ? `<div class="order"><p class="eyebrow">Replacement</p><div class="row"><span>${esc(alts[0].merchant)}<br><span class="small">${esc(alts[0].slot_label)}</span></span><b>${usd(alts[0].total)}</b></div><button class="primary" id="alt">Book ${esc(alts[0].merchant)}</button></div>` : ''}
+    ${r.envelope ? gauge(r.envelope) : ''}`;
+  const a = $('#alt');
+  if (a) a.onclick = () => { a.disabled = true; mcpApp.say(`Book ${alts[0].merchant} instead (offer ${alts[0].id}).`).catch(() => { a.disabled = false; }); };
+}
+mcpApp.on('result', render);
+mcpApp.connect('mandat-receipt');
+</script></body></html>

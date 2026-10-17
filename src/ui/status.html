@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mandat status</title>
+<style>/*SHARED_CSS*/
+.grid { display: grid; gap: 14px; }
+.small { font-size: var(--t-eyebrow); color: var(--muted); }
+.prefs { display: flex; gap: 8px; flex-wrap: wrap; }
+</style></head>
+<body><main class="card" id="app"><p class="eyebrow">Mandat · household</p><h1>Loading…</h1></main>
+<script>/*BRIDGE_JS*/
+function render(result) {
+  if (result.isError) return showError(result);
+  const sc = result.structuredContent || {};
+  const envs = sc.envelopes || [];
+  const prefs = sc.preferences || (sc.saved ? [sc.saved] : []);
+  const open = sc.open_orders || [];
+  const main = envs[0];
+  $('#app').innerHTML = `
+    <p class="eyebrow">Mandat · household</p>
+    ${sc.saved ? `<h1>Remembered</h1><p class="lead">${esc(sc.saved.subject)}: ${esc(sc.saved.fact)}</p>` : main ? `<div class="row"><h1>${esc(main.purpose)}</h1><span class="num">${usd(main.remaining)}</span></div>` : '<h1>No budget yet</h1>'}
+    <div class="grid">${envs.map(gauge).join('')}</div>
+    ${open.length ? `<ul class="lines">${open.slice(0, 4).map((o) => `<li><span>${esc(o.merchant)} <span class="small">${esc(o.slotLabel || '')}</span></span><b>${usd(o.amount)}</b></li>`).join('')}</ul>` : ''}
+    ${prefs.length ? `<div class="prefs">${(sc.preferences || prefs).slice(0, 6).map((p) => `<span class="pill">${esc(p.subject)} · ${esc(p.fact)}</span>`).join('')}</div>` : ''}
+    ${sc.pending_decisions && sc.pending_decisions.length ? `<p class="lead">${sc.pending_decisions.length} plan waiting for your yes.</p>` : ''}`;
+}
+mcpApp.on('result', render);
+mcpApp.connect('mandat-status');
+</script></body></html>

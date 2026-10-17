@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mandat plan</title>
+<style>/*SHARED_CSS*/
+.total { display: flex; justify-content: space-between; align-items: baseline; }
+.actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.breakdown { font-size: var(--t-eyebrow); color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
+.done { font-weight: 650; color: var(--good); }
+</style></head>
+<body><main class="card" id="app"><p class="eyebrow">Mandat · plan</p><h1>Preparing your plan…</h1></main>
+<script>/*BRIDGE_JS*/
+let current = null;
+function render(result) {
+  if (result.isError) return showError(result);
+  const sc = result.structuredContent || {};
+  const plan = sc.plan; if (!plan) return;
+  current = sc;
+  const b = plan.breakdown;
+  const status = plan.status === 'confirmed' ? '<span class="pill ok">Booked</span>' : plan.auto_approved ? '<span class="pill ok">Under your auto-approve rule</span>' : '<span class="pill">Needs your yes</span>';
+  $('#app').innerHTML = `
+    <div class="row"><p class="eyebrow">Mandat · ${esc(plan.purpose || 'plan')}</p>${status}</div>
+    <div class="total"><h1>${plan.lines.length} ${plan.lines.length === 1 ? 'item' : 'items'}</h1><span class="num">${usd(b.total)}</span></div>
+    <ul class="lines">${plan.lines.map((l) => `<li><span>${esc(l.merchant)}<br><span class="muted">${esc(l.detail || l.title)}</span></span><b>${usd(l.total)}</b></li>`).join('')}</ul>
+    <div class="breakdown"><span>Base ${usd(b.base + b.discount)}</span>${b.discount ? `<span class="good">Negotiated −${usd(b.discount)}</span>` : ''}<span>Fees ${usd(b.fees)}</span><span>Tax ${usd(b.tax)}</span><span>Total ${usd(b.total)}</span></div>
+    ${sc.envelope ? gauge({ ...sc.envelope }) : ''}
+    <div class="actions" id="actions">${plan.status === 'confirmed' ? '<span class="done">Booked. Payment holds placed.</span>' :
+      `<button class="primary" id="approve">${plan.auto_approved ? 'Buy now' : 'Approve ' + usd(b.total)}</button><button class="ghost" id="expand">Expand</button>`}</div>`;
+  const a = $('#approve');
+  if (a) a.onclick = async () => {
+    a.disabled = true; a.textContent = 'Placing holds…';
+    try {
+      const r = await mcpApp.callTool('confirm_plan', { plan_id: plan.id, confirmation_token: current.confirmation_token, user_confirmation: 'tap:approve' });
+      if (r.isError) { a.disabled = false; a.textContent = 'Try again'; $('#actions').insertAdjacentHTML('beforeend', `<p class="lead">${esc((r.content || []).map((c) => c.text).join(' '))}</p>`); return; }
+      plan.status = 'confirmed';
+      const env = r.structuredContent && r.structuredContent.receipt && r.structuredContent.receipt.envelope;
+      render({ structuredContent: { ...current, plan, envelope: env || current.envelope } });
+    } catch (e) { a.disabled = false; a.textContent = 'Try again'; }
+  };
+  const x = $('#expand'); if (x) x.onclick = () => mcpApp.requestDisplayMode('fullscreen').catch(() => {});
+}
+mcpApp.on('result', render);
+mcpApp.connect('mandat-plan');
+</script></body></html>
