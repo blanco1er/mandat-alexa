@@ -20,6 +20,10 @@ export function classify(u, session = {}) {
   const t = u.toLowerCase();
   if (session.pending && /^\s*(yes|yeah|yep|sure|ok|okay|go ahead|do it|book it|buy it|confirm)\b/.test(t)) return 'confirm';
   if (session.pending && /^\s*(no|nope|don't|cancel|not now|stop)\b(?!.*\b(cheaper|instead|other)\b)/.test(t)) return 'decline';
+  // a yes with nothing waiting (too early, or said twice): nothing moves, and Alexa says so
+  if (!session.pending && /^\s*(yes|yeah|yep|sure|go ahead|do it|book it|buy it|confirm)\b/.test(t)) return 'nothing_waiting';
+  // "what's the total so far?" in the middle of choosing
+  if (session.pending && /\b(total|so far|how much is (it|the plan|that))\b/.test(t)) return 'show_plan';
   // Looking closer, comparing and swapping need something on the table: a plan waiting for a yes, or recent options.
   if (session.pending || Object.keys(session.offers || {}).length) {
     if (/\b(show me|see|back to|open)\b.*\bthe plan\b|^\s*(go )?back\b/.test(t) && session.pending) return 'show_plan';
@@ -107,16 +111,16 @@ export function absorb(session, name, result) {
   const d = sc(result);
   if (failed(result)) return s;
   const lines = (p) => p.lines.map((l) => ({ offer_id: l.offer_id, kind: l.kind, category: l.category, merchant: l.merchant, title: l.title, total: l.total, search_id: l.search_id || null }));
-  if (name === 'propose_plan' || name === 'revise_plan') s.pending = d.needs_user_yes ? { plan_id: d.plan.id, token: d.confirmation_token, total: d.plan.breakdown.total, lines: lines(d.plan) } : null;
+  if (name === 'propose_plan' || name === 'revise_plan' || (name === 'swap_item' && d.plan)) s.pending = d.needs_user_yes ? { plan_id: d.plan.id, token: d.confirmation_token, total: d.plan.breakdown.total, lines: lines(d.plan) } : null;
   if (name === 'confirm_plan') { s.pending = null; s.focus = null; }
   // options seen recently (for "show me", "other options", "take X instead"): the last 15, light
   const seen = d.offers || (d.offer ? [d.offer] : []);
-  if (seen.length && ['find_home_services', 'find_products', 'list_alternatives', 'negotiate_offer', 'get_offer_details', 'compare_offers'].includes(name)) {
+  if (seen.length && ['find_home_services', 'find_products', 'list_alternatives', 'negotiate_offer', 'get_offer_details', 'compare_offers', 'swap_item'].includes(name)) {
     const keep = Object.values({ ...(s.offers || {}) });
     for (const o of seen) keep.push({ id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, title: o.title, total: o.total, search_id: o.search_id || null });
     s.offers = Object.fromEntries(keep.slice(-15).map((o) => [o.id, o]));
   }
-  if (name === 'get_offer_details' && d.offer) s.focus = d.offer.id;
+  if ((name === 'get_offer_details' || name === 'swap_item') && d.offer) s.focus = d.offer.id;
   return s;
 }
 
@@ -173,10 +177,13 @@ export function decide({ utterance, session = {}, steps = [], locale }) {
       return say(said(last.result));
     }
 
+    case 'nothing_waiting': return say(tl('p_nothing_waiting'));
+
     case 'swap': {
       if (!session.pending) return say(tl('p_no_plan'));
       const add = pointAt(u, session, { prefer: 'other' });
-      if (!add || add.inPlan) return say(tl('p_swap_which'));
+      // named in words, never seen on screen ("take the sateen set instead"): Mandat finds it (swap_item)
+      if (!add || add.inPlan) { if (n === 0) return tool('swap_item', { wanted: u }); return say(said(last.result) + (dot && session.pending ? YES : '')); }
       const out = known(session).find((x) => x.inPlan && sameSearch(x, add)) || known(session).find((x) => x.inPlan && familyOf(x) === familyOf(add));
       if (n === 0) return tool('revise_plan', { plan_id: session.pending.plan_id, remove_offer_ids: out ? [out.id] : [], add_offer_ids: [add.id] });
       return say(said(last.result) + (dot ? YES : ''));

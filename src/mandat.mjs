@@ -21,6 +21,14 @@ import { pkOf } from './store/index.mjs';
 import { merchantSay } from './providers/simulated.mjs';
 import * as S from './core/settings.mjs';
 
+// swap_item: words that say nothing about the option, a few FR/ES words mapped to the catalogue's, and the intents
+const SWAP_STOP = new Set(['the', 'take', 'instead', 'set', 'one', 'please', 'with', 'want', 'like', 'would', 'rather', 'some', 'something', 'thing', 'for', 'and', 'that', 'this', 'get', 'can', 'you', 'there', 'plan', 'put', 'use', 'swap', 'replace', 'switch', 'item', 'option', 'instead', 'plutot', 'prends', 'mejor', 'una', 'uno', 'des', 'les', 'del', 'los', 'las']);
+const SWAP_SYN = { satin: 'sateen', saten: 'sateen', lin: 'linen', linge: 'linen', drap: 'sheets', draps: 'sheets', sabanas: 'sheets', serviettes: 'towels', toallas: 'towels', couette: 'duvet', edredon: 'duvet', nordico: 'duvet', traiteur: 'catering', menage: 'cleaning', limpieza: 'cleaning', cafe: 'coffee', saumon: 'salmon', salmon: 'salmon', agneau: 'lamb', cordero: 'lamb', grand: 'king', king: 'king', queen: 'queen', caterer: 'catering', cleaner: 'cleaning', dinner: 'catering' };
+const SWAP_CHEAPER = /\b(cheaper|cheapest|less expensive|lower price|moins cher|mas barato|más barato|economico|económico)\b/i;
+const SWAP_BETTER = /\b(better rated|best rated|higher rated|top rated|mieux note|mieux noté|mejor valorado)\b/i;
+const SWAP_ANOTHER = /\b(another|different|other|autre|otro|otra)\b/i;
+const CAT_WORDS = { cleaning: 'cleaning cleaner clean', catering: 'catering caterer dinner food meal', plumbing: 'plumber plumbing', handyman: 'handyman', sheets: 'sheets bedding linen bed', duvet: 'duvet bedding comforter', towels: 'towels bath', 'dog food': 'dog food kibble', coffee: 'coffee beans' };
+
 export class ToolError extends Error {
   constructor(message, next) { super(message); this.next = next; }
 }
@@ -751,6 +759,75 @@ export class Mandat {
     const tail = p.auto_approved ? T('rev_tail_auto', { total: usd(p.breakdown.total) }) : T('rev_tail', { total: usd(p.breakdown.total), left: usd(p.remaining_after), budget: usd(env.budget) });
     await this.live({ step: `v-${p.id}`, state: 'done', text: change.replace(/\.$/, ''), from: old.breakdown.total, to: p.breakdown.total });
     return { speech: `${change} ${tail}`, data: { ...next.data, revised: { from_plan_id: old.id, previous_total: old.breakdown.total, removed: removed.map((l) => l.offer_id), added: added.map((l) => l.offer_id) } }, card: 'plan' };
+  }
+
+  // ---------- 21. swap_item ("take the sateen set instead", "the cheaper one", "a king size", "another caterer") ----------
+  // Off the script: the person names what they want instead, without having asked for other options first. Mandat
+  // looks at the similar options of every plan line (the same search, then the catalogue), picks the one that matches,
+  // swaps it in (revise_plan: new plan, new token, budget checked again) and shows it. When nothing matches, it says so
+  // and offers the closest options, never a bare "not found".
+  async swapItem(hid, { wanted = '', item = '', plan_id }) {
+    const plan = await this.pendingPlan(hid, plan_id);
+    if (!plan) throw new ToolError(T('e_no_plan'), 'Ask the user what they need first.');
+    const words = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !SWAP_STOP.has(w)).map((w) => SWAP_SYN[w] || w);
+    const want = String(wanted);
+    const wantWords = words(want);
+    const cheaper = SWAP_CHEAPER.test(want), better = SWAP_BETTER.test(want);
+    const itemWords = words(item);
+    const textOf = (o) => words([o.title, o.merchant, o.category, o.product_type, ...(o.features || []), ...(o.contains || []), CAT_WORDS[o.category] || '', o.kind === 'product' ? CAT_WORDS[o.product_type] || '' : ''].join(' '));
+    const inPlan = new Set(plan.lines.map((l) => l.offer_id));
+    const tries = [];
+    for (const l of plan.lines) {
+      const cur = await this.store.get(pkOf(hid), `OFFER#${l.offer_id}`);
+      if (!cur) continue;
+      let sibs = (await this.siblings(hid, cur)).filter((x) => !inPlan.has(x.id));
+      if (cur.kind === 'product' && cur.product_type) {
+        const same = sibs.filter((x) => x.product_type === cur.product_type);
+        // the catalogue may hold more of the same kind than the first search returned
+        if (wantWords.length && !same.some((x) => wantWords.some((w) => textOf(x).includes(w)))) {
+          try { const more = await this.findProducts(hid, { query: `${want} ${cur.product_type}` }); sibs = [...sibs, ...more.data.offers.filter((x) => !inPlan.has(x.id) && !sibs.some((y) => y.product_id === x.product_id) && x.product_id !== cur.product_id)]; } catch {}
+        }
+      }
+      const lineText = textOf(cur);
+      const aim = itemWords.length ? itemWords.filter((w) => lineText.includes(w)).length : 0;
+      const kindHit = wantWords.filter((w) => lineText.includes(w)).length; // "another caterer" names the line
+      let pick = null, score = 0;
+      if (cheaper) pick = [...sibs].filter((x) => x.total < cur.total && (cur.kind !== 'product' || !cur.product_type || x.product_type === cur.product_type)).sort((a, b) => a.total - b.total)[0] || null;
+      else if (better) pick = [...sibs].filter((x) => (x.rating || 0) > (cur.rating || 0)).sort((a, b) => (b.rating || 0) - (a.rating || 0))[0] || null;
+      else {
+        for (const x of sibs) {
+          const t = textOf(x);
+          const s = wantWords.filter((w) => t.includes(w) && !lineText.includes(w)).length * 2 + wantWords.filter((w) => t.includes(w)).length + (x.product_type && x.product_type === cur.product_type ? 0.5 : 0);
+          if (s > score) { score = s; pick = x; }
+        }
+        if (score < 2) pick = null; // at least one word that the current item does not already have
+        if (!pick && SWAP_ANOTHER.test(want) && kindHit) pick = [...sibs].filter((x) => x.kind === cur.kind && (x.category || x.product_type) === (cur.category || cur.product_type)).sort((a, b) => a.total - b.total)[0] || null;
+      }
+      tries.push({ line: l, cur, sibs, pick, rank: (pick ? 10 : 0) + aim * 5 + kindHit + score });
+    }
+    tries.sort((a, b) => b.rank - a.rank);
+    const best = tries[0];
+    if (!best) throw new ToolError(T('e_no_plan'), 'Ask the user what they need first.');
+    if (!best.pick) {
+      // nothing matches: say it plainly and put the 2-3 closest options on screen
+      const near = (itemWords.length ? best : tries.find((x) => x.sibs.length) || best);
+      const closest = [...near.sibs].filter((x) => x.kind === near.cur.kind && (!near.cur.product_type || x.product_type === near.cur.product_type)).sort((a, b) => a.total - b.total).slice(0, 3);
+      const list = (closest.length ? closest : near.sibs.slice(0, 3));
+      const name = (x) => (x.kind === 'service' ? x.merchant : P(x.title).split(/[:(]/)[0].trim());
+      const speech = cheaper && !itemWords.length
+        ? T('swap_all_cheapest')
+        : cheaper && list.every((x) => x.total >= near.cur.total)
+        ? T('swap_cheapest', { name: name(near.cur), total: usd(near.cur.total) })
+        : list.length ? T('swap_none', { want: want.trim(), list: listWords(list.map((x) => `${name(x)}, ${usd(x.total)}`)) }) : T('swap_none_at_all', { want: want.trim() });
+      return { speech, data: { offers: [near.cur, ...list], current_offer_id: near.cur.id, category: near.cur.category, asked: list.length + 1, plan_id: plan.id, swap: { matched: false, wanted: want } }, card: 'offers' };
+    }
+    const rev = await this.revisePlan(hid, { plan_id: plan.id, remove_offer_ids: [best.line.offer_id], add_offer_ids: [best.pick.id] });
+    const detail = await this.getOfferDetails(hid, { offer_id: best.pick.id });
+    const why = (detail.data.why || []).find((w) => w.tone === 'plus');
+    // "Swapped A for B. <why B>. New total …, … left. Should I book it?"
+    const [first, ...rest] = rev.speech.split(/(?<=\.)\s+/);
+    const speech = [first, why ? why.text + '.' : '', ...rest].filter(Boolean).join(' ');
+    return { speech, data: { ...detail.data, plan: rev.data.plan, confirmation_token: rev.data.confirmation_token, needs_user_yes: rev.data.needs_user_yes, envelope: rev.data.envelope, revised: rev.data.revised, swap: { matched: true, from: best.line.offer_id, to: best.pick.id } }, card: 'item' };
   }
 
   // ---------- 15. review_plan ("show me the plan", Back) ----------

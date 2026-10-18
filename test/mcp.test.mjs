@@ -40,10 +40,10 @@ test('a request from a foreign Origin is refused with 403 (2025-11-25 transport 
   assert.equal(r.status, 403);
 });
 
-test('tools/list: 20 intent tools + 2 app-only tools, each with a schema and a ui:// resourceUri', async () => {
+test('tools/list: 21 intent tools + 2 app-only tools, each with a schema and a ui:// resourceUri', async () => {
   const c = await client(srv.mcpUrl);
   const { tools } = await c.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), [...TOOLS, 'get_settings', 'update_settings', 'pause_spending', 'resume_spending', 'delete_my_data', 'refresh_card', 'apply_customer_permissions'].sort());
+  assert.deepEqual(tools.map((t) => t.name).sort(), [...TOOLS, 'get_settings', 'update_settings', 'pause_spending', 'resume_spending', 'delete_my_data', 'swap_item', 'refresh_card', 'apply_customer_permissions'].sort());
   for (const t of tools) {
     assert.equal(t.inputSchema.type, 'object', t.name);
     assert.match(t._meta.ui.resourceUri, /^ui:\/\/mandat\/(status|mandate|offers|plan|receipt|item|settings)-[0-9a-f]{10}\.html$/, t.name);

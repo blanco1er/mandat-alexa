@@ -123,7 +123,7 @@ Settings said aloud, the stop and "delete my data" are handled by the host witho
 
 | Part | What it is | Where |
 |---|---|---|
-| MCP server | MCP **2025-11-25** over **Streamable HTTP** (stateless, JSON responses, Origin check, OAuth 2.1 bearer tokens), 20 intent tools + 2 app-only tools | `src/mcp/server.mjs` |
+| MCP server | MCP **2025-11-25** over **Streamable HTTP** (stateless, JSON responses, Origin check, OAuth 2.1 bearer tokens), 21 intent tools + 2 app-only tools | `src/mcp/server.mjs` |
 | MCP Apps | 7 cards (`ui://` resources, `text/html;profile=mcp-app`, spec 2026-01-26): status, budget, options carousel, plan, receipt, item (photo gallery and side-by-side comparison), settings (by touch or voice, live). Item photos from our own origin only (`resourceDomains`); theme, size and locale from `hostContext`, auto-fit to the container | `src/ui/` |
 | Agent Skill | `mandat-household-errands` (agentskills.io format): money rules, 3 playbooks, voice style; loaded by Strands' `AgentSkills` plugin | `skill/` |
 | Alexa+ web simulator | Voice-first page that is itself a real MCP client and MCP Apps host: Echo Show 15 (1920×1080), Echo Show 8 (1280×800), Echo Dot; ambient home screen with full-bleed photo wallpapers that cross-fade every 20 s (still with Reduce Motion) and blur behind cards; listening / thinking / speaking / confirming states; JSON-RPC drawer (press **D**) | `simulator/` |
@@ -150,7 +150,8 @@ Settings said aloud, the stop and "delete my data" are handled by the host witho
 | `list_alternatives` | Other options from the same search (or only cheaper ones); says plainly when nothing is cheaper |
 | `compare_offers` | Two or three options side by side, which is cheaper, which is rated higher |
 | `revise_plan` | Swap or remove items before the yes: a new plan and a new token (the old plan can no longer be paid), budget checked again |
-| `review_plan` | Shows the plan waiting for a yes |
+| `swap_item` | Off the script: "take the sateen set instead", "the cheaper one", "a king size", "another cleaner" without asking for options first; finds the match among similar options, swaps it in, shows it and says the new total; if nothing matches, says so and lists the closest options |
+| `review_plan` | Shows the plan waiting for a yes (also "what's the total so far?") |
 | `get_settings` | The household's rules: weekly budget, autonomy level, auto-buy amount, daily limit, categories, paused or not (first-run card) |
 | `update_settings` | Changes one or more rules (by touch on the card or by voice); the weekly budget is the same envelope, changed in place |
 | `pause_spending` | Emergency stop: voids every open hold, drops plans waiting for a yes, nothing bought until resumed |
@@ -168,7 +169,7 @@ Requirements: Node.js 22+.
 
 ```bash
 npm ci
-npm test                      # 86 tests: protocol, account linking, autonomy levels, money rules, the 3 stories in EN/FR/ES, PayPal flow, deploy (no network, no AWS)
+npm test                      # 94 tests: protocol, account linking, autonomy levels, money rules, the 3 stories in EN/FR/ES, PayPal flow, deploy (no network, no AWS)
 npm run demo                  # open http://127.0.0.1:8787/simulator/ (account linking required, as on the public demo)
 ```
 
@@ -280,12 +281,13 @@ modules unchanged so the diff shows exactly what is new: `git diff 0f4e29f HEAD`
 - **Account linking** (OAuth 2.1 + PKCE S256), **Alexa permissions** (simulated Alexa app), **autonomy settings**
   enforced by the server, **emergency stop** and **delete my data**.
 
-Numbers: see `git diff --stat 0f4e29f HEAD`; 100 automated tests, 33 MCP Inspector checks, 3 stories replayed
+Numbers: see `git diff --stat 0f4e29f HEAD`; 108 automated tests, 33 MCP Inspector checks, 3 stories replayed
 against real Amazon Bedrock.
 
 ## Testing
 
-- `npm test`: 86 tests (account linking: PKCE, single-use codes, refresh rotation and reuse detection, revocation,
+- `npm test`: 94 tests (off-script turns: swap described in words, nothing-matches answers, remove without
+  opening, total mid-way, a yes too early or twice, a language change mid-way; account linking: PKCE, single-use codes, refresh rotation and reuse detection, revocation,
   401 + metadata, household isolation, read-only scope, permissions; autonomy: each level, daily limit, categories,
   re-check at confirmation, emergency stop, settings by voice in EN/FR/ES, delete my data; MCP protocol surface, MCP Apps resources, every tool, money rules incl. a property test,
   the 3 stories end to end over real HTTP, Echo Dot mode, merchant booking-system guards, per-address limits, the

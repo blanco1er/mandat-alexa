@@ -50,6 +50,7 @@ function idsFor(tool, d) {
     case 'get_offer_details': return { offer_id: d.offer?.id, in_plan: d.in_plan, plan_id: d.plan_id || undefined, other_options: d.alternatives };
     case 'list_alternatives': return { current_offer_id: d.current_offer_id, offers: (d.offers || []).map((o) => ({ offer_id: o.id, merchant: o.merchant, title: o.title, total: o.total, when: o.slot_label })) };
     case 'compare_offers': return { cheapest_offer_id: d.cheapest_id, best_rated_offer_id: d.best_rated_id, difference: d.difference, plan_id: d.plan_id || undefined };
+    case 'swap_item': return d.plan ? { plan_id: d.plan.id, swapped_out: d.swap?.from, swapped_in: d.swap?.to, total: d.plan.breakdown?.total, needs_user_yes: d.needs_user_yes, confirmation_token: d.confirmation_token, lines: d.plan.lines?.map((l) => ({ offer_id: l.offer_id, merchant: l.merchant, total: l.total })) } : { matched: false, closest: (d.offers || []).slice(1).map((o) => ({ offer_id: o.id, title: o.title, total: o.total })) };
     case 'revise_plan': return { plan_id: d.plan?.id, replaces_plan_id: d.revised?.from_plan_id, mandate_id: d.plan?.mandate_id, total: d.plan?.breakdown?.total, needs_user_yes: d.needs_user_yes, confirmation_token: d.confirmation_token, lines: d.plan?.lines?.map((l) => ({ offer_id: l.offer_id, merchant: l.merchant, total: l.total })) };
     case 'review_plan': return { plan_id: d.plan?.id, total: d.plan?.breakdown?.total, needs_user_yes: d.needs_user_yes, lines: d.plan?.lines?.map((l) => ({ offer_id: l.offer_id, merchant: l.merchant, title: l.title, total: l.total })) };
     case 'propose_plan': return { plan_id: d.plan?.id, mandate_id: d.plan?.mandate_id, total: d.plan?.breakdown?.total, needs_user_yes: d.needs_user_yes, confirmation_token: d.confirmation_token, lines: d.plan?.lines?.map((l) => ({ offer_id: l.offer_id, merchant: l.merchant, total: l.total })) };
@@ -81,6 +82,7 @@ const UI_TEXT = {
   review_plan: ['Opening the plan…', 'Plan ready'],
   refresh_card: ['Refreshing…', 'Up to date'],
   get_settings: ['Opening your settings…', 'Settings'],
+  swap_item: ['Finding a better match…', 'Plan updated'],
   update_settings: ['Saving your settings…', 'Settings saved'],
   pause_spending: ['Stopping all spending…', 'Mandat paused'],
   resume_spending: ['Turning Mandat back on…', 'Mandat resumed'],
@@ -110,6 +112,7 @@ export function liveStart(name, a = {}) {
     case 'compare_offers': return T('ls_compare');
     case 'revise_plan': return T('ls_revise');
     case 'review_plan': return T('ls_review');
+    case 'swap_item': return T('ls_revise');
     case 'get_settings': case 'update_settings': return T('ls_settings');
     case 'pause_spending': return T('ls_pause');
     case 'resume_spending': return T('ls_resume');
@@ -328,6 +331,17 @@ export function createMcpServer({ service, household = householdFrom }) {
     },
     card: 'plan', annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   }, (hid, a) => service.revisePlan(hid, a));
+
+  tool('swap_item', {
+    title: 'Swap one plan item for what the user describes',
+    description: 'Use when the user wants something different for one item of the plan waiting for a yes, described in words, even if they never asked for other options: "take the sateen set instead", "the cheaper one", "a king size", "a better rated caterer", "another cleaner". Mandat finds the similar options, picks the one that matches, swaps it in, checks the budget and returns the new plan (new plan_id and confirmation_token) with that item shown. If nothing matches, it returns the closest options and changes nothing. Pass the words in English.',
+    input: {
+      wanted: z.string().min(2).max(120).describe('What the user wants instead, in their words translated to English, e.g. "sateen set", "cheaper", "king size".'),
+      item: z.string().max(80).optional().describe('Which plan item to replace if the user said it, e.g. "bedding", "the caterer".'),
+      plan_id: z.string().max(40).optional().describe('Omit for the plan waiting for a yes.'),
+    },
+    card: 'item', annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  }, (hid, a) => service.swapItem(hid, a));
 
   tool('review_plan', {
     title: 'Show the plan waiting for a yes',
