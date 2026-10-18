@@ -824,7 +824,7 @@ export class Mandat {
     const speech = !s.onboarded
       ? `${T('set_welcome', { name: given })} ${T('ask_' + (step || 'done'), this.askVars(s))}`
       : `${T('set_summary', this.summaryVars(s))} ${s.paused ? T('set_paused_note') : ''}`.trim();
-    return { speech, data: { settings: this.settingsView(s), first_run: !s.onboarded || !!first_run, onboarding_step: step, auto_spent_today: await this.autoSpentToday(hid), profile: publicProfile(profile) }, card: 'settings' };
+    return { speech, data: { settings: this.settingsView(s), first_run: !s.onboarded || !!first_run, onboarding_step: step, auto_spent_today: await this.autoSpentToday(hid), profile: publicProfile(profile), envelope: await this.weeklyView(hid) }, card: 'settings' };
   }
   askVars(s) { return { week: usd(s.weekly_budget), auto: usd(s.auto_buy_under), cap: usd(s.daily_cap), level: T('lvl_' + s.autonomy) }; }
   summaryVars(s) {
@@ -848,8 +848,9 @@ export class Mandat {
     const finished = r.changed.includes('onboarded');
     const speech = finished ? T('set_done', this.summaryVars(next)) : said.length ? said.join(' ') : T('set_same');
     const step = next.onboarded ? null : S.nextStep(next.answered, next);
-    return { speech, data: { settings: this.settingsView(next), changed: r.changed, onboarding_step: step, first_run: !next.onboarded, auto_spent_today: await this.autoSpentToday(hid) }, card: 'settings' };
+    return { speech, data: { settings: this.settingsView(next), changed: r.changed, onboarding_step: step, first_run: !next.onboarded, auto_spent_today: await this.autoSpentToday(hid), profile: publicProfile(await this.profile(hid)), envelope: await this.weeklyView(hid) }, card: 'settings' };
   }
+  async weeklyView(hid) { const m = await this.weeklyMandate(hid); return m ? this.envelopeView(m, await this.envelopeOf(hid, m)) : null; }
   async weeklyMandate(hid) {
     return (await this.mandates(hid)).filter((m) => m.status === 'active' && m.period === 'weekly').sort((a, b) => Number(!!b.settings_managed) - Number(!!a.settings_managed) || b.created.localeCompare(a.created))[0] || null;
   }

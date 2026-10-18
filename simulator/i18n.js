@@ -33,6 +33,17 @@ const T = {
     'Opened {name}': 'Ouvert : {name}', '{n} other options': '{n} autres options', 'Compared {n}': '{n} comparés', 'Plan now {amt}': 'Plan à {amt}', Plan: 'Plan', 'Plan {amt}': 'Plan {amt}', ' · auto': ' · auto', '{n} payment hold': '{n} paiement réservé', '{n} payment holds': '{n} paiements réservés',
     '{m} declined · hold voided': '{m} refuse · réservation annulée', '{m} moved': '{m} a déplacé', Refunded: 'Remboursé', Paid: 'Payé', Released: 'Libéré', 'Payment updated': 'Paiement mis à jour',
     cleaners: 'entreprises de ménage', caterers: 'traiteurs', plumbers: 'plombiers', handymen: 'bricoleurs', pros: 'professionnels', cleaner: 'entreprise de ménage', caterer: 'traiteur', plumber: 'plombier', handyman: 'bricoleur',
+    'Alexa app': 'App Alexa', 'Open the Alexa app (simulated)': 'Ouvrir l’app Alexa (simulée)', 'Start over': 'Recommencer', 'Unlink and start over': 'Délier et recommencer',
+    'Link Mandat': 'Lier Mandat', 'Finish in the Alexa app on your phone': 'Terminez dans l’app Alexa sur votre téléphone', 'Sign in to Mandat': 'Se connecter à Mandat', 'Choose what to share': 'Choisir ce que vous partagez', 'Set your rules': 'Fixer vos règles',
+    'Alexa sent a notification to your phone. Mandat never sees your Amazon password.': 'Alexa a envoyé une notification sur votre téléphone. Mandat ne voit jamais votre mot de passe Amazon.',
+    'Linking did not finish. Nothing was shared.': 'La liaison n’a pas abouti. Rien n’a été partagé.',
+    'To use Mandat, link your account. I sent a notification to your Alexa app.': 'Pour utiliser Mandat, liez votre compte. J’ai envoyé une notification dans votre app Alexa.',
+    'Mandat is already enabled. Say “open Mandat settings” to change your rules.': 'Mandat est déjà activé. Dites « ouvre les réglages de Mandat » pour changer vos règles.',
+    'Mandat is unlinked. Say “Alexa, enable Mandat” to link it again.': 'Mandat est délié. Dites « Alexa, active Mandat » pour le lier à nouveau.',
+    'Mandat is not enabled yet': 'Mandat n’est pas encore activé', 'Say “Alexa, enable Mandat” to link your account and set your rules.': 'Dites « Alexa, active Mandat » pour lier votre compte et fixer vos règles.', 'Try “Alexa, enable Mandat.”': 'Essayez « Alexa, active Mandat. »', 'Not linked': 'Non lié',
+    'Alexa app on your phone (simulated)': 'App Alexa sur votre téléphone (simulée)', 'Close the Alexa app': 'Fermer l’app Alexa',
+    Settings: 'Réglages', 'Settings saved': 'Réglages enregistrés', 'Mandat paused': 'Mandat en pause', 'Mandat resumed': 'Mandat reprend', 'Data deleted': 'Données supprimées', 'Details shared': 'Coordonnées partagées', Linked: 'Lié', 'Say “yes, delete it” to confirm': 'Dites « oui, supprime » pour confirmer',
+    'Shared details updated.': 'Coordonnées partagées mises à jour.',
   },
   es: {
     'Alexa+ add-on simulator': 'Simulador de extensión Alexa+', Device: 'Dispositivo', Language: 'Idioma',
@@ -53,6 +64,17 @@ const T = {
     'Opened {name}': 'Abierto: {name}', '{n} other options': '{n} opciones más', 'Compared {n}': '{n} comparados', 'Plan now {amt}': 'Plan de {amt}', Plan: 'Plan', 'Plan {amt}': 'Plan {amt}', ' · auto': ' · auto', '{n} payment hold': '{n} pago retenido', '{n} payment holds': '{n} pagos retenidos',
     '{m} declined · hold voided': '{m} rechaza · retención anulada', '{m} moved': '{m} cambió la fecha', Refunded: 'Reembolsado', Paid: 'Pagado', Released: 'Liberado', 'Payment updated': 'Pago actualizado',
     cleaners: 'empresas de limpieza', caterers: 'caterings', plumbers: 'fontaneros', handymen: 'manitas', pros: 'profesionales', cleaner: 'empresa de limpieza', caterer: 'catering', plumber: 'fontanero', handyman: 'manitas',
+    'Alexa app': 'App de Alexa', 'Open the Alexa app (simulated)': 'Abrir la app de Alexa (simulada)', 'Start over': 'Empezar de nuevo', 'Unlink and start over': 'Desvincular y empezar de nuevo',
+    'Link Mandat': 'Vincular Mandat', 'Finish in the Alexa app on your phone': 'Termina en la app de Alexa de tu teléfono', 'Sign in to Mandat': 'Iniciar sesión en Mandat', 'Choose what to share': 'Elegir qué compartes', 'Set your rules': 'Fijar tus reglas',
+    'Alexa sent a notification to your phone. Mandat never sees your Amazon password.': 'Alexa envió una notificación a tu teléfono. Mandat nunca ve tu contraseña de Amazon.',
+    'Linking did not finish. Nothing was shared.': 'La vinculación no terminó. No se compartió nada.',
+    'To use Mandat, link your account. I sent a notification to your Alexa app.': 'Para usar Mandat, vincula tu cuenta. Te envié una notificación a la app de Alexa.',
+    'Mandat is already enabled. Say “open Mandat settings” to change your rules.': 'Mandat ya está activado. Di «abre los ajustes de Mandat» para cambiar tus reglas.',
+    'Mandat is unlinked. Say “Alexa, enable Mandat” to link it again.': 'Mandat está desvinculado. Di «Alexa, activa Mandat» para vincularlo de nuevo.',
+    'Mandat is not enabled yet': 'Mandat aún no está activado', 'Say “Alexa, enable Mandat” to link your account and set your rules.': 'Di «Alexa, activa Mandat» para vincular tu cuenta y fijar tus reglas.', 'Try “Alexa, enable Mandat.”': 'Prueba «Alexa, activa Mandat.»', 'Not linked': 'No vinculado',
+    'Alexa app on your phone (simulated)': 'App de Alexa en tu teléfono (simulada)', 'Close the Alexa app': 'Cerrar la app de Alexa',
+    Settings: 'Ajustes', 'Settings saved': 'Ajustes guardados', 'Mandat paused': 'Mandat en pausa', 'Mandat resumed': 'Mandat reanudado', 'Data deleted': 'Datos borrados', 'Details shared': 'Datos compartidos', Linked: 'Vinculado', 'Say “yes, delete it” to confirm': 'Di «sí, bórralo» para confirmar',
+    'Shared details updated.': 'Datos compartidos actualizados.',
   },
 };
 let current = 'en-US';
@@ -66,25 +88,25 @@ export function t(s, v = {}) {
 // The demo script (the three stories of the video, plus looking closer and swapping), written as people say it.
 export const SCRIPTS = {
   en: [
-    { act: 'Before the stories', title: 'Set up the household', lines: ['Set a weekly household budget of $150, and buy on your own under $40.', 'Remember that Max, our dog, is allergic to chicken.', 'Remember we drink Northbeam medium roast.'] },
+    { act: 'First run · 30 seconds', title: 'Enable Mandat', lines: ['Alexa, enable Mandat.', 'Make it 200 a week.', 'Balanced.', "That's all."] },
     { act: 'Story 1', title: 'The in-laws are coming', lines: ['Alexa, my in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400.', 'Show me the bed linen.', 'Other options?', 'Take the sateen set instead.', 'Compare the two caterers.', 'Yes, book it.'] },
     { act: 'Story 2', title: 'Four days later', lines: ["We're almost out of dog food and coffee.", 'Yes.'] },
     { act: 'Story 3', title: 'Plans change', lines: ['Their flight moved to Sunday.', 'Yes, go ahead.', 'Everything went well. Settle up: Olive billed $180, and refund the $28 pillowcases.'] },
-    { act: 'Anytime', title: 'Questions and one-offs', lines: ['How much is left?', 'My kitchen sink is leaking, find a plumber for Monday morning.'] },
+    { act: 'Anytime', title: 'Your rules, your data', lines: ['How much is left?', 'Alexa, open Mandat settings.', 'Alexa, pause Mandat.', 'Resume Mandat.', 'My kitchen sink is leaking, find a plumber for Monday morning.', 'Delete my Mandat data.', 'Yes, delete it.'] },
   ],
   fr: [
-    { act: 'Avant les histoires', title: 'Préparer la maison', lines: ['Fixe un budget hebdomadaire de 150 $ pour la maison, et achète toute seule en dessous de 40 $.', 'Souviens-toi que Max, notre chien, est allergique au poulet.', 'Retiens qu’on boit du Northbeam torréfaction moyenne.'] },
+    { act: 'Premier lancement · 30 secondes', title: 'Activer Mandat', lines: ['Alexa, active Mandat.', 'Mets 200 par semaine.', 'Équilibré.', 'C’est tout.'] },
     { act: 'Histoire 1', title: 'Les beaux-parents arrivent', lines: ['Alexa, mes beaux-parents arrivent samedi. Prépare la chambre d’amis : un ménage vendredi, du linge de lit propre, et un dîner pour six à la maison samedi. Ne dépasse pas 400 $.', 'Montre-moi le linge de lit.', 'D’autres options ?', 'Prends plutôt la parure en satin.', 'Compare les deux traiteurs.', 'Oui, réserve.'] },
     { act: 'Histoire 2', title: 'Quatre jours plus tard', lines: ['On n’a presque plus de croquettes ni de café.', 'Oui.'] },
     { act: 'Histoire 3', title: 'Changement de programme', lines: ['Leur vol a été déplacé à dimanche.', 'Oui, vas-y.', 'Tout s’est bien passé. On solde : Olive a facturé 180 $, et rembourse les 28 $ des taies d’oreiller.'] },
-    { act: 'À tout moment', title: 'Questions et demandes ponctuelles', lines: ['Il reste combien ?', 'L’évier de la cuisine fuit, trouve un plombier pour lundi matin.'] },
+    { act: 'À tout moment', title: 'Vos règles, vos données', lines: ['Il reste combien ?', 'Alexa, ouvre les réglages de Mandat.', 'Alexa, mets Mandat en pause.', 'Reprends Mandat.', 'L’évier de la cuisine fuit, trouve un plombier pour lundi matin.', 'Supprime mes données Mandat.', 'Oui, supprime.'] },
   ],
   es: [
-    { act: 'Antes de las historias', title: 'Preparar la casa', lines: ['Pon un presupuesto semanal de 150 dólares para la casa, y compra por tu cuenta por debajo de 40 dólares.', 'Recuerda que Max, nuestro perro, es alérgico al pollo.', 'Recuerda que tomamos café Northbeam de tueste medio.'] },
+    { act: 'Primer uso · 30 segundos', title: 'Activar Mandat', lines: ['Alexa, activa Mandat.', 'Pon 200 a la semana.', 'Equilibrado.', 'Eso es todo.'] },
     { act: 'Historia 1', title: 'Llegan los suegros', lines: ['Alexa, mis suegros llegan el sábado. Prepara el cuarto de invitados: una limpieza el viernes, ropa de cama nueva y una cena para seis en casa el sábado. Que no pase de 400 dólares.', 'Enséñame la ropa de cama.', '¿Otras opciones?', 'Mejor el juego de satén.', 'Compara las dos empresas de catering.', 'Sí, resérvalo.'] },
     { act: 'Historia 2', title: 'Cuatro días después', lines: ['Casi no nos queda pienso para el perro ni café.', 'Sí.'] },
     { act: 'Historia 3', title: 'Cambio de planes', lines: ['Su vuelo se ha cambiado al domingo.', 'Sí, adelante.', 'Todo salió bien. Liquida: Olive cobró 180 dólares, y devuelve los 28 dólares de las fundas de almohada.'] },
-    { act: 'En cualquier momento', title: 'Preguntas y encargos sueltos', lines: ['¿Cuánto queda?', 'El fregadero de la cocina gotea, busca un fontanero para el lunes por la mañana.'] },
+    { act: 'En cualquier momento', title: 'Tus reglas, tus datos', lines: ['¿Cuánto queda?', 'Alexa, abre los ajustes de Mandat.', 'Alexa, pausa Mandat.', 'Reanuda Mandat.', 'El fregadero de la cocina gotea, busca un fontanero para el lunes por la mañana.', 'Borra mis datos de Mandat.', 'Sí, bórralo.'] },
   ],
 };
 // the first line of the budget onboarding, per language (home screen hint)

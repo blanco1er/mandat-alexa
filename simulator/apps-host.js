@@ -11,6 +11,8 @@ export class AppsHost {
     this.waiters = new Map();
     window.addEventListener('message', (e) => this.receive(e));
   }
+  // Something else (Alexa's own account-linking panel) takes the screen: the view goes away properly.
+  async clear() { await this.teardown(); }
   setContext(patch) {
     const same = Object.entries(patch).every(([k, v]) => JSON.stringify(this.hostContext[k]) === JSON.stringify(v));
     if (same) return; // only real changes reach the view (and the drawer)
@@ -26,10 +28,21 @@ export class AppsHost {
     await done;
     this.frame.remove();
     this.frame = null;
+    this.uri = null;
+    this.initialized = false;
   }
   // Show a view for one tool call: html from resources/read, then tool-input + tool-result once it is initialized.
-  async show({ html, toolName, args, result, csp }) {
+  async show({ html, toolName, args, result, csp, uri }) {
+    // The same view is already on screen (a setting changed by voice while the settings card is open): give it the
+    // new result in place, so the card updates live instead of reloading.
+    if (uri && this.frame && this.uri === uri && this.initialized) {
+      this.send({ jsonrpc: '2.0', method: 'ui/notifications/tool-input', params: { arguments: args || {} } });
+      this.send({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: result });
+      return;
+    }
     await this.teardown();
+    this.uri = uri || null;
+    this.initialized = false;
     // Enforce the resource's declared CSP (_meta.ui.csp), as a real MCP Apps host does: inline code only, no network,
     // images only from the listed resourceDomains.
     if (csp) {
@@ -64,6 +77,7 @@ export class AppsHost {
           hostContext: this.hostContext,
         });
       case 'ui/notifications/initialized':
+        this.initialized = true;
         requestAnimationFrame(() => this.frame?.classList.add('in'));
         if (this.pending) {
           this.send({ jsonrpc: '2.0', method: 'ui/notifications/tool-input', params: { arguments: this.pending.args || {} } });

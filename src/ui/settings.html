@@ -45,6 +45,8 @@ input[type=range]::-moz-range-thumb { width: max(28px, 2.2vw); height: max(28px,
 .tile[aria-checked="true"] { background: var(--accent-tint); box-shadow: inset 0 0 0 max(2px, .16vw) var(--accent); }
 .tile[aria-checked="true"] b { color: var(--accent-text); }
 .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: calc(var(--gap) * 1.2); }
+.pair > .field + .field { margin-top: calc(var(--gap) * -.7); }
+.cols > div > .pair + .field { margin-top: calc(var(--gap) * .5); }
 .dim { opacity: .45; }
 /* categories: toggle chips (pressed = Mandat may buy it) */
 .chips { display: flex; flex-wrap: wrap; gap: .45em; }

@@ -12,6 +12,7 @@ export class McpHttpClient {
     this.capabilities = null;
   }
   async post(message) {
+    if (this.before) await this.before(); // e.g. refresh the account link's access token first
     const h = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...this.headers };
     if (this.sessionId) h['mcp-session-id'] = this.sessionId;
     if (this.protocolVersion) h['mcp-protocol-version'] = this.protocolVersion;
@@ -20,6 +21,12 @@ export class McpHttpClient {
     const sid = res.headers.get('mcp-session-id');
     if (sid) this.sessionId = sid;
     if (res.status === 202) return null;
+    // Account linking: a tool call without a valid token answers HTTP 401 + WWW-Authenticate (resource_metadata=…).
+    if (res.status === 401 || res.status === 403) {
+      const body = await res.json().catch(() => ({}));
+      this.onLog('in', { http: res.status, 'www-authenticate': res.headers.get('www-authenticate'), body });
+      throw Object.assign(new Error(body.message || `HTTP ${res.status}`), { status: res.status, wwwAuthenticate: res.headers.get('www-authenticate') || '' });
+    }
     const type = res.headers.get('content-type') || '';
     let reply = null;
     if (type.includes('text/event-stream')) {

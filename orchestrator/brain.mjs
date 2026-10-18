@@ -43,10 +43,14 @@ export const STATES_AMOUNT = /\$\s?\d|\d\s?\$|\b\d+\s*(dollars?|bucks|usd|dólar
 //    (a model may never lift an emergency stop on its own); delete_my_data: the user's exact words, like confirm_plan.
 const RESUME_WORDS = /\b(resume|unpause|restart|reactivate|back on|reprends|reprendre|reactive|relance|reanuda|reanudar|reactiva)\b/;
 export function guardToolCall(name, input, utterance) {
-  if (name === 'confirm_plan' || name === 'delete_my_data') return { input: { ...input, user_confirmation: String(utterance).slice(0, 120) } };
+  if (name === 'confirm_plan') return { input: { ...input, user_confirmation: String(utterance).slice(0, 120) } };
   if (name === 'update_settings' && ['weekly_budget', 'auto_buy_under', 'daily_cap'].some((k) => input[k] !== undefined) && !/\d/.test(utterance)) {
     return { cancel: 'Refused by the host: the user did not say an amount. Never change a budget or a limit on your own; ask the user.' };
   }
+  if (name === 'delete_my_data' && !/\b(delete|erase|wipe|supprime|supprimer|efface|effacer|borra|borrar|elimina|eliminar)\b/.test(norm(utterance))) {
+    return { cancel: 'Refused by the host: the user did not ask to delete their data in this request.' };
+  }
+  if (name === 'delete_my_data') return { input: { ...input, user_confirmation: String(utterance).slice(0, 120) } };
   if (name === 'resume_spending' && !RESUME_WORDS.test(norm(utterance))) {
     return { cancel: 'Refused by the host: only the user can resume Mandat after an emergency stop. Tell them to say "resume Mandat".' };
   }

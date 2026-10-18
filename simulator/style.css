@@ -293,9 +293,47 @@ body[data-state="listening"] .mic { background: color-mix(in srgb, var(--accent)
 .line.done .n { background: var(--fill-tertiary); box-shadow: none; color: var(--label-secondary); }
 .line.next { background: var(--accent-tint); }
 .line.next .n { background: var(--accent); color: var(--accent-on); box-shadow: none; }
-.line.next::after { content: "Next"; position: absolute; right: 10px; top: 10px; font-size: var(--text-footnote); font-weight: var(--weight-semibold); color: var(--accent-text); }
+.line.next::after { content: attr(data-next); position: absolute; right: 10px; top: 10px; font-size: var(--text-footnote); font-weight: var(--weight-semibold); color: var(--accent-text); }
 .line.next .t { padding-right: 38px; }
 .fine { margin: 0; font-size: var(--text-footnote); color: var(--label-secondary); text-align: center; }
+
+/* ---------- account linking: Alexa's own panel on the Echo Show (not an add-on card) ---------- */
+.link-card { display: grid; gap: calc(var(--u) * 30); align-content: start; padding: calc(var(--u) * 44) calc(var(--u) * 48); border-radius: calc(var(--u) * 30);
+  background: color-mix(in srgb, var(--sc-surface) 86%, transparent); -webkit-backdrop-filter: blur(calc(var(--u) * 30)); backdrop-filter: blur(calc(var(--u) * 30));
+  animation: live-in var(--dur-smooth) var(--ease-smooth) both; }
+.lc-head { display: grid; grid-template-columns: calc(var(--u) * 88) minmax(0, 1fr) auto; gap: calc(var(--u) * 26); align-items: center; }
+.lc-mark { width: calc(var(--u) * 88); height: calc(var(--u) * 88); border-radius: calc(var(--u) * 22); background: #000; display: grid; place-items: center; box-shadow: 0 0 0 1px rgba(255, 255, 255, .14); }
+.lc-mark svg { width: 60%; height: 60%; fill: none; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.lc-head b { display: block; font-size: calc(var(--u) * 50); font-weight: var(--weight-bold); letter-spacing: -0.026em; line-height: 1.08; }
+.lc-head div > span { display: block; font-size: calc(var(--u) * 28); color: var(--sc-label-2); margin-top: calc(var(--u) * 6); }
+.lc-phone { width: calc(var(--u) * 92); height: calc(var(--u) * 92); border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--sc-accent) 16%, transparent); color: var(--sc-accent-text); animation: breathe 2.2s ease-in-out infinite; }
+.lc-phone svg { width: 48%; height: 48%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.lc-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(var(--u) * 16); }
+.lc-steps li { display: flex; align-items: center; gap: calc(var(--u) * 14); padding: calc(var(--u) * 20) calc(var(--u) * 22); border-radius: calc(var(--u) * 20); background: var(--sc-fill); font-size: calc(var(--u) * 27); font-weight: var(--weight-semibold); color: var(--sc-label-2); }
+.lc-steps li.now { color: var(--sc-label); box-shadow: inset 0 0 0 calc(var(--u) * 3) var(--sc-accent); background: color-mix(in srgb, var(--sc-accent) 12%, transparent); }
+.lc-steps li.done { color: var(--sc-label); }
+.lc-n { flex: none; width: calc(var(--u) * 40); height: calc(var(--u) * 40); border-radius: 50%; display: grid; place-items: center; font-size: calc(var(--u) * 21); background: var(--sc-fill); font-variant-numeric: tabular-nums; }
+.lc-steps li.now .lc-n { background: var(--sc-accent); color: #fff; }
+.lc-steps li.done .lc-n { background: var(--status-ok, #34c759); color: #fff; }
+.lc-n svg { width: 60%; height: 60%; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.lc-note { margin: 0; font-size: calc(var(--u) * 24); color: var(--sc-label-2); }
+
+/* ---------- the person's phone (simulated Alexa app) ---------- */
+.phone-sheet { position: fixed; right: max(16px, calc((100vw - var(--stage-max)) / 2 + 16px)); bottom: 20px; z-index: var(--z-sheet); display: grid; justify-items: center; animation: phoneIn var(--dur-smooth) var(--ease-smooth) both; }
+.phone-sheet[hidden] { display: none; }
+@keyframes phoneIn { from { opacity: 0; transform: translateY(40px) scale(.98); } }
+.phone { position: relative; margin: 0; display: grid; gap: 10px; justify-items: center; }
+.phone-screen { width: min(372px, calc(100vw - 32px)); height: min(760px, calc(100dvh - 96px)); border-radius: 46px; overflow: hidden; background: #000;
+  box-shadow: 0 0 0 10px #111214, 0 0 0 11px #2b2d32, 0 40px 90px -30px rgba(0, 0, 0, .55); }
+.phone-screen iframe { width: 100%; height: 100%; border: 0; display: block; background: var(--bg-grouped); }
+.phone figcaption { font-size: var(--text-footnote); color: var(--label-secondary); padding: 4px 12px; border-radius: 999px; background: var(--bg-grouped); }
+.phone-close { position: absolute; top: -6px; right: -16px; z-index: 1; background: var(--bg-elevated) !important; box-shadow: 0 2px 10px rgba(0, 0, 0, .2); }
+@media (max-width: 760px) {
+  .phone-sheet { inset: 0; right: 0; bottom: 0; background: color-mix(in srgb, var(--bg) 70%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); align-content: center; padding: 16px; }
+  .phone-screen { height: calc(100dvh - 90px); border-radius: 32px; box-shadow: 0 0 0 6px #111214; }
+  .phone-close { top: 4px; right: 4px; }
+}
+@media (prefers-reduced-motion: reduce) { .phone-sheet, .link-card, .lc-phone { animation: none; } }
 
 /* ---------- MCP traffic drawer (always a dark console) ---------- */
 .drawer { color-scheme: dark; position: fixed; top: 12px; right: 12px; bottom: 12px; width: min(580px, calc(100vw - 24px)); z-index: var(--z-sheet); display: grid; grid-template-rows: auto minmax(0, 1fr);

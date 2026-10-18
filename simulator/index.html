@@ -23,6 +23,8 @@
     <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5 10 17 19 7"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.6"/><path d="M10.5 18.5h3"/></symbol>
+    <symbol id="i-restart" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v3.2h3.2"/></symbol>
   </svg>
 
   <header class="ui-toolbar sim-bar">
@@ -38,7 +40,8 @@
     <div class="sim-tools ui-toolbar__group ui-glass">
       <label class="sim-lang" data-i18n-title="Language" title="Language"><select id="lang" aria-label="Language" data-i18n-aria="Language"><option value="en-US">EN</option><option value="fr-FR">FR</option><option value="es-ES">ES</option></select></label>
       <button class="ui-icon-button" id="theme" type="button" aria-label="Dark appearance" aria-pressed="false" title="Light or dark appearance" data-i18n-title="Light or dark appearance"><svg class="ui-icon"><use href="#i-moon"/></svg></button>
-      <button class="ui-icon-button" id="newHousehold" type="button" aria-label="New household" data-i18n-aria="New household" title="Start a fresh household" data-i18n-title="Start a fresh household"><svg class="ui-icon"><use href="#i-house"/></svg></button>
+      <button class="ui-icon-button" id="alexaApp" type="button" aria-label="Alexa app" data-i18n-aria="Alexa app" title="Open the Alexa app (simulated)" data-i18n-title="Open the Alexa app (simulated)"><svg class="ui-icon"><use href="#i-phone"/></svg></button>
+      <button class="ui-icon-button" id="newHousehold" type="button" aria-label="Start over" data-i18n-aria="Start over" title="Unlink and start over" data-i18n-title="Unlink and start over"><svg class="ui-icon"><use href="#i-restart"/></svg></button>
       <button class="ui-button sim-dev" id="devToggle" type="button" aria-expanded="false" aria-controls="drawer" title="MCP traffic (D)" data-i18n-title="MCP traffic (D)"><svg class="ui-icon"><use href="#i-braces"/></svg><span class="lbl" data-i18n="MCP traffic">MCP traffic</span><kbd>D</kbd></button>
     </div>
   </header>
@@ -128,6 +131,15 @@
       <p class="fine" id="fine">Unofficial Alexa+ simulator. No real money.</p>
     </aside>
   </main>
+
+  <!-- the person's phone: the simulated Alexa app (account linking, permissions, manage) -->
+  <div class="phone-sheet" id="phone" hidden>
+    <figure class="phone">
+      <button class="ui-icon-button phone-close" id="phoneClose" type="button" aria-label="Close the Alexa app" data-i18n-aria="Close the Alexa app"><svg class="ui-icon"><use href="#i-close"/></svg></button>
+      <div class="phone-screen"><iframe id="phoneFrame" title="Alexa app (simulated)" src="about:blank"></iframe></div>
+      <figcaption data-i18n="Alexa app on your phone (simulated)">Alexa app on your phone (simulated)</figcaption>
+    </figure>
+  </div>
 
   <aside class="drawer" id="drawer" hidden aria-label="MCP traffic">
     <div class="drawer-head">

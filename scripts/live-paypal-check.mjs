@@ -3,11 +3,14 @@
 // (partial capture) -> refund part of it. Prints each order's PayPal mode, authorization id and timeline.
 // After the owner linked the demo buyer (scripts/link-paypal-demo-buyer.sh) every line must say "sandbox".
 // Usage: node scripts/live-paypal-check.mjs [https://…lambda-url…on.aws]
+// The public demo requires account linking: the check links a fresh empty household first (OAuth 2.1 + PKCE).
 import { connectMcp } from '../src/brain/simulated.mjs';
+import { linkHousehold } from './link-demo.mjs';
 
 const base = (process.argv[2] || 'https://fonzkp2f5pszfit6xmqqiw7qdm0dybyu.lambda-url.us-east-1.on.aws').replace(/\/$/, '');
 const household = 'paypal-check-' + Date.now().toString(36);
-const { client } = await connectMcp(`${base}/mcp`, { household, name: 'live-paypal-check' });
+const { access_token } = await linkHousehold(base, { choice: 'new' });
+const { client } = await connectMcp(`${base}/mcp`, { household, name: 'live-paypal-check', headers: { Authorization: `Bearer ${access_token}` } });
 const call = async (name, args) => {
   const r = await client.callTool({ name, arguments: args });
   if (r.isError) throw new Error(`${name}: ${r.content?.[0]?.text}`);

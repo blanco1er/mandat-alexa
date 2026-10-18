@@ -153,7 +153,7 @@ function page(lang, body, { formAction = "'self'" } = {}) {
       'content-type': 'text/html; charset=utf-8', ...noStore,
       // our own pages only; the form may only post here and redirect to the registered redirect URI
       'content-security-policy': `default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action ${formAction}; frame-ancestors 'self'; base-uri 'none'`,
-      'x-frame-options': 'SAMEORIGIN', 'referrer-policy': 'no-referrer',
+      'x-frame-options': 'SAMEORIGIN', 'referrer-policy': 'same-origin', // (no-referrer would send "Origin: null" with the form)
     },
   });
 }
@@ -353,12 +353,12 @@ export function withQuery(uri, params) {
 
 // Minimal privacy policy (Amazon: "A publicly accessible privacy policy that covers account data usage").
 export function privacyPage() {
-  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Privacy · Mandat for Alexa+</title>
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Privacy · Mandat for Alexa+</title>
 <link rel="stylesheet" href="/simulator/design-system/tokens.css"><style>body{margin:0;background:var(--bg-grouped);color:var(--label);font:17px/1.5 var(--font-sans)}main{max-width:680px;margin:0 auto;padding:40px 20px}h1{font:700 28px/1.2 var(--font-display)}h2{font:590 17px/1.3 var(--font-sans);margin-top:28px}p,li{color:var(--label-secondary)}</style></head><body><main>
 <h1>Mandat for Alexa+ privacy</h1>
 <p>This is a hackathon demo. It uses PayPal <b>sandbox</b> test money only; no real payment is ever made.</p>
 <h2>What Mandat keeps</h2><ul><li>Your household's budgets, settings, orders and the preferences you ask it to remember.</li><li>The details you allow in the Alexa app (name, email, address), only to greet you, send receipts and book at your address.</li><li>Hashes of the access and refresh tokens Alexa uses; never your Amazon password.</li></ul>
 <h2>What Mandat never does</h2><ul><li>Sell or share your data. Merchants' agents receive only what a quote needs (a day, a time, a number of guests).</li><li>Spend above the rules you set, or move money without a yes when your settings ask for one.</li></ul>
 <h2>Your controls</h2><ul><li>Unlink in the Alexa app: every token is revoked at once.</li><li>Turn a permission off: Mandat deletes that detail.</li><li>Say “Alexa, delete my Mandat data”: open holds are voided, then the whole household is erased.</li></ul>
-<p>Contact: the project page on Devpost (Mandat for Alexa+).</p></main></body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+<p>Contact: the project page on Devpost (Mandat for Alexa+).</p><p><a href="/simulator/" style="color:var(--accent-text);display:inline-flex;align-items:center;min-height:44px;padding:0 4px">Back to the simulator</a></p></main></body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
 }

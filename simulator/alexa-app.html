@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Alexa app (simulated) · Mandat</title>
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="design-system/tokens.css">
+<link rel="stylesheet" href="design-system/components.css">
+<style>
+/* A simulated Alexa app on the person's phone: where Alexa sends the account-linking notification (Amazon, pattern 1
+   "QR code / web OAuth": push notification on every device, the only path on a screenless Echo Dot), the add-on page,
+   then Mandat's own sign-in page, then the customer-data permissions, and later "Manage" (permissions, unlink).
+   Generic look on purpose: no Amazon logo or brand asset, and it says it is simulated. */
+html, body { margin: 0; min-height: 100%; }
+body { background: var(--bg-grouped); color: var(--label); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+main { min-height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.bar { display: flex; align-items: center; gap: 8px; padding: 14px 16px 6px; min-height: 44px; }
+.bar button { min-height: 44px; }
+.bar .sim { margin-left: auto; font-size: var(--text-caption1); color: var(--label-secondary); }
+.view { padding: 6px 20px 28px; display: grid; align-content: start; gap: 22px; animation: in var(--dur-smooth) var(--ease-smooth) both; }
+@keyframes in { from { opacity: 0; transform: translateY(10px); } }
+h1 { font: 700 var(--text-title1)/1.15 var(--font-display); letter-spacing: var(--tracking-title1); margin: 0; }
+h2 { font: 590 var(--text-footnote)/1.3 var(--font-sans); color: var(--label-secondary); margin: 0 0 6px 16px; }
+p { margin: 0; }
+.lead { color: var(--label-secondary); font-size: var(--text-body); line-height: 1.35; margin-top: 4px; }
+.app-head { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 14px; align-items: center; }
+.mark { width: 64px; height: 64px; border-radius: 16px; background: #000; display: grid; place-items: center; box-shadow: 0 0 0 .5px rgba(255, 255, 255, .2); }
+.mark svg { width: 38px; height: 38px; fill: none; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.app-head b { font: 700 var(--text-title2)/1.15 var(--font-display); display: block; }
+.app-head span { color: var(--label-secondary); font-size: var(--text-subhead); }
+.group { background: var(--bg-grouped-secondary); border-radius: 14px; overflow: hidden; }
+.row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 16px; min-height: 44px; }
+.row + .row::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; border-top: .5px solid var(--separator); }
+.row b { font-weight: 400; font-size: var(--text-body); display: block; }
+.row span { font-size: var(--text-subhead); color: var(--label-secondary); display: block; line-height: 1.3; }
+.row small { display: block; font-size: var(--text-footnote); color: var(--label-secondary); margin-top: 2px; line-height: 1.3; }
+.row .val { color: var(--label); }
+.note { font-size: var(--text-footnote); color: var(--label-secondary); line-height: 1.4; padding: 0 16px; }
+.actions { display: grid; gap: 10px; }
+.big { min-height: 50px; border-radius: 14px; font-size: var(--text-headline); font-weight: 590; }
+/* lock screen with the notification */
+.lock { min-height: 100dvh; display: grid; align-content: start; gap: 18px; padding: 56px 14px 24px; background: #101114; color: #fff; text-align: center; }
+.lock .time { font: 600 64px/1 var(--font-display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.lock .date { font-size: var(--text-callout); color: rgba(255, 255, 255, .78); margin-top: -6px; }
+.notif { margin-top: 34px; display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; align-items: start; text-align: left; padding: 14px; border-radius: 22px; border: 0; width: 100%; cursor: pointer;
+  background: rgba(255, 255, 255, .16); color: #fff; -webkit-backdrop-filter: blur(30px) saturate(1.6); backdrop-filter: blur(30px) saturate(1.6); box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .18);
+  animation: drop var(--dur-bouncy) var(--ease-bouncy) .3s both; font: inherit; }
+@keyframes drop { from { opacity: 0; transform: translateY(-18px) scale(.96); } }
+.notif:active { transform: scale(.98); }
+.notif .ico { width: 40px; height: 40px; border-radius: 10px; background: #1e6ef4; display: grid; place-items: center; }
+.notif .ico svg { width: 24px; height: 24px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.notif b { font-weight: 590; display: flex; justify-content: space-between; gap: 8px; }
+.notif b small { font-weight: 400; color: rgba(255, 255, 255, .7); font-size: var(--text-footnote); }
+.notif span { display: block; color: rgba(255, 255, 255, .88); font-size: var(--text-subhead); line-height: 1.3; margin-top: 2px; }
+.lock .hint { margin-top: auto; font-size: var(--text-footnote); color: rgba(255, 255, 255, .6); }
+/* success */
+.ok { display: grid; justify-items: center; gap: 14px; text-align: center; padding-top: 48px; }
+.tick { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; background: var(--system-green); color: #fff; animation: pop var(--dur-bouncy) var(--ease-bouncy) both; }
+.tick svg { width: 40px; height: 40px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+@keyframes pop { from { transform: scale(.4); opacity: 0; } }
+.danger { color: var(--status-critical-text, #d70015); }
+button.row { width: 100%; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; color: inherit; }
+button.row:active { background: var(--fill-tertiary); }
+.confirm { display: grid; gap: 10px; padding: 14px 16px; }
+@media (prefers-reduced-motion: reduce) { .view, .notif, .tick { animation: none; } }
+</style>
+</head>
+<body>
+<main id="app" aria-live="polite"></main>
+<script type="module" src="alexa-app.js"></script>
+</body>
+</html>

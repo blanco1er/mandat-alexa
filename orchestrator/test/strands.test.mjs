@@ -68,6 +68,18 @@ test('host guardrail: no budget is created or changed unless the user said an am
   assert.ok(!guardToolCall('find_products', { query: 'coffee' }, 'coffee').cancel);
 });
 
+test('host guardrail: settings amounts only when said, only the user lifts an emergency stop, delete only when asked', () => {
+  assert.ok(guardToolCall('update_settings', { weekly_budget: 500 }, 'Balanced please').cancel);
+  assert.ok(!guardToolCall('update_settings', { weekly_budget: 200 }, 'Make it 200 a week').cancel);
+  assert.ok(!guardToolCall('update_settings', { autonomy: 'ask' }, 'Ask me first from now on').cancel);
+  assert.ok(guardToolCall('resume_spending', {}, 'OK thanks').cancel, 'a model never resumes on its own');
+  assert.ok(!guardToolCall('resume_spending', {}, 'Réactive Mandat').cancel);
+  assert.ok(guardToolCall('delete_my_data', { user_confirmation: 'yes' }, 'Yes').cancel);
+  const d = guardToolCall('delete_my_data', { user_confirmation: 'Yes' }, 'Yes, delete it.');
+  assert.equal(d.input.user_confirmation, 'Yes, delete it.');
+  assert.ok(!guardToolCall('pause_spending', {}, 'stop everything').cancel, 'the emergency stop is never blocked');
+});
+
 test('context line: device, pending plan and close tokens travel with the request (stateless server)', () => {
   const l = contextLine({ device: 'dot', pending: { plan_id: 'plan_1', token: 'tok', total: 210 }, closeTokens: { ord_1: 'c1' } });
   assert.match(l, /^\[device: dot; locale: en-US; pending plan_id: plan_1, confirmation_token: tok, total: \$210; close tokens \(order_id=close_token\): ord_1=c1\]$/);

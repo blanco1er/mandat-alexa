@@ -90,9 +90,13 @@ const STORIES = {
 
 const LIVE = (process.env.LIVE_URL || '').replace(/\/$/, '');
 const srv = LIVE ? { url: LIVE, close: async () => {} } : await start({ port: 0, storeKind: 'memory', modelKind: process.env.MANDAT_MODEL, brainKind: 'none' });
+// The deployed demo requires account linking: each run links a fresh empty household (OAuth 2.1 + PKCE, like Alexa).
+const { linkHousehold } = await import('./link-demo.mjs');
+const links = new Map();
+const tokenFor = async (household) => { if (!links.has(household)) links.set(household, (await linkHousehold(LIVE, { choice: 'new' })).access_token); return links.get(household); };
 const remoteBrain = () => ({
   async runTurn({ text, session, household }) {
-    const r = await fetch(`${LIVE}/turn`, { method: 'POST', headers: { 'content-type': 'application/json', origin: LIVE }, body: JSON.stringify({ text, session, household, device: session.device || 'show' }) });
+    const r = await fetch(`${LIVE}/turn`, { method: 'POST', headers: { 'content-type': 'application/json', origin: LIVE, authorization: `Bearer ${await tokenFor(household)}` }, body: JSON.stringify({ text, session, household, device: session.device || 'show' }) });
     const out = await r.json();
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${out.speech || out.error}`);
     return out;

@@ -176,6 +176,10 @@ BRAIN_ID="$BRAIN_ID" MERCHANT_ID="$MERCHANT_ID" BRAIN_FALLBACK="$BRAIN_FALLBACK"
     MANDAT_PUBLIC_URL: e.URL, MANDAT_ALLOWED_ORIGINS: e.URL, MANDAT_NETWORK_SECRET: e.NETWORK_SECRET,
     MANDAT_LLM_BUDGET_USD: e.MANDAT_LLM_BUDGET_USD || "15", MANDAT_PAYPAL: PAYPAL_MODE,
     PAYPAL_CLIENT_ID: ppId, PAYPAL_CLIENT_SECRET: ppSecret, MANDAT_DEMO_TOKEN: e.MANDAT_DEMO_TOKEN || cur.MANDAT_DEMO_TOKEN,
+    // account linking (OAuth 2.1 + PKCE): required on the public demo; the real Alexa+ client is optional and kept
+    MANDAT_AUTH: e.MANDAT_AUTH || "required",
+    MANDAT_OAUTH_CLIENT_ID: e.MANDAT_OAUTH_CLIENT_ID || cur.MANDAT_OAUTH_CLIENT_ID, MANDAT_OAUTH_CLIENT_SECRET: e.MANDAT_OAUTH_CLIENT_SECRET || cur.MANDAT_OAUTH_CLIENT_SECRET,
+    MANDAT_OAUTH_REDIRECT_URIS: e.MANDAT_OAUTH_REDIRECT_URIS || cur.MANDAT_OAUTH_REDIRECT_URIS,
     NODE_OPTIONS: "--enable-source-maps",
   };
   for (const k of Object.keys(v)) if (v[k] === undefined || v[k] === "") delete v[k];
@@ -194,6 +198,10 @@ if [ "$DRY" != 1 ] && [ "${SKIP_SMOKE:-0}" != 1 ]; then
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"deploy-smoke","version":"1"}}}' | jq -r .result.protocolVersion)"
   [ "$PROTO" = "2025-11-25" ] || die "MCP initialize answered '$PROTO'"
   say "MCP initialize over the public URL: $PROTO"
+  S256="$(curl -fsS "$URL/.well-known/oauth-authorization-server" | jq -r '.code_challenge_methods_supported | join(",")')"
+  [ "$S256" = "S256" ] || die "authorization server metadata answered '$S256' (S256 expected)"
+  CODE="$(curl -s -o /dev/null -w '%{http_code}' "$URL/mcp" -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -H 'mcp-protocol-version: 2025-11-25' -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_household_status","arguments":{}}}')"
+  say "account linking: metadata S256, tool call without a token -> HTTP $CODE""
 fi
 
 say "done"

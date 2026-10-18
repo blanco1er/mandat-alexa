@@ -11,7 +11,9 @@ import { FIRST_LINE, lang, pickLocale, SCRIPTS, setLang, t } from './i18n.js';
 const $ = (s) => document.querySelector(s);
 const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
 const params = new URLSearchParams(location.search);
-let household = params.get('household') || store.get('mandat.household', 'demo');
+// Account linking: Alexa (this page) keeps the household's OAuth tokens and attaches the access token to every request.
+let link = store.get('mandat.link', null);
+let household = link ? store.get('mandat.household', 'linked') : 'unlinked';
 let session = store.get(`mandat.session.${household}`, {});
 let device = params.get('device') || store.get('mandat.device', 'show15');
 if (!['show15', 'show8', 'dot'].includes(device)) device = 'show15';
@@ -47,7 +49,7 @@ function renderScript() {
       b.type = 'button';
       const done = played.has(l);
       b.className = 'line' + (done ? ' done' : '') + (l === next ? ' next' : '');
-      if (l === next) b.setAttribute('aria-current', 'step');
+      if (l === next) { b.setAttribute('aria-current', 'step'); b.dataset.next = t('Next'); }
       b.innerHTML = `<span class="n">${done ? CHECK_SVG : `<span>${++n}</span>`}</span><span class="t"></span>`;
       if (done) n++;
       b.querySelector('.t').textContent = l;
@@ -73,12 +75,162 @@ const log = (kind, label, payload) => {
   if (!$('#drawer').hidden) li.scrollIntoView({ block: 'end' });
 };
 const mcp = new McpHttpClient(new URL('/mcp', location.href).href, {
-  headers: { 'x-mandat-household': household },
+  headers: { 'x-mandat-locale': locale }, // what the page's own tool calls say (first run, card taps) follows the language
   onLog: (dir, msg) => log(dir === 'out' ? 'out' : 'in', dir === 'out' ? 'page → server' : 'server → page', msg),
 });
 const showSession = () => {
-  $('#sessionInfo').innerHTML = `protocol <em>${esc(mcp.protocolVersion || '…')}</em> · Streamable HTTP · MCP-Session-Id <em>${esc(mcp.sessionId || 'none (stateless)')}</em> · household <em>${esc(household)}</em>`;
+  $('#sessionInfo').innerHTML = `protocol <em>${esc(mcp.protocolVersion || '…')}</em> · Streamable HTTP · MCP-Session-Id <em>${esc(mcp.sessionId || 'none (stateless)')}</em> · account link <em>${link ? 'Bearer …' + esc(link.access_token.slice(-4)) : 'none'}</em> · household <em>${esc(household)}</em>`;
 };
+
+// ---------- account linking (Alexa's side): tokens, refresh, discovery, PKCE ----------
+const CLIENT_ID = 'alexa-plus-simulator';
+const authHeaders = () => (link?.access_token ? { authorization: `Bearer ${link.access_token}` } : {});
+function useLink(l) {
+  link = l;
+  if (link?.access_token) mcp.headers.Authorization = `Bearer ${link.access_token}`; else delete mcp.headers.Authorization;
+  showSession();
+}
+let refreshing = null;
+// Alexa asks for a new access token when it is about to expire (refresh tokens rotate on every use).
+async function fresh() {
+  if (!link?.refresh_token || link.expires_at - Date.now() > 60_000) return link;
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
+    try {
+      const r = await fetch('/oauth/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: link.refresh_token, client_id: CLIENT_ID }) });
+      const tok = await r.json();
+      log('orch', 'page → /oauth/token', { method: 'refresh_token', result: r.ok ? { token_type: tok.token_type, expires_in: tok.expires_in, scope: tok.scope } : tok });
+      if (!r.ok) { forgetLink(); return null; }
+      const l = { ...link, access_token: tok.access_token, refresh_token: tok.refresh_token, expires_at: Date.now() + tok.expires_in * 1000, scope: tok.scope };
+      store.set('mandat.link', l); useLink(l);
+      return l;
+    } finally { refreshing = null; }
+  })();
+  return refreshing;
+}
+mcp.before = async () => { if (!refreshing) await fresh(); };
+function forgetLink() {
+  store.set(`mandat.session.${household}`, {});
+  try { localStorage.removeItem('mandat.link'); localStorage.removeItem('mandat.permissions'); } catch {}
+  useLink(null);
+  session = {};
+  household = 'unlinked';
+}
+const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const getJson = async (url, label) => {
+  log('out', `page → GET ${new URL(url).pathname}`, { method: 'GET', params: { url } });
+  const r = await fetch(url);
+  const j = await r.json();
+  log('in', 'server → page', { method: label, result: j });
+  return j;
+};
+// "Alexa, enable Mandat": what Alexa does, step by step (Amazon's account-linking page): a tool call answers 401,
+// the protected-resource metadata names the authorization server, its metadata must list S256, then the person
+// links in the Alexa app (push notification; on an Echo Show the same).
+async function enableFlow(text) {
+  if (link) { const said = t('Mandat is already enabled. Say “open Mandat settings” to change your rules.'); setReply(said); return speak(said); }
+  setBusy(true); setState('thinking');
+  try {
+    let www = '';
+    try { await mcp.callTool('get_household_status', {}); } catch (e) { www = e.wwwAuthenticate || ''; }
+    const prmUrl = /resource_metadata="([^"]+)"/.exec(www)?.[1] || new URL('/.well-known/oauth-protected-resource', location.href).href;
+    const prm = await getJson(prmUrl, 'oauth-protected-resource');
+    const asm = await getJson(`${prm.authorization_servers[0].replace(/\/$/, '')}/.well-known/oauth-authorization-server`, 'oauth-authorization-server');
+    if (!(asm.code_challenge_methods_supported || []).includes('S256')) throw new Error('The authorization server does not support PKCE S256.');
+    const verifier = b64u(crypto.getRandomValues(new Uint8Array(48)));
+    const challenge = b64u(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+    const state = b64u(crypto.getRandomValues(new Uint8Array(12)));
+    const q = new URLSearchParams({ client_id: CLIENT_ID, redirect_uri: `${location.origin}/simulator/alexa-app.html`, response_type: 'code', scope: (prm.scopes_supported || []).join(' '), state, code_challenge: challenge, code_challenge_method: 'S256', resource: prm.resource, ui_locales: locale });
+    const authorizeUrl = `${asm.authorization_endpoint}?${q}`;
+    sessionStorage.setItem('mandat.link.pending', JSON.stringify({ authorizeUrl, verifier, state, resource: prm.resource, device }));
+    log('orch', 'page (as Alexa)', { method: 'account-linking', params: { authorization_endpoint: asm.authorization_endpoint, code_challenge_method: 'S256', resource: prm.resource, scope: q.get('scope') } });
+    showLinkCard('signin');
+    const said = t('To use Mandat, link your account. I sent a notification to your Alexa app.');
+    setReply(said);
+    openPhone();
+    setBusy(false);
+    await speak(said);
+  } catch (e) {
+    setBusy(false);
+    setReply(t('Linking did not finish. Nothing was shared.'), { error: true }); markAll(); setState('idle');
+    log('orch', 'page ✕ linking', { method: 'error', error: { message: String(e.message || e) } });
+  }
+}
+const ENABLE_RE = /\b(enable|link|connect|set up|turn on|install)\b.*\bmandat\b|\b(active|activer|activez|lie|lier|relie|connecte|installe)\b.*\bmandat\b|\b(activa|activar|vincula|vincular|conecta|instala)\b.*\bmandat\b/;
+const isEnable = (text) => ENABLE_RE.test(String(text).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+
+// Alexa's own panel on the Echo Show while the person links in the app (not an add-on card).
+const LINK_STEPS = [['signin', 'Sign in to Mandat'], ['share', 'Choose what to share'], ['rules', 'Set your rules']];
+async function showLinkCard(step) {
+  if (device === 'dot') return;
+  await host.clear();
+  document.body.dataset.screen = 'card';
+  const at = LINK_STEPS.findIndex(([k]) => k === step);
+  const el = document.createElement('section');
+  el.className = 'link-card';
+  el.setAttribute('aria-label', t('Link Mandat'));
+  el.innerHTML = `<div class="lc-head"><span class="lc-mark" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M18 44V20l14 15 14-15v24"/></svg></span><div><b>${esc(t('Link Mandat'))}</b><span>${esc(t('Finish in the Alexa app on your phone'))}</span></div>
+      <span class="lc-phone" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.6"/><path d="M10.5 18.5h3"/></svg></span></div>
+    <ol class="lc-steps">${LINK_STEPS.map(([k, l], i) => `<li class="${i < at ? 'done' : i === at ? 'now' : ''}"${i === at ? ' aria-current="step"' : ''}><span class="lc-n">${i < at ? CHECK_SVG : i + 1}</span>${esc(t(l))}</li>`).join('')}</ol>
+    <p class="lc-note">${esc(t('Alexa sent a notification to your phone. Mandat never sees your Amazon password.'))}</p>`;
+  $('#cardSlot').replaceChildren(el);
+}
+
+// The simulated Alexa app on the person's phone (alexa-app.html, same origin).
+function openPhone(view = '') {
+  const f = $('#phoneFrame');
+  f.src = `alexa-app.html?lang=${encodeURIComponent(locale)}&theme=${screenTheme()}${view ? '&view=' + view : ''}`;
+  $('#phone').hidden = false;
+  document.body.dataset.phone = 'open';
+}
+function closePhone() { $('#phone').hidden = true; delete document.body.dataset.phone; $('#phoneFrame').src = 'about:blank'; }
+window.addEventListener('message', async (e) => {
+  if (e.origin !== location.origin || e.data?.source !== 'alexa-app') return;
+  const m = e.data;
+  if (m.type === 'close') return closePhone();
+  if (m.type === 'step') return;
+  if (m.type === 'failed') { closePhone(); const said = t('Linking did not finish. Nothing was shared.'); setReply(said, { error: true }); showLinkCard(null); return speak(said); }
+  if (m.type === 'linked') { useLink(store.get('mandat.link', null)); log('orch', 'Alexa app → page', { method: 'linked', result: { token_type: 'Bearer', scope: link?.scope } }); return showLinkCard('share'); }
+  if (m.type === 'unlinked') { forgetLink(); document.body.dataset.screen = 'home'; renderHome(null); const said = t('Mandat is unlinked. Say “Alexa, enable Mandat” to link it again.'); setReply(said); return speak(said); }
+  if (m.type === 'permissions') {
+    try {
+      const r = await mcp.callTool('apply_customer_permissions', { granted: m.granted, values: Object.fromEntries(Object.entries(m.values || {}).filter(([, v]) => v)) });
+      if (m.firstRun) return firstRun();
+      const said = r.content?.[0]?.text || t('Shared details updated.');
+      setReply(said); speak(said);
+    } catch (err) { setReply(t('I could not reach Mandat, so nothing was booked or charged. Try again in a moment.'), { error: true }); }
+    return;
+  }
+  if (m.type === 'delete') {
+    closePhone();
+    try { const r = await mcp.callTool('delete_my_data', { user_confirmation: 'tap:delete' }); afterDelete(r); } catch {}
+  }
+});
+// After the permissions: the first-run settings card opens by itself and Alexa asks the first question.
+async function firstRun() {
+  showLinkCard('rules');
+  const r = await mcp.callTool('get_settings', { first_run: true });
+  const st = await mcp.callTool('get_household_status', {});
+  household = st.structuredContent?.household_id || 'linked';
+  store.set('mandat.household', household);
+  const step = r.structuredContent?.onboarding_step || null;
+  session = { settingsOpen: true, onboarding: step ? { step } : null };
+  store.set(`mandat.session.${household}`, session);
+  played = new Set(store.get(playedKey(), [])); const first = SCRIPT[0]?.lines?.[0]; if (first) { played.add(first); store.set(playedKey(), [...played]); } renderScript();
+  lastStatus = st; updateGauge(st); renderHome(st); showSession();
+  showTrail([{ name: 'apply_customer_permissions', result: {} }, { name: 'get_settings', result: r }]);
+  const said = r.content?.[0]?.text || '';
+  setReply(said);
+  await render('get_settings', { first_run: true }, r);
+  await speak(said);
+}
+function afterDelete(r) {
+  const said = r?.content?.[0]?.text || '';
+  forgetLink();
+  if (r && !r.isError) render('delete_my_data', {}, r);
+  renderHome(null);
+  setReply(said); speak(said);
+}
 
 // The language the user speaks (en-US by default; the language selector sets it).
 const speechLocale = () => locale;
@@ -128,6 +280,17 @@ const host = new AppsHost({
   onDisplayMode: (mode) => { document.body.classList.toggle('fullscreen', mode === 'fullscreen'); requestAnimationFrame(() => host.setContext({ containerDimensions: slotSize() })); },
   onToolResult: (name, args, result) => {
     absorbResult(name, result); updateGauge(result);
+    // a touch on the settings card: Alexa says what changed, like after a spoken change
+    if (['update_settings', 'pause_spending', 'resume_spending'].includes(name) && !result.isError) {
+      const d = result.structuredContent || {};
+      if (name === 'update_settings') session = { ...session, settingsOpen: true, onboarding: d.settings?.onboarded ? null : d.onboarding_step ? { step: d.onboarding_step } : session.onboarding };
+      store.set(`mandat.session.${household}`, session);
+      const said = result.content?.[0]?.text || '';
+      showTrail([{ name, result }]); setReply(said); speak(said);
+      mcp.callTool('get_household_status', {}).then((st) => { lastStatus = st; updateGauge(st); renderHome(st); }).catch(() => {});
+      return;
+    }
+    if (name === 'delete_my_data' && !result.isError) return afterDelete(result);
     if (name === 'confirm_plan' && !result.isError) {
       // a tap on Approve is the user's yes: Alexa confirms out loud, like after a spoken yes
       setAsk(null);
@@ -149,7 +312,7 @@ async function render(name, args, result) {
   document.body.classList.remove('fullscreen');
   document.body.dataset.screen = 'card';
   host.setContext({ displayMode: 'inline', containerDimensions: slotSize() });
-  await host.show({ ...resourceCache.get(uri), toolName: name, args, result });
+  await host.show({ ...resourceCache.get(uri), uri, toolName: name, args, result });
 }
 
 // Close tokens and pending plans from card actions are kept like the orchestrator's own.
@@ -178,6 +341,12 @@ function renderHome(status) {
   const envs = d.envelopes || [];
   const e = envs.find((x) => x.period !== 'once') || envs[0];
   const w = $('#homeWidget');
+  if (!link) {
+    w.innerHTML = `<p class="hw-context"><span>Mandat</span><span>${esc(t('Not linked'))}</span></p><p class="hw-title">${esc(t('Mandat is not enabled yet'))}</p><p class="hw-line">${esc(t('Say “Alexa, enable Mandat” to link your account and set your rules.'))}</p>`;
+    $('#homeMemory').hidden = true;
+    $('#homeHint').textContent = t('Try “Alexa, enable Mandat.”');
+    return;
+  }
   const pending = (d.pending_decisions || []).length;
   const open = (d.open_orders || []).length;
   if (!e) {
@@ -245,6 +414,12 @@ function trailLabel(s) {
       const tl = ['refunded', 'captured', 'released'].map((st) => [...(o?.timeline || [])].reverse().find((x) => x.state === st)).find(Boolean);
       return tl ? `${t({ refunded: 'Refunded', captured: 'Paid', released: 'Released' }[tl.state])} ${usd(tl.amount ?? o.amount)}` : t('Payment updated');
     }
+    case 'get_settings': return t('Settings');
+    case 'update_settings': return t('Settings saved');
+    case 'pause_spending': return t('Mandat paused');
+    case 'resume_spending': return t('Mandat resumed');
+    case 'delete_my_data': return t('Data deleted');
+    case 'apply_customer_permissions': return t('Details shared');
     default: return s.result?._meta?.ui?.invoked || s.name;
   }
 }
@@ -307,7 +482,7 @@ function startLive(turnId) {
     if (stop) return;
     try {
       // each poll is a distinct read (n), never served from a cache
-      const r = await fetch(`/activity?household=${encodeURIComponent(household)}&turn=${turnId}&n=${++polls}`, { cache: 'no-store' });
+      const r = await fetch(`/activity?household=${encodeURIComponent(household)}&turn=${turnId}&n=${++polls}`, { cache: 'no-store', headers: authHeaders() });
       if (r.ok && !stop) renderLive((await r.json()).events || []);
     } catch {}
     if (!stop) timer = setTimeout(tick, 650);
@@ -319,7 +494,7 @@ function startLive(turnId) {
 async function finishLive(turnId) {
   if (device === 'dot') return;
   let events = [];
-  try { events = (await (await fetch(`/activity?household=${encodeURIComponent(household)}&turn=${turnId}&n=final`, { cache: 'no-store' })).json()).events || []; } catch {}
+  try { events = (await (await fetch(`/activity?household=${encodeURIComponent(household)}&turn=${turnId}&n=final`, { cache: 'no-store', headers: authHeaders() })).json()).events || []; } catch {}
   const fresh = events.filter((e) => !liveShown.has(e.step) || liveShown.get(e.step).e.state !== e.state);
   const quick = matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (fresh.length > 1 && !quick) for (const e of events) { renderLive([e]); if (fresh.includes(e)) await new Promise((r) => setTimeout(r, 170)); }
@@ -454,8 +629,9 @@ function showHeard(text) {
   $('#dotYou').textContent = text ? `“${text}”` : '';
 }
 function setAsk(pending) {
-  $('#ask').hidden = !pending;
+  $('#ask').hidden = !pending && !session.pendingDelete;
   if (pending) $('#askText').textContent = t('Say “yes” to confirm {amt}', { amt: usd(pending.total) });
+  else if (session.pendingDelete) $('#askText').textContent = t('Say “yes, delete it” to confirm');
 }
 let busy = false;
 function setBusy(on) {
@@ -467,6 +643,11 @@ function setBusy(on) {
 }
 async function turn(text) {
   if (busy) return;
+  if (isEnable(text)) {
+    played.add(text); store.set(playedKey(), [...played]); renderScript();
+    showHeard(text); $('#trail').replaceChildren(); setAsk(null);
+    return enableFlow(text);
+  }
   setBusy(true);
   speechSynthesis?.cancel?.();
   played.add(text); store.set(playedKey(), [...played]); renderScript();
@@ -481,15 +662,25 @@ async function turn(text) {
   const stopLive = startLive(turnId);
   try {
     log('orch', 'page → /turn', { method: 'turn', params: { text, device, turn: turnId } });
-    const r = await fetch('/turn', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, session, household, device: device === 'dot' ? 'dot' : 'show', turn: turnId, locale: speechLocale() }) });
+    await fresh();
+    const r = await fetch('/turn', { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify({ text, session, household, device: device === 'dot' ? 'dot' : 'show', turn: turnId, locale: speechLocale() }) });
     const out = await r.json();
     stopLive();
-    if (r.ok) await finishLive(turnId);
+    // Not linked (or the link was revoked): like Alexa after a 401, say so and start account linking.
+    if (r.status === 401 && out.link_required) {
+      endLive(); setBusy(false);
+      played.delete(text); store.set(playedKey(), [...played]); renderScript();
+      if (out.error === 'invalid_token') forgetLink();
+      setReply(out.speech || ''); await speak(out.speech || '');
+      return enableFlow(text);
+    }
+    if (r.ok && !out.unlinked) await finishLive(turnId); // after "delete my data" the token is gone: no last read
     endLive();
     if (!r.ok) throw Object.assign(new Error(out.error || 'turn failed'), { spoken: out.speech });
     for (const s of out.steps) log('orch', 'brain tools/call', { method: 'tools/call', params: { name: s.name, arguments: s.args }, result: s.result });
     session = { ...out.session, modelContext: null };
     store.set(`mandat.session.${household}`, session);
+    if (out.unlinked) { const last = out.steps[out.steps.length - 1]; setBusy(false); return afterDelete(last?.result); }
     for (const s of out.steps) updateGauge(s.result);
     const withCard = (s) => s.result?._meta?.ui?.resourceUri && !s.result.isError;
     const shown = [...out.steps].reverse().find((s) => withCard(s) && s.name !== 'get_household_status') || [...out.steps].reverse().find(withCard);
@@ -529,11 +720,12 @@ function applyLanguage() {
   SCRIPT = SCRIPTS[lang()];
   played = new Set(store.get(playedKey(), []));
   renderScript();
-  if (lastStatus) renderHome(lastStatus);
+  if (lastStatus || !link) renderHome(lastStatus);
   host.setContext({ locale });
 }
 $('#lang').addEventListener('change', (e) => {
   locale = pickLocale(e.target.value); setLang(locale); store.set('mandat.lang', locale);
+  mcp.headers['x-mandat-locale'] = locale;
   speechSynthesis?.cancel?.();
   applyLanguage();
 });
@@ -563,7 +755,14 @@ const toggleDrawer = (open = $('#drawer').hidden) => {
 $('#devToggle').onclick = () => toggleDrawer();
 $('#closeDrawer').onclick = () => { toggleDrawer(false); $('#devToggle').focus({ preventScroll: true }); };
 $('#clearLog').onclick = () => $('#log').replaceChildren();
-$('#newHousehold').onclick = () => { household = 'h-' + Math.random().toString(36).slice(2, 8); store.set('mandat.household', household); location.search = '?household=' + household; };
+// Start over: Alexa unlinks (RFC 7009 revocation of the whole link) and forgets this household on this page.
+$('#newHousehold').onclick = async () => {
+  if (link?.refresh_token) { try { await fetch('/oauth/revoke', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token: link.refresh_token, client_id: CLIENT_ID }) }); } catch {} }
+  try { for (const k of Object.keys(localStorage)) if (/^mandat\.(session|played|link|permissions|household)/.test(k)) localStorage.removeItem(k); } catch {}
+  location.href = location.pathname;
+};
+$('#alexaApp').onclick = () => (link ? openPhone('manage') : turn(FIRST_LINE[lang()]));
+$('#phoneClose').onclick = closePhone;
 document.addEventListener('keydown', (e) => {
   if (e.target.closest('input, textarea')) return;
   if (e.key === 'd' || e.key === 'D') toggleDrawer();
@@ -606,16 +805,21 @@ new ResizeObserver(() => { cancelAnimationFrame(slotRaf); slotRaf = requestAnima
       return t('Unofficial Alexa+ simulator. Brain: {brain}; {pay}. No real money.', { brain, pay });
     };
     if (health.ok) $('#fine').textContent = fineText();
+    useLink(link);
     await mcp.initialize();
     showSession();
     const { tools } = await mcp.listTools();
     const { resources } = await mcp.listResources();
     log('orch', 'page', { method: 'ready', params: { tools: tools.map((t) => t.name), resources: resources.map((r) => r.uri) } });
+    if (!link) { renderHome(null); return; } // not linked yet: "Alexa, enable Mandat"
     // The page's own tools/call: the household at boot (envelope gauge + the ambient home widget).
-    const status = await mcp.callTool('get_household_status', {});
+    let status;
+    try { status = await mcp.callTool('get_household_status', {}); } catch (e) { if (e.status === 401) { forgetLink(); renderHome(null); return; } throw e; }
+    household = status.structuredContent?.household_id || household;
     lastStatus = status;
     updateGauge(status);
     renderHome(status);
+    showSession();
     if (session.pending) { setAsk(session.pending); setState('confirming'); }
   } catch (e) {
     $('#homeWidget').innerHTML = `<p class="hw-context"><span>Mandat</span><span>${esc(t('Offline'))}</span></p><p class="hw-title">${esc(t('Cannot reach the Mandat MCP server.'))}</p>`;
