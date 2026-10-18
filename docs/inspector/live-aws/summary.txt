@@ -1,11 +1,11 @@
-MCP Inspector @modelcontextprotocol/inspector@2.11.0 -> https://fonzkp2f5pszfit6xmqqiw7qdm0dybyu.lambda-url.us-east-1.on.aws/mcp (account link: a fresh empty household, OAuth 2.1 + PKCE), 2026-10-18T21:10Z
+MCP Inspector @modelcontextprotocol/inspector@2.11.0 -> https://fonzkp2f5pszfit6xmqqiw7qdm0dybyu.lambda-url.us-east-1.on.aws/mcp (account link: a fresh empty household, OAuth 2.1 + PKCE), 2026-10-18T21:59Z
 PASS  initialize: protocol 2025-11-25
 PASS  initialize: MCP Apps extension io.modelcontextprotocol/ui announced
 PASS  initialize: listChanged false (stateless, fixed lists)
-PASS  tools/list: 22 tools (20 intents + 2 app-only)
+PASS  tools/list: 23 tools (21 intents + 2 app-only)
 PASS  tools/list: every tool has annotations and _meta.ui.resourceUri
 PASS  tools/list --strict: no schema portability error
-PASS  --app-info: 22/22 tools have an MCP App (text/html;profile=mcp-app)
+PASS  --app-info: 23/23 tools have an MCP App (text/html;profile=mcp-app)
 PASS  --app-info: refresh_card is app-only (visibility ["app"])
 PASS  resources/list: 7 ui:// cards with mimeType text/html;profile=mcp-app
 PASS  resources/read: plan card is self-contained HTML with _meta.ui.csp

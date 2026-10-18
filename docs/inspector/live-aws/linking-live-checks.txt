@@ -34,3 +34,41 @@ stop    Mandat is paused. I voided 1 payment hold ($85): BrightNest Cleaning is 
 voided  BrightNest Cleaning sandbox 1UE91657XN9687419 released
 after   refused: Mandat is paused, so I will not book or buy anything. Say “resume Mandat” when y
 cleanup: household deleted
+
+== Off-script Nova turns, 19 Oct 2026 (before the two fixes; see FRICTION #20) ==
+
+> Yes, book it.  [200, 9.1 s, Nova]
+  tools: confirm_plan(error)
+  says : Sorry, I couldn't process your request because the confirmation token provided was too short. Please try again or let me know if you need help with anything else.
+
+> Alexa, my in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400.  [200, 8.8 s, Nova]
+  tools: set_spending_mandate, find_home_services, find_products, find_home_services, propose_plan
+  says : Here is the plan: BrightNest Cleaning $85, Hearth & Linen $92 and Hearth Table Catering $195. Total $372, after $25 negotiated off. That leaves $28 of your $400. I need your yes before I can book it. Should I book it?
+
+> Take the sateen set instead.  [200, 2.3 s, Nova]
+  tools: swap_item
+  says : Swapped Guest bed bundle for King sateen sheet set, white. New total $384, $16 left of your $400. Should I book it?
+
+> Actually, something in silk.  [200, 2.3 s, Nova]
+  tools: list_alternatives
+  says : I found three other options: Guest towel set for $38, All-season queen duvet for $76, and Guest bed bundle for $92. None of these are in silk. Would you like to keep the sateen set or choose one of these options?
+
+> Remove the cleaning.  [200, 1.6 s, Nova]
+  tools: revise_plan
+  says : Removed BrightNest Cleaning. New total $299, $101 left of your $400. Should I book it?
+
+> What's the total so far?  [200, 1.5 s, Nova]
+  tools: review_plan
+  says : The plan: Hearth Table Catering $195 and Hearth & Linen $104. Total $299, $101 left of your $400. Should I book it?
+
+> Oui, réserve.  [200, 6.6 s, Nova]
+  tools: confirm_plan
+  says : C’est réservé. 2 paiements réservés pour 299 $, rien n’est débité avant la livraison. Il reste 101 $ pour In-laws visit.
+
+> Yes, book it.  [200, 3.8 s, Nova]
+  tools: close_order, close_order
+  says : Paid Hearth Table Catering $195 and Hearth & Linen $104. $101 left in In-laws visit.
+
+Bedrock spend for these turns: $0.0653
+
+After the fixes (redeployed): a bare 'Yes, book it.' with nothing waiting -> host intent nothing_waiting, 0 tools, 'Nothing is waiting for your yes right now, so nothing was booked or charged.'

@@ -26,6 +26,7 @@ Severity scale: **Blocker** (could not continue) · **High** (hours lost or a de
 | 17 | Alexa+ account-linking docs × MCP authorization | Medium | The page never says how Alexa sends the access token, nor names RFC 9728 / `WWW-Authenticate`, which the MCP spec relies on |
 | 18 | Alexa+ Permissions (customer data) | Medium | The Permissions page says Alexa asks for name, email, address, but not how the granted values reach an MCP add-on |
 | 19 | Alexa+ account linking, end to end | Medium | Alexa's redirect URIs live in the Alexa+ Developer Hub (Private Preview): the real linking round-trip cannot be tested without access |
+| 20 | Amazon Nova 2 Lite (Strands) off the script | High | Live, a repeated "Yes, book it" with nothing waiting made the model capture two held orders; a too-early yes surfaced a raw validation error |
 
 ---
 
@@ -199,3 +200,12 @@ Severity scale: **Blocker** (could not continue) · **High** (hours lost or a de
 - **Severity:** Medium.
 - **Workaround:** the real Alexa client is configured by environment (`MANDAT_OAUTH_CLIENT_ID`, `MANDAT_OAUTH_CLIENT_SECRET`, `MANDAT_OAUTH_REDIRECT_URIS`); the demo uses a second static client (the simulator) with our own redirect page, and `scripts/link-demo.mjs` replays the full PKCE flow for tests and the MCP Inspector.
 - **Suggestion:** publish the redirect URI list per region, and an `alexa-ai` command that runs a linking round-trip against a development add-on.
+
+### 20. A yes with nothing waiting: the model paid anyway
+- **Task attempted:** check the turns a judge may say off the script on the public URL (19 Oct 2026, 8 Nova 2 Lite turns): a yes before any plan, a swap described in words, a remove, the total mid-way, a language switch, a yes said twice.
+- **Steps taken:** Strands agent on `us.amazon.nova-2-lite-v1:0`, our MCP server, the context line carrying the household's close tokens.
+- **Expected:** a yes with no plan waiting to do nothing and say so.
+- **Actual:** the first early "Yes, book it." made the model call `confirm_plan` with an invented token, and the user heard "the confirmation token provided was too short". After a booking, a second "Yes, book it." made it call `close_order` **capture** on both held orders (sandbox money): it took the yes as "settle up". The server's rules held (valid close tokens), but the intent was wrong. Before our new tool, "Take the sateen set instead" without seeing the options first also got "I couldn't find the sateen set any more".
+- **Severity:** High (money moved for a reason the user never gave).
+- **Workaround:** the host answers a bare yes with nothing waiting itself (no model call); a host guard refuses `close_order` unless the user's own words ask to settle, cancel or refund (EN/FR/ES); a `swap_item` tool finds an item described in words and offers the closest options when nothing matches. All three are tested; the same eight turns now behave.
+- **Suggestion:** a Strands hook or tool annotation for "requires an explicit user intent" (beyond `destructiveHint`), and guidance in the Alexa+ design guide on confirmations that arrive with nothing pending.
