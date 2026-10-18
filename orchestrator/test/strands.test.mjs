@@ -96,3 +96,8 @@ test('host guard: a budget needs an amount the user said, in English, French or 
   for (const u of ['Augmente le budget.', 'Sube el presupuesto.', 'Raise the budget.']) assert.ok(guardToolCall('set_spending_mandate', { budget: 999 }, u).cancel, u);
   assert.equal(guardToolCall('confirm_plan', { user_confirmation: 'yes' }, 'Oui, réserve.').input.user_confirmation, 'Oui, réserve.');
 });
+
+test('spoken(): the currency stays USD and numbered lists are read as sentences', () => {
+  assert.equal(spoken('He encontrado tres opciones: 1. BrightNest Cleaning - 85 € (antes 95 €) 2. TidyHive - 105 €'), 'He encontrado tres opciones: BrightNest Cleaning - 85 $ (antes 95 $) TidyHive - 105 $');
+  assert.equal(spoken('Total 372 $, it leaves $28.'), 'Total 372 $, it leaves $28.');
+});

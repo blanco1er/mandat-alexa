@@ -229,7 +229,7 @@ function trailLabel(s) {
     case 'set_spending_mandate': return t('Budget {amt}', { amt: usd(d.mandate?.budget || 0) });
     case 'remember_preference': return t('Saved to memory');
     case 'get_household_status': return t('Checked the budget');
-    case 'find_home_services': return t('{n} {noun} asked', { n: d.asked || '', noun: t((d.asked === 1 ? { cleaning: 'cleaner', catering: 'caterer', plumbing: 'plumber', handyman: 'handyman' } : { cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' })[d.category] || 'pros') }).trim();
+    case 'find_home_services': return t(`{n} ${(d.asked === 1 ? { cleaning: 'cleaner', catering: 'caterer', plumbing: 'plumber', handyman: 'handyman' } : { cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' })[d.category] || 'pros'} asked`, { n: d.asked || '' }).trim();
     case 'find_products': return d.skipped?.length ? t('Products · {n} skipped', { n: d.skipped.length }) : t('Products checked');
     case 'negotiate_offer': return t('Negotiated');
     case 'get_offer_details': return d.offer ? t('Opened {name}', { name: d.offer.kind === 'service' || lang() !== 'en' ? d.offer.merchant : String(d.offer.title).split(':')[0] }) : t('Done');

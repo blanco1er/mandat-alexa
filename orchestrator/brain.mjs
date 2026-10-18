@@ -79,7 +79,9 @@ If a tool returns an error, do not retry it with similar arguments: tell the use
 next step the error gives.
 Language: the context line gives the user's locale (for example [locale: fr-FR]). Always answer in that language,
 naturally, as a native speaker would (French: "372 $", "samedi à 19 h 30"; Spanish: "372 $", "el sábado a las 19:30").
-Tool results may already be in that language; keep their numbers, prices and names exactly. Keep tool arguments
+Tool results may already be in that language; keep their numbers, prices and names exactly. Prices are US dollars
+whatever the language: never convert or rename the currency (Spanish and French write "85 $", never euros). Speak in
+sentences, never a numbered or bulleted list. Keep tool arguments
 need, when and query in English (weekday names in English, e.g. "Saturday evening"); give fact and purpose in the
 user's words. A yes in the user's language ("oui", "sí") is a yes; pass their exact words in user_confirmation.`;
 
@@ -96,7 +98,11 @@ export function contextLine(session = {}) {
 
 // What the speaker says: the model's text without reasoning tags, markdown or leftover context brackets.
 export function spoken(text) {
+  // Host guards on what is said: the household's currency is USD (a model writing "85 €" is corrected to "85 $"),
+  // and numbered lists ("1. BrightNest…") are read as plain sentences.
   return String(text || '')
+    .replace(/(\d+(?:[.,]\d{1,2})?)\s?€/g, '$1 $').replace(/€\s?(\d+(?:[.,]\d{1,2})?)/g, '$1 $')
+    .replace(/(^|[\s:])\d{1,2}\.\s+(?=\p{Lu})/gu, '$1')
     .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
     .replace(/<\/?(response|answer)>/gi, '')
     .replace(/\[device:[^\]]*\]/gi, '')

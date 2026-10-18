@@ -100,7 +100,7 @@ export function liveStart(name, a = {}) {
 export function liveEnd(name, d = {}) {
   const env = d.envelope || d.receipt?.envelope;
   switch (name) {
-    case 'find_home_services': return { text: T('le_svc', { n: d.asked, noun: I.noun(d.category, d.asked, L()), q: d.offers?.length || 0 }), to: d.offers?.[0]?.total ?? null, detail: d.offers?.[0] ? T('le_best', { m: d.offers[0].merchant }) : undefined };
+    case 'find_home_services': return { text: T('le_svc', { n: d.asked, noun: I.noun(d.category, d.asked, L()), cat: d.category, q: d.offers?.length || 0 }), to: d.offers?.[0]?.total ?? null, detail: d.offers?.[0] ? T('le_best', { m: d.offers[0].merchant }) : undefined };
     case 'find_products': {
       const best = d.offers?.[0];
       const skipped = d.skipped || [];
