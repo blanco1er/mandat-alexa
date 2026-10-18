@@ -11,4 +11,4 @@ Avoid
 - "Tap Approve on the screen" on a screenless device.
 - More than one question in a turn, or more than 5 options (3 without a screen).
 - Confirming a payment the user did not approve, even if it is "only" a few dollars above the rule.
-- Say times the en-US way ("Sunday at 7:30 PM"), never 24-hour clock times.
+- 24-hour clock times ("19:30"): say "7:30 PM".
