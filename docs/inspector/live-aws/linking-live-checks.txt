@@ -72,3 +72,29 @@ cleanup: household deleted
 Bedrock spend for these turns: $0.0653
 
 After the fixes (redeployed): a bare 'Yes, book it.' with nothing waiting -> host intent nothing_waiting, 0 tools, 'Nothing is waiting for your yes right now, so nothing was booked or charged.'
+
+== Final off-script checks in the browser on the public URL, 19 Oct 2026 (5 Nova turns, then a host-handled second yes) ==
+> Alexa, my in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400.
+  says: I asked three merchants for each service. The plan is BrightNest Cleaning for $85, Hearth & Linen bedding for $92 and Hearth Table Catering for $195. The total is $372, after $25 negotiated off, leaving $28 of your $400 budget. Should I book it?
+> Take the sateen set instead.
+  says: I've swapped the guest bed bundle for a King sateen sheet set in white. It's made of cotton sateen with a silky finish and will be delivered in 2 days. The new total is $384, with $16 left of your $400 budget. Should I book it?
+> Something in linen.
+  says: I don't have a king sateen sheet set among the options. The closest is the guest bed bundle for $92. Would you like that instead?
+> Can it come tomorrow?
+  says: The new plan is $385 with BrightNest Cleaning, Hearth Table Catering and TidyHive. $15 is left of your $400. Should I book it?
+> Yes.
+  says: Booked. 3 payment holds for $385; nothing is charged until each is delivered. $15 is left in In-laws visit.
+> Yes.
+  says: Nothing is waiting for your yes right now, so nothing was booked or charged.
+PayPal sandbox after the two yes (one plan, one set of holds):
+orders: 3; distinct PayPal authorizations: 3; distinct plans: 1
+  TidyHive                 sandbox 1P619403AE174084D held 105
+  BrightNest Cleaning      sandbox 48339405EN3199023 held 85
+  Hearth Table Catering    sandbox 5E85345885550803H held 195
+
+Found and fixed after this run: 'Something in linen' got one option (now up to 3); 'Can it come tomorrow?' made the model swap the bedding for a second cleaner (now refused by the server: swaps are like for like; timing questions answered with the real delivery). Server answers after the redeploy (MCP, no model):
+plan           372
+sateen         Swapped Guest bed bundle for King sateen sheet set, white. Chosen for cotton sateen, silky finish and delivery in 2 days. New total $384, $16 left of your $400. Should I book it?
+linen          I don't have “linen” among the options. The closest: Guest bed bundle, $92, Guest towel set, $38 and All-season queen duvet, hypoallergenic, $76. Want one of these?
+tomorrow       Hearth & Linen delivers in 2 days, so the King sateen sheet set, white cannot come tomorrow. Nothing changed: your plan is still $384.
+cross-kind     That would replace one kind of item with a different kind, so I did not change the plan. Next step: Only swap an item for one of the same kind; ask the user what they want instead.
