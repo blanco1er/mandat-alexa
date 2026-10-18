@@ -1,4 +1,4 @@
-MCP Inspector @modelcontextprotocol/inspector@2.11.0 -> http://127.0.0.1:8798/mcp (account link: a fresh empty household, OAuth 2.1 + PKCE), 2026-10-18T21:21Z
+MCP Inspector @modelcontextprotocol/inspector@2.11.0 -> http://127.0.0.1:8799/mcp (account link: a fresh empty household, OAuth 2.1 + PKCE), 2026-10-18T21:31Z
 PASS  initialize: protocol 2025-11-25
 PASS  initialize: MCP Apps extension io.modelcontextprotocol/ui announced
 PASS  initialize: listChanged false (stateless, fixed lists)

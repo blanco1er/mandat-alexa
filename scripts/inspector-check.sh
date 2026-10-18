@@ -15,7 +15,7 @@ SERVER_PID=""
 
 if [ -z "${MCP_URL:-}" ]; then
   PORT="${PORT:-8797}"
-  (cd "$ROOT" && MANDAT_AUTH=required MANDAT_STORE=memory MANDAT_MODEL=simulated MANDAT_PAYPAL=offline MANDAT_BRAIN=none PORT="$PORT" node src/server.mjs >/dev/null 2>&1) &
+  (cd "$ROOT" && MANDAT_AUTH=required MANDAT_STORE=memory MANDAT_MODEL=simulated MANDAT_PAYPAL=offline MANDAT_BRAIN=none PORT="$PORT" exec node src/server.mjs >/dev/null 2>&1) & # exec: the trap then stops node itself
   SERVER_PID=$!
   trap '[ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null' EXIT
   MCP_URL="http://127.0.0.1:$PORT/mcp"
