@@ -12,6 +12,8 @@ export class AppsHost {
     window.addEventListener('message', (e) => this.receive(e));
   }
   setContext(patch) {
+    const same = Object.entries(patch).every(([k, v]) => JSON.stringify(this.hostContext[k]) === JSON.stringify(v));
+    if (same) return; // only real changes reach the view (and the drawer)
     this.hostContext = { ...this.hostContext, ...patch };
     if (this.frame) this.send({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: patch });
   }
@@ -36,6 +38,7 @@ export class AppsHost {
     this.pending = { toolName, args, result };
     this.frame = f;
     this.container.replaceChildren(f);
+    setTimeout(() => f.classList.add('in'), 900); // shown even if the view never initializes
   }
   async receive(e) {
     if (!this.frame || e.source !== this.frame.contentWindow) return;
@@ -54,6 +57,7 @@ export class AppsHost {
           hostContext: this.hostContext,
         });
       case 'ui/notifications/initialized':
+        requestAnimationFrame(() => this.frame?.classList.add('in'));
         if (this.pending) {
           this.send({ jsonrpc: '2.0', method: 'ui/notifications/tool-input', params: { arguments: this.pending.args || {} } });
           this.send({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: this.pending.result });

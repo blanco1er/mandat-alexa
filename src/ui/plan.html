@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mandat plan</title>
 <style>/*SHARED_CSS*/
-.total { display: flex; justify-content: space-between; align-items: baseline; }
-.actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.breakdown { font-size: var(--t-eyebrow); color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
-.done { font-weight: 650; color: var(--good); }
+.saved { font-size: var(--t-small); font-weight: 600; color: var(--good); }
+.foot { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: calc(var(--gap) * 1.4); align-items: center; }
+:root[data-display="fullscreen"] #expand, :root:not([data-display="fullscreen"]) #back { display: none; }
+:root:not([data-display="fullscreen"]) .who span.long { display: none; }
 </style></head>
 <body><main class="card" id="app"><p class="eyebrow">Mandat · plan</p><h1>Preparing your plan…</h1></main>
 <script>/*BRIDGE_JS*/
@@ -15,27 +15,36 @@ function render(result) {
   const plan = sc.plan; if (!plan) return;
   current = sc;
   const b = plan.breakdown;
-  const status = plan.status === 'confirmed' ? '<span class="pill ok">Booked</span>' : plan.auto_approved ? '<span class="pill ok">Under your auto-approve rule</span>' : '<span class="pill">Needs your yes</span>';
+  const n = plan.lines.length;
+  const booked = plan.status === 'confirmed';
+  const pill = booked ? '<span class="pill ok">Booked</span>' : plan.auto_approved ? '<span class="pill ok">Within your rule</span>' : '<span class="pill wait">Needs your yes</span>';
+  const env = sc.envelope;
   $('#app').innerHTML = `
-    <div class="row"><p class="eyebrow">Mandat · ${esc(plan.purpose || 'plan')}</p>${status}</div>
-    <div class="total"><h1>${plan.lines.length} ${plan.lines.length === 1 ? 'item' : 'items'}</h1><span class="num">${usd(b.total)}</span></div>
-    <ul class="lines">${plan.lines.map((l) => `<li><span>${esc(l.merchant)}<br><span class="muted">${esc(l.detail || l.title)}</span></span><b>${usd(l.total)}</b></li>`).join('')}</ul>
-    <div class="breakdown"><span>Base ${usd(b.base)}</span>${b.discount ? `<span class="good">Negotiated −${usd(b.discount)}</span>` : ''}<span>Fees ${usd(b.fees)}</span><span>Tax ${usd(b.tax)}</span><span>Total ${usd(b.total)}</span></div>
-    ${sc.envelope ? gauge({ ...sc.envelope }) : ''}
-    <div class="actions" id="actions">${plan.status === 'confirmed' ? '<span class="done">Booked. Payment holds placed.</span>' :
-      `<button class="primary" id="approve">${plan.auto_approved ? 'Buy now' : 'Approve ' + usd(b.total)}</button><button class="ghost" id="expand">Expand</button>`}</div>`;
+    <div class="head"><p class="eyebrow">${esc(plan.purpose || 'Plan')}<span class="sep"></span>${booked ? 'Payment holds placed' : 'Plan to approve'}</p>${pill}</div>
+    <div class="hero">
+      <h1>${n} ${n === 1 ? 'item' : 'items'}, one ${booked ? 'approval' : 'yes'}</h1>
+      <span class="num">${usd(b.total)}</span>
+    </div>
+    <ul class="rows">${plan.lines.map((l) => `<li>${kindIcon(l)}<span class="who"><b>${esc(l.merchant)}</b><span>${l.kind === 'product' ? `${esc(l.title)} · ${esc(l.detail || '')}` : `${esc(l.detail || '')}${l.guests ? ` · ${l.guests} guests` : ''}`}</span>${l.kind === 'product' ? '' : `<span class="long">${esc(l.title)}</span>`}</span><span class="amt">${l.discount ? `<s>${usd(l.base + (l.fees || 0))}</s>` : ''}${usd(l.total)}</span></li>`).join('')}</ul>
+    <div class="breakdown"><span>Base <b>${usd(b.base)}</b></span>${b.discount ? `<span>Negotiated <b class="good">−${usd(b.discount)}</b></span>` : ''}<span>Fees <b>${usd(b.fees)}</b></span><span>Tax <b>${usd(b.tax)}</b></span><span>Total <b>${usd(b.total)}</b></span></div>
+    <div class="foot">
+      <div class="actions" id="actions">${booked ? `<span class="done"><svg viewBox="0 0 24 24">${ICONS.check}</svg>Booked. Nothing is charged until it is done.</span>` :
+        `<button class="primary" id="approve">${plan.auto_approved ? 'Buy now' : 'Approve ' + usd(b.total)}</button><button class="ghost" id="expand">Details</button><button class="ghost" id="back">Back</button>`}</div>
+      ${env ? gauge(env, booked ? {} : { adding: b.total, after: plan.remaining_after ?? null }) : ''}
+    </div>`;
   const a = $('#approve');
   if (a) a.onclick = async () => {
     a.disabled = true; a.textContent = 'Placing holds…';
     try {
       const r = await mcpApp.callTool('confirm_plan', { plan_id: plan.id, confirmation_token: current.confirmation_token, user_confirmation: 'tap:approve' });
-      if (r.isError) { a.disabled = false; a.textContent = 'Try again'; $('#actions').insertAdjacentHTML('beforeend', `<p class="lead">${esc((r.content || []).map((c) => c.text).join(' '))}</p>`); return; }
+      if (r.isError) { a.disabled = false; a.textContent = 'Try again'; $('#actions').insertAdjacentHTML('beforeend', `<p class="note">${esc((r.content || []).map((c) => c.text).join(' '))}</p>`); return; }
       plan.status = 'confirmed';
-      const env = r.structuredContent && r.structuredContent.receipt && r.structuredContent.receipt.envelope;
-      render({ structuredContent: { ...current, plan, envelope: env || current.envelope } });
+      const env2 = r.structuredContent && r.structuredContent.receipt && r.structuredContent.receipt.envelope;
+      render({ structuredContent: { ...current, plan, envelope: env2 || current.envelope } });
     } catch (e) { a.disabled = false; a.textContent = 'Try again'; }
   };
   const x = $('#expand'); if (x) x.onclick = () => mcpApp.requestDisplayMode('fullscreen').catch(() => {});
+  const bk = $('#back'); if (bk) bk.onclick = () => mcpApp.requestDisplayMode('inline').catch(() => {});
 }
 mcpApp.on('result', render);
 mcpApp.connect('mandat-plan');

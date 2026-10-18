@@ -230,9 +230,10 @@ export class Mandat {
     }
     for (const o of top) await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
     const label = { cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' }[cat];
-    const spoken = top.slice(0, 3).map((o, i) => `${i === 0 ? 'Best' : 'Then'}: ${o.merchant}, ${usd(o.total)} ${spokenSlot(o.slot_label)}${o.discount ? `, down from ${usd(o.base)}` : ''}`);
+    const one = { cleaning: 'cleaner', catering: 'caterer', plumbing: 'plumber', handyman: 'handyman' }[cat];
+    const spoken = top.slice(0, 3).map((o, i) => `${top.length === 1 ? '' : i === 0 ? 'Best: ' : 'Then: '}${o.merchant}, ${usd(o.total)} ${spokenSlot(o.slot_label)}${o.discount ? `, down from ${usd(o.base)}` : ''}`);
     return {
-      speech: `I asked ${answers.length} ${label}. ${spoken.join('. ')}.`,
+      speech: `${answers.length === 1 ? `I asked the one ${one} available.` : `I asked ${answers.length} ${label}.`} ${spoken.join('. ')}.`,
       data: { category: cat, asked: answers.length, offers: top, declined },
       card: 'offers',
     };
@@ -315,7 +316,7 @@ export class Mandat {
     for (const oid of ids) offers.push(await this.offer(hid, oid));
     const m = await this.mandate(hid, mandate_id);
     const env = await this.envelopeOf(hid, m);
-    const lines = offers.map((o) => ({ offer_id: o.id, kind: o.kind, merchant: o.merchant, merchant_id: o.merchant_id, title: o.title, detail: o.slot_label, guests: o.guests ?? null, quantity: o.quantity ?? null, base: o.base, discount: o.discount, fees: o.fees, tax: o.tax, total: o.total }));
+    const lines = offers.map((o) => ({ offer_id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, merchant_id: o.merchant_id, title: o.title, detail: o.slot_label, guests: o.guests ?? null, quantity: o.quantity ?? null, base: o.base, discount: o.discount, fees: o.fees, tax: o.tax, total: o.total }));
     const sum = (k) => round(lines.reduce((s, l) => s + (l[k] || 0), 0));
     const breakdown = { base: sum('base'), discount: sum('discount'), fees: sum('fees'), tax: sum('tax'), total: sum('total'), currency: m.currency };
     const verdict = envelope.check(env, breakdown.total);
@@ -370,7 +371,7 @@ export class Mandat {
           envelope.hold(env, { id: oid, merchant: l.merchant, label: l.title, amount: l.total, paypal: pp });
           const at = new Date(this.now()).toISOString();
           orders.push({
-            id: oid, plan_id: plan.id, mandate_id: m.id, kind: l.kind, merchant_id: l.merchant_id, merchant: l.merchant, label: l.title, slotLabel: l.detail,
+            id: oid, plan_id: plan.id, mandate_id: m.id, kind: l.kind, category: l.category ?? null, merchant_id: l.merchant_id, merchant: l.merchant, label: l.title, slotLabel: l.detail,
             guests: l.guests, quantity: l.quantity, amount: l.total, currency: m.currency, state: 'held', paypal: { orderId: pp.orderId, authorizationId: pp.authorizationId, mode: pp.mode },
             close_token: crypto.randomBytes(12).toString('hex'), timeline: [{ state: 'held', amount: l.total, at }],
           });

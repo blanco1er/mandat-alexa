@@ -1,31 +1,44 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mandat offers</title>
 <style>/*SHARED_CSS*/
-.rail { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(240px, 46%); gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; }
-.offer { scroll-snap-align: start; border: 2px solid var(--line); border-radius: 18px; padding: 16px; display: grid; gap: 6px; background: var(--bg); cursor: pointer; text-align: left; color: inherit; font: inherit; }
-.offer[aria-pressed="true"] { border-color: var(--accent); }
-.offer .price { font-size: var(--t-title); font-weight: 700; }
-.offer .was { text-decoration: line-through; color: var(--muted); font-size: var(--t-eyebrow); margin-left: 6px; }
-.small { font-size: var(--t-eyebrow); color: var(--muted); }
-.verified { color: var(--good); font-size: var(--t-eyebrow); font-weight: 600; }
+.rail { display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 2 * var(--gap)) / 3); gap: var(--gap); overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; margin: 0 calc(var(--pad) * -1); padding: 2px var(--pad); scroll-padding: 0 var(--pad); }
+.rail::-webkit-scrollbar { display: none; }
+.offer { scroll-snap-align: start; position: relative; display: grid; align-content: start; gap: .5em; text-align: left; padding: 1em 1.05em 1.05em; border-radius: calc(var(--radius) * .62); border: 1.5px solid var(--line); background: var(--surface-2); cursor: pointer; font: inherit; color: inherit; transition: border-color .2s, transform .2s var(--ease), background .2s; }
+.offer:hover { transform: translateY(-1px); }
+.offer[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--surface-2)); }
+.offer .top { display: flex; align-items: center; gap: .6em; min-width: 0; }
+.offer .top b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.offer .price { font-size: var(--t-title); font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1; }
+.offer .price s { font-size: var(--t-small); color: var(--faint); font-weight: 450; margin-left: .45em; letter-spacing: 0; }
+.offer .when { font-size: var(--t-small); color: var(--ink); }
+.offer .quote { font-size: var(--t-small); color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.offer .tag { display: inline-flex; align-items: center; gap: .4em; font-size: var(--t-eyebrow); font-weight: 650; color: var(--good); }
+.offer .tag svg { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.offer .best { position: absolute; top: .9em; right: .9em; font-size: var(--t-eyebrow); font-weight: 650; color: var(--accent); }
 </style></head>
 <body><main class="card" id="app"><p class="eyebrow">Mandat · options</p><h1>Asking the merchants…</h1></main>
 <script>/*BRIDGE_JS*/
+const PLURAL = { catering: 'caterers', cleaning: 'cleaners', plumbing: 'plumbers', handyman: 'handymen' };
+const ONE = { catering: 'caterer', cleaning: 'cleaner', plumbing: 'plumber', handyman: 'handyman' };
 function render(result) {
   if (result.isError) return showError(result);
   const sc = result.structuredContent || {};
   const offers = sc.offers || sc.alternatives || [];
   if (!offers.length) return;
-  const head = sc.category ? `${sc.asked} ${sc.category === 'catering' ? 'caterers' : sc.category === 'cleaning' ? 'cleaners' : 'pros'} asked` : sc.query ? 'Products' : 'Updated quote';
+  const svc = offers[0].kind === 'service';
+  const eyebrow = sc.category ? `${sc.asked} ${(sc.asked === 1 ? ONE : PLURAL)[sc.category] || 'pros'} asked<span class="sep"></span>${sc.asked === 1 ? 'agent' : 'agents'} verified` : sc.query ? 'Products' : 'Updated quote';
+  const best = offers[0];
   $('#app').innerHTML = `
-    <div class="row"><p class="eyebrow">Mandat · ${esc(head)}</p>${sc.skipped && sc.skipped.length ? `<span class="pill">${sc.skipped.length} skipped for your household</span>` : ''}</div>
-    <h1>${esc(offers[0].merchant)} · ${usd(offers[0].total)}</h1>
-    <div class="rail" role="list">${offers.slice(0, 5).map((o, i) => `
+    <div class="head"><p class="eyebrow">${eyebrow}</p>${sc.skipped && sc.skipped.length ? `<span class="pill">${sc.skipped.length} skipped for your household</span>` : svc ? `<span class="pill">${offers.length} ${offers.length === 1 ? 'quote' : 'quotes'}</span>` : ''}</div>
+    <div class="hero"><h1>${svc && offers.length > 1 ? 'Best: ' : ''}${esc(best.merchant)}</h1><span class="num">${usd(best.total)}</span></div>
+    <div class="rail" role="list"${offers.length < 3 ? ' style="grid-auto-columns: calc((100% - var(--gap)) / 2)"' : ''}>${offers.slice(0, 5).map((o, i) => `
       <button class="offer" role="listitem" aria-pressed="${i === 0}" data-id="${esc(o.id)}">
-        <span class="small">${esc(o.kind === 'product' ? o.merchant : `${o.merchant} · ★ ${o.rating}`)}</span>
-        <span><span class="price">${usd(o.total)}</span>${o.discount ? `<span class="was">${usd(o.base)}</span>` : ''}</span>
-        <span>${esc(o.kind === 'product' ? o.title : o.slot_label)}</span>
-        ${o.kind === 'service' ? `<span class="small">“${esc(o.negotiation)}”</span><span class="verified">${o.card_verified ? '✓ Verified agent card' : 'Unverified'}</span>` : o.matches_preference ? '<span class="verified">Your usual</span>' : ''}
+        ${i === 0 && offers.length > 1 ? '<span class="best">Best</span>' : ''}
+        <span class="top">${kindIcon(o)}<b>${esc(o.merchant)}</b></span>
+        <span class="price">${usd(o.total)}${o.discount ? `<s>${usd(o.base + (o.fees || 0))}</s>` : ''}</span>
+        <span class="when">${esc(o.kind === 'product' ? o.slot_label : o.slot_label)}${o.kind === 'service' && o.rating ? ` · ★ ${o.rating}` : ''}</span>
+        ${o.kind === 'service' ? `<span class="quote">“${esc(o.negotiation)}”</span>${o.card_verified ? `<span class="tag"><svg viewBox="0 0 24 24">${ICONS.check}</svg>Verified agent</span>` : '<span class="tag" style="color:var(--warn)">Unverified</span>'}`
+          : `<span class="quote">${esc(o.title)}</span>${o.matches_preference ? `<span class="tag"><svg viewBox="0 0 24 24">${ICONS.check}</svg>Your usual</span>` : ''}`}
       </button>`).join('')}</div>`;
   for (const b of document.querySelectorAll('.offer')) b.onclick = () => {
     for (const x of document.querySelectorAll('.offer')) x.setAttribute('aria-pressed', String(x === b));

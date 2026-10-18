@@ -1,9 +1,13 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mandat status</title>
 <style>/*SHARED_CSS*/
-.grid { display: grid; gap: 14px; }
-.small { font-size: var(--t-eyebrow); color: var(--muted); }
-.prefs { display: flex; gap: 8px; flex-wrap: wrap; }
+.envs { display: grid; gap: calc(var(--gap) * .9); }
+.prefs { display: flex; gap: .5em; flex-wrap: wrap; }
+.chip { display: inline-flex; gap: .45em; align-items: baseline; font-size: var(--t-small); padding: .4em .9em; border-radius: 999px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line) inset; }
+.chip b { font-weight: 650; }
+.chip.new { background: var(--accent-soft); box-shadow: none; }
+.fact { font-size: var(--t-title); font-weight: 650; letter-spacing: -.02em; line-height: 1.12; margin: 0; text-wrap: balance; }
+.fact .q { color: var(--faint); }
 </style></head>
 <body><main class="card" id="app"><p class="eyebrow">Mandat · household</p><h1>Loading…</h1></main>
 <script>/*BRIDGE_JS*/
@@ -11,16 +15,25 @@ function render(result) {
   if (result.isError) return showError(result);
   const sc = result.structuredContent || {};
   const envs = sc.envelopes || [];
-  const prefs = sc.preferences || (sc.saved ? [sc.saved] : []);
+  const prefs = sc.preferences || [];
   const open = sc.open_orders || [];
   const main = envs[0];
+  const chips = prefs.slice(0, 6).map((p) => `<span class="chip${sc.saved && p.id === sc.saved.id ? ' new' : ''}"><b>${esc(p.subject)}</b>${esc(p.fact)}</span>`).join('');
+  if (sc.saved) {
+    $('#app').innerHTML = `
+      <div class="head"><p class="eyebrow">Household memory<span class="sep"></span>${esc(sc.saved.subject)}</p><span class="pill ok">Remembered</span></div>
+      <p class="fact"><span class="q">“</span>${esc(sc.saved.fact)}<span class="q">”</span></p>
+      <p class="note">Applied to every search from now on, in every session.</p>
+      ${chips ? `<div class="prefs">${chips}</div>` : ''}`;
+    return;
+  }
+  const pending = (sc.pending_decisions || []).length;
   $('#app').innerHTML = `
-    <p class="eyebrow">Mandat · household</p>
-    ${sc.saved ? `<h1>Remembered</h1><p class="lead">${esc(sc.saved.subject)}: ${esc(sc.saved.fact)}</p>` : main ? `<div class="row"><h1>${esc(main.purpose)}</h1><span class="num">${usd(main.remaining)}</span></div>` : '<h1>No budget yet</h1>'}
-    <div class="grid">${envs.map(gauge).join('')}</div>
-    ${open.length ? `<ul class="lines">${open.slice(0, 4).map((o) => `<li><span>${esc(o.merchant)} <span class="small">${esc(o.slotLabel || '')}</span></span><b>${usd(o.amount)}</b></li>`).join('')}</ul>` : ''}
-    ${prefs.length ? `<div class="prefs">${(sc.preferences || prefs).slice(0, 6).map((p) => `<span class="pill">${esc(p.subject)} · ${esc(p.fact)}</span>`).join('')}</div>` : ''}
-    ${sc.pending_decisions && sc.pending_decisions.length ? `<p class="lead">${sc.pending_decisions.length} plan waiting for your yes.</p>` : ''}`;
+    <div class="head"><p class="eyebrow">Household<span class="sep"></span>${envs.length} ${envs.length === 1 ? 'budget' : 'budgets'}</p>${pending ? `<span class="pill wait">${pending} waiting for your yes</span>` : open.length ? `<span class="pill">${open.length} open</span>` : '<span class="pill ok">All settled</span>'}</div>
+    ${main ? `<div class="hero"><h1>${esc(main.purpose)}</h1><span class="num">${usd(main.remaining)}<span class="small" style="margin-left:.3em;letter-spacing:0;font-weight:500">left</span></span></div>` : '<h1>No budget yet</h1><p class="lead">Say “Set a weekly household budget of $150”.</p>'}
+    <div class="envs">${envs.map((e) => gauge(e)).join('')}</div>
+    ${open.length ? `<ul class="rows">${open.slice(0, 4).map((o) => `<li>${kindIcon(o)}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.slotLabel || o.label || '')}</span></span><span class="amt">${usd(o.amount)}</span></li>`).join('')}</ul>` : ''}
+    ${chips && !open.length ? `<div class="prefs">${chips}</div>` : ''}`;
 }
 mcpApp.on('result', render);
 mcpApp.connect('mandat-status');

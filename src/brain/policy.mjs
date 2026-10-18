@@ -114,7 +114,7 @@ export function decide({ utterance, session = {}, steps = [] }) {
         const ids = steps.slice(1, ws.length + 1).map((s) => best(s.result)?.id).filter(Boolean);
         return tool('propose_plan', { item_ids: ids, mandate_id: sc(steps[0].result).mandate.id, note: purposeOf(u) });
       }
-      const asked = steps.slice(1, ws.length + 1).filter((s) => s.name === 'find_home_services').map((s) => `${sc(s.result).asked} ${sc(s.result).category === 'catering' ? 'caterers' : sc(s.result).category === 'cleaning' ? 'cleaners' : 'pros'}`);
+      const asked = steps.slice(1, ws.length + 1).filter((s) => s.name === 'find_home_services').map((s) => { const n = sc(s.result).asked; const c = sc(s.result).category; return `${n} ${c === 'catering' ? 'caterer' : c === 'cleaning' ? 'cleaner' : 'pro'}${n === 1 ? '' : 's'}`; });
       return say(`${asked.length ? `I asked ${asked.join(' and ')}. ` : ''}${said(last.result)}${dot ? ' Say yes to confirm.' : ''}`);
     }
 

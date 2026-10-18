@@ -1,8 +1,10 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mandat budget</title>
 <style>/*SHARED_CSS*/
-.facts { display: flex; gap: 22px; flex-wrap: wrap; }
-.facts div { display: grid; } .small { font-size: var(--t-eyebrow); color: var(--muted); }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); }
+.fact { display: grid; gap: .25em; padding: .85em 1em; border-radius: calc(var(--radius) * .55); background: var(--surface-2); min-width: 0; }
+.fact span { font-size: var(--t-eyebrow); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+.fact b { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style></head>
 <body><main class="card" id="app"><p class="eyebrow">Mandat · budget</p><h1>Setting your budget…</h1></main>
 <script>/*BRIDGE_JS*/
@@ -10,16 +12,17 @@ function render(result) {
   if (result.isError) return showError(result);
   const sc = result.structuredContent || {};
   const m = sc.mandate; if (!m) return;
+  const period = m.period === 'once' ? 'One time' : cap(m.period);
   $('#app').innerHTML = `
-    <div class="row"><p class="eyebrow">Mandat · budget</p>${m.status === 'active' ? '<span class="pill ok">Active</span>' : '<span class="pill">Approve once with PayPal</span>'}</div>
-    <div class="row"><h1>${esc(m.purpose)}</h1><span class="num">${usd(m.budget, m.currency)}</span></div>
+    <div class="head"><p class="eyebrow">Spending budget<span class="sep"></span>${esc(period)}</p>${m.status === 'active' ? '<span class="pill ok">Active</span>' : '<span class="pill wait">Approve once with PayPal</span>'}</div>
+    <div class="hero"><h1>${esc(m.purpose)}</h1><span class="num">${usd(m.budget, m.currency)}</span></div>
     <div class="facts">
-      <div><span class="small">Period</span><b>${esc(m.period === 'once' ? 'One time' : m.period[0].toUpperCase() + m.period.slice(1))}</b></div>
-      <div><span class="small">Buys on its own</span><b>${m.auto_approve_under > 0 ? 'Under ' + usd(m.auto_approve_under, m.currency) : 'Never: always asks'}</b></div>
-      <div><span class="small">Payments</span><b>PayPal ${esc(m.paypal && m.paypal.mode === 'offline' ? 'simulated' : 'sandbox')}</b></div>
+      <div class="fact"><span>Buys on its own</span><b>${m.auto_approve_under > 0 ? 'Under ' + usd(m.auto_approve_under, m.currency) : 'Never, always asks'}</b></div>
+      <div class="fact"><span>Above that</span><b>Asks for your yes</b></div>
+      <div class="fact"><span>Payments</span><b>PayPal ${esc(m.paypal && m.paypal.mode === 'offline' ? 'sandbox (sim.)' : 'sandbox')}</b></div>
     </div>
     ${sc.envelope ? gauge(sc.envelope) : ''}
-    ${sc.approval_url ? '<button class="primary" id="go">Approve with PayPal</button>' : ''}`;
+    ${sc.approval_url ? '<div class="actions"><button class="primary" id="go">Approve with PayPal</button></div>' : ''}`;
   const b = $('#go'); if (b) b.onclick = () => mcpApp.openLink(sc.approval_url).catch(() => {});
 }
 mcpApp.on('result', render);
