@@ -71,6 +71,9 @@ export function detectHostIntent(text, session = {}) {
   if (session.pendingDelete) return isExplicitYes(text) ? { kind: 'delete_confirm' } : { kind: 'delete_cancel' };
   if (DELETE.test(t)) return { kind: 'delete_ask' };
   if (OPEN.test(t)) return { kind: 'open_settings' };
+  // a bare yes with no plan waiting (too early, or said twice): nothing to pay, and no model gets the chance to
+  // invent something to pay (seen live: Nova captured two orders on a repeated "Yes, book it")
+  if (!session.pending && !session.settingsOpen && !session.onboarding && isExplicitYes(text) && t.split(' ').length <= 6) return { kind: 'nothing_waiting' };
   // settings said aloud: only while the settings card is open (or during the first run), and only for a short
   // sentence or one that names a week, a day or a level ("Keep it under $400" inside a long errand stays the model's)
   const short = t.split(' ').length <= 12 || WEEK.test(t) || DAY.test(t) || LEVEL_WORDS.some(([, re]) => re.test(t));
@@ -107,6 +110,7 @@ export async function runHostIntent({ text, session = {}, locale, household, tur
         return out();
       }
       case 'resume': { speech = said(await call('resume_spending')); return out(); }
+      case 'nothing_waiting': { speech = tr(locale, 'p_nothing_waiting'); return out(); }
       case 'delete_ask': {
         const r = await call('get_household_status', { section: 'orders' });
         const open = sc(r).open_orders || [];

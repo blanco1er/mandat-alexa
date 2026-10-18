@@ -78,6 +78,12 @@ test('host guardrail: settings amounts only when said, only the user lifts an em
   const d = guardToolCall('delete_my_data', { user_confirmation: 'Yes' }, 'Yes, delete it.');
   assert.equal(d.input.user_confirmation, 'Yes, delete it.');
   assert.ok(!guardToolCall('pause_spending', {}, 'stop everything').cancel, 'the emergency stop is never blocked');
+  // seen live: Nova answered a repeated "Yes, book it" by capturing two held orders
+  assert.ok(guardToolCall('close_order', { order_id: 'o', action: 'capture' }, 'Yes, book it.').cancel);
+  assert.ok(!guardToolCall('close_order', { order_id: 'o', action: 'capture' }, 'Everything went well. Settle up: Olive billed $180, and refund the $28 pillowcases.').cancel);
+  assert.ok(!guardToolCall('close_order', { order_id: 'o', action: 'refund' }, 'Tout s’est bien passé. On solde : Olive a facturé 180 $, et rembourse les 28 $ des taies d’oreiller.').cancel);
+  assert.ok(!guardToolCall('close_order', { order_id: 'o', action: 'capture' }, 'Todo salió bien. Liquida: Olive cobró 180 dólares.').cancel);
+  assert.ok(!guardToolCall('close_order', { order_id: 'o', action: 'cancel' }, 'Cancel the cleaner.').cancel);
 });
 
 test('context line: device, pending plan and close tokens travel with the request (stateless server)', () => {

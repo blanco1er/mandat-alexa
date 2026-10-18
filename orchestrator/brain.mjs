@@ -41,11 +41,16 @@ class ThrottleAwareRetry extends DefaultModelRetryStrategy {
 export const STATES_AMOUNT = /\$\s?\d|\d\s?\$|\b\d+\s*(dollars?|bucks|usd|dólares)(?![\p{L}])/iu; // "$150", "150 $", "150 dollars", "150 dólares"
 //  - update_settings: an amount only when the user said a number; resume_spending only when the user asked to resume
 //    (a model may never lift an emergency stop on its own); delete_my_data: the user's exact words, like confirm_plan.
+const SETTLE_WORDS = /\b(settle|settled|billed|bill|bills|invoice|paid|pay them|pay the|done|went well|finished|capture|refund|money back|cancel|call off|rembourse|remboursement|annule|annuler|regle|solde|facture|reembolsa|reembolso|cancela|liquida|cobro|cobrado|terminado|salio bien|tout s'est bien passe)\b/;
 const RESUME_WORDS = /\b(resume|unpause|unfreeze|restart|reactivate|back on|start (buying|spending) again|reprends|reprendre|reactive|relance|degele|reanuda|reanudar|reactiva|descongela)\b/;
 export function guardToolCall(name, input, utterance) {
   if (name === 'confirm_plan') return { input: { ...input, user_confirmation: String(utterance).slice(0, 120) } };
   if (name === 'update_settings' && ['weekly_budget', 'auto_buy_under', 'daily_cap'].some((k) => input[k] !== undefined) && !/\d/.test(utterance)) {
     return { cancel: 'Refused by the host: the user did not say an amount. Never change a budget or a limit on your own; ask the user.' };
+  }
+  // close_order moves money (capture, cancel, refund): only when the user asked to settle, cancel or refund
+  if (name === 'close_order' && !SETTLE_WORDS.test(norm(utterance))) {
+    return { cancel: 'Refused by the host: the user did not ask to pay, cancel or refund an order in this request. A yes is not a request to settle up.' };
   }
   if (name === 'delete_my_data' && !/\b(delete|erase|wipe|supprime|supprimer|efface|effacer|borra|borrar|elimina|eliminar)\b/.test(norm(utterance))) {
     return { cancel: 'Refused by the host: the user did not ask to delete their data in this request.' };

@@ -90,3 +90,13 @@ test('voice, off script: a yes before any plan moves no money; the language can 
   assert.ok(b.steps.some((s) => s.name === 'confirm_plan' && !s.result.isError));
   assert.match(b.speech, /réservé/);
 });
+
+test('POST /turn: a bare yes with nothing waiting is answered by the host, no model, no tool, no money', async () => {
+  const r = await fetch(`${srv.url}/turn`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Yes, book it.', session: {}, household: 'host-yes', locale: 'en-US' }) });
+  const out = await r.json();
+  assert.equal(out.host_intent, 'nothing_waiting');
+  assert.deepEqual(out.steps, []);
+  assert.match(out.speech, /Nothing is waiting for your yes right now, so nothing was booked or charged\./);
+  const fr = await (await fetch(`${srv.url}/turn`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Oui, réserve.', session: {}, household: 'host-yes', locale: 'fr-FR' }) })).json();
+  assert.match(fr.speech, /Rien n’attend votre oui/);
+});
