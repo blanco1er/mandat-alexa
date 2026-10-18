@@ -81,6 +81,30 @@ body[data-screen="home"] .s-top .clock, body[data-screen="home"] .s-top .env { v
 .env-ring .held { stroke: color-mix(in srgb, var(--sc-accent) 45%, transparent); }
 .env-ring .spent { stroke: var(--sc-accent); }
 
+/* ambient wallpaper: full-bleed home photos like a real Echo Show home screen (wallpaper.js cross-fades them).
+   Home: the photo stays sharp under a soft dark scrim weighted to the bottom-left, where the clock sits, so white text
+   stays legible on any photo. During a story the photo blurs and sits under a veil in the screen's appearance,
+   so the card stays the only sharp thing on screen, as on Alexa+. */
+.screen { --sc-veil: light-dark(rgba(242, 242, 247, .8), rgba(0, 0, 0, .62)); }
+.wall { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; background: #1d1a16; transition: background-color .5s var(--ease-out); }
+.wall-img { position: absolute; inset: 0; background: center / cover no-repeat; opacity: 0;
+  transition: opacity 2.4s var(--ease-out), filter .8s var(--ease-out), transform .8s var(--ease-out); }
+.wall-img.on { opacity: 1; }
+.wall-scrim { position: absolute; inset: 0; transition: opacity .6s var(--ease-out), background-color .6s var(--ease-out);
+  background:
+    linear-gradient(to top, rgba(0, 0, 0, .62), rgba(0, 0, 0, .5) 46%, rgba(0, 0, 0, .2) 76%, rgba(0, 0, 0, .1)),
+    linear-gradient(to right, rgba(0, 0, 0, .34), transparent 60%); }
+.screen > .s-top, .screen > .home, .screen > .card-slot, .screen > .s-bottom { position: relative; z-index: 1; }
+.screen > .lightbar { z-index: 2; }
+body:not([data-screen="home"]) .wall { background: var(--sc-bg); }
+body:not([data-screen="home"]) .wall-img { filter: blur(calc(var(--u) * 40)) saturate(1.2); transform: scale(1.12); }
+body:not([data-screen="home"]) .wall-scrim { background: var(--sc-veil); }
+/* text drawn on the veil: secondary labels one step stronger than on a plain background, so they stay ≥ 4.5:1 */
+body:not([data-screen="home"]) .screen { --sc-label-2: light-dark(#4f4f54, rgba(242, 242, 247, .86)); --sc-fill: light-dark(rgba(255, 255, 255, .62), rgba(0, 0, 0, .3)); }
+/* home: white on the photo, like the device (the screen itself is dark too, in case a photo cannot load) */
+body[data-screen="home"] .screen { --sc-label: #ffffff; --sc-label-2: rgba(255, 255, 255, .88); background-color: #1d1a16; }
+body[data-screen="home"] .home-time, body[data-screen="home"] .home-date { text-shadow: 0 calc(var(--u) * 1) calc(var(--u) * 3) rgba(0, 0, 0, .22); }
+
 /* home (ambient): a real clock and a real Mandat widget, no slogan */
 .home { display: none; grid-template-columns: minmax(0, 1fr) minmax(0, calc(var(--u) * 560)); grid-template-rows: 1fr auto; align-items: end; column-gap: calc(var(--u) * 48); padding: 0 calc(var(--u) * 8) calc(var(--u) * 6); }
 body[data-screen="home"] .home { display: grid; }
@@ -96,7 +120,14 @@ body[data-screen="home"] .card-slot { display: none; }
 .hw-list li:last-child { padding-bottom: 0; }
 .hw-list b { font-weight: var(--weight-semibold); }
 .hw-list span { color: var(--sc-label-2); font-size: calc(var(--u) * 21); }
-.home-widget { display: grid; gap: calc(var(--u) * 10); padding: calc(var(--u) * 26) calc(var(--u) * 30) calc(var(--u) * 28); border-radius: calc(var(--u) * 30); background: var(--sc-surface); }
+.home-widget { display: grid; gap: calc(var(--u) * 10); padding: calc(var(--u) * 26) calc(var(--u) * 30) calc(var(--u) * 28); border-radius: calc(var(--u) * 30);
+  /* a frosted widget over the photo, in the screen's appearance */
+  --sc-label: light-dark(#000000, #ffffff); --sc-label-2: light-dark(#3c3c43, rgba(255, 255, 255, .8));
+  --sc-sep: light-dark(rgba(60, 60, 67, .2), rgba(255, 255, 255, .16)); --sc-fill: light-dark(rgba(60, 60, 67, .14), rgba(255, 255, 255, .18));
+  color: var(--sc-label); text-shadow: none;
+  background: light-dark(rgba(255, 255, 255, .8), rgba(28, 28, 30, .6));
+  -webkit-backdrop-filter: blur(calc(var(--u) * 30)) saturate(1.6); backdrop-filter: blur(calc(var(--u) * 30)) saturate(1.6);
+  box-shadow: inset 0 0 0 1px light-dark(rgba(255, 255, 255, .5), rgba(255, 255, 255, .1)), 0 calc(var(--u) * 24) calc(var(--u) * 60) calc(var(--u) * -20) rgba(0, 0, 0, .35); }
 .home-widget p { margin: 0; }
 .hw-context { font-size: calc(var(--u) * 21); color: var(--sc-label-2); font-weight: var(--weight-medium); display: flex; justify-content: space-between; gap: 1em; }
 .hw-title { font-size: calc(var(--u) * 34); font-weight: var(--weight-bold); letter-spacing: -0.022em; line-height: 1.12; }
@@ -282,5 +313,6 @@ body[data-state="listening"] .mic { background: color-mix(in srgb, var(--accent)
 }
 @media (prefers-reduced-motion: reduce) {
   .trail li, .ask, .drawer { animation: none; }
+  .wall-img { transition: opacity .6s linear; transform: none !important; }
   body[data-state="thinking"] .lightbar span, .ring { animation: none !important; }
 }

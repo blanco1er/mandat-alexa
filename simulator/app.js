@@ -5,6 +5,7 @@
 import { McpHttpClient } from './mcp-client.js';
 import { AppsHost } from './apps-host.js';
 import UI from './design-system/motion.js';
+import { createWallpaper } from './wallpaper.js';
 
 const $ = (s) => document.querySelector(s);
 const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
@@ -14,6 +15,7 @@ let session = store.get(`mandat.session.${household}`, {});
 let device = params.get('device') || store.get('mandat.device', 'show15');
 if (!['show15', 'show8', 'dot'].includes(device)) device = 'show15';
 const resourceCache = new Map();
+const wallpaper = createWallpaper(document.querySelector('#wall'), { start: params.get('wall') });
 const usd = (n) => '$' + (Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(Math.round(n * 100) / 100) ? 0 : 2, maximumFractionDigits: 2 });
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 10 17 19 7"/></svg>';
@@ -331,7 +333,7 @@ async function speak(text) {
       }
       ttsServer = false;
     }
-    if ('speechSynthesis' in window) {
+    if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
       await new Promise((res) => {
         const u = new SpeechSynthesisUtterance(text);
         u.lang = 'en-US'; u.rate = 1.04;
@@ -442,6 +444,7 @@ function setDevice(d) {
   const r = document.querySelector(`input[name="device"][value="${d}"]`);
   if (r && !r.checked) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); }
   host.setContext({ deviceCapabilities: { touch: d !== 'dot', hover: false, deviceClass: d } });
+  wallpaper.setDevice(d);
   requestAnimationFrame(fit);
 }
 for (const r of document.querySelectorAll('input[name="device"]')) r.addEventListener('change', () => { if (r.checked && r.value !== device) setDevice(r.value); });

@@ -48,6 +48,24 @@ test('Lambda Function URL handler answers MCP initialize with 2025-11-25', async
   assert.equal(bad.statusCode, 403);
 });
 
+test('Echo Show wallpapers: every photo in wallpaper.js exists in both sizes, ≤ 250 KB, served as WebP through the Lambda', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../simulator/wallpaper.js', import.meta.url), 'utf8');
+  const names = [...src.matchAll(/name: '([a-z-]+)'/g)].map((m) => m[1]);
+  assert.ok(names.length >= 4);
+  for (const size of [1920, 1280]) for (const n of names) {
+    const st = fs.statSync(new URL(`../simulator/wallpapers/${size}/${n}.webp`, import.meta.url));
+    assert.ok(st.size <= 250 * 1024, `${size}/${n}.webp is ${st.size} bytes`);
+  }
+  const { handler } = await import('../src/lambda.mjs');
+  const out = await handler({ rawPath: `/simulator/wallpapers/1920/${names[0]}.webp`, rawQueryString: '', headers: { host: 'abc.lambda-url.us-east-1.on.aws' }, requestContext: { http: { method: 'GET' } } });
+  assert.equal(out.statusCode, 200);
+  assert.equal(out.headers['content-type'], 'image/webp');
+  assert.equal(out.isBase64Encoded, true);
+  assert.equal(Buffer.from(out.body, 'base64').subarray(8, 12).toString(), 'WEBP');
+  assert.match(out.headers['cache-control'], /max-age=86400/);
+});
+
 test('policy: intents and wishes from the demo sentences', () => {
   assert.equal(classify('Alexa, my in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400.'), 'big_plan');
   assert.equal(classify("We're almost out of dog food and coffee."), 'restock');

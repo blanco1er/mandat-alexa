@@ -18,7 +18,7 @@ import { spendViewShared } from './core/spend.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATIC = { '/simulator/': path.join(ROOT, 'simulator') };
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.webp': 'image/webp', '.avif': 'image/avif' };
 
 const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
 
@@ -79,7 +79,10 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
     if (!file.startsWith(base + path.sep) && file !== base) return new Response('Not found', { status: 404 });
     try {
       const body = await fs.promises.readFile(file);
-      return new Response(body, { headers: { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' } });
+      const ext = path.extname(file);
+      // photos never change under the same name: let the browser keep them for a day; code stays no-store
+      const cache = /^\.(webp|avif)$/.test(ext) ? 'public, max-age=86400' : 'no-store';
+      return new Response(body, { headers: { 'content-type': TYPES[ext] || 'application/octet-stream', 'cache-control': cache } });
     } catch { return new Response('Not found', { status: 404 }); }
   }
 

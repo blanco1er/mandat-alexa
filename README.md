@@ -52,7 +52,7 @@ Echo Dot mode (no screen): at most 3 options read, the price breakdown read back
 | MCP server | MCP **2025-11-25** over **Streamable HTTP** (stateless, JSON responses, Origin check), 10 intent tools + 1 app-only tool | `src/mcp/server.mjs` |
 | MCP Apps | 5 cards (`ui://` resources, `text/html;profile=mcp-app`, spec 2026-01-26): status, budget, options carousel, plan, receipt. Theme and size from `hostContext`, auto-fit to the container | `src/ui/` |
 | Agent Skill | `mandat-household-errands` (agentskills.io format): money rules, 3 playbooks, voice style; loaded by Strands' `AgentSkills` plugin | `skill/` |
-| Alexa+ web simulator | Voice-first page that is itself a real MCP client and MCP Apps host: Echo Show 15 (1920×1080), Echo Show 8 (1280×800), Echo Dot; listening / thinking / speaking / confirming states; JSON-RPC drawer (press **D**) | `simulator/` |
+| Alexa+ web simulator | Voice-first page that is itself a real MCP client and MCP Apps host: Echo Show 15 (1920×1080), Echo Show 8 (1280×800), Echo Dot; ambient home screen with full-bleed photo wallpapers that cross-fade every 20 s (still with Reduce Motion) and blur behind cards; listening / thinking / speaking / confirming states; JSON-RPC drawer (press **D**) | `simulator/` |
 | Orchestrator | Strands Agents (TypeScript) on Amazon Bedrock (**Amazon Nova 2 Lite**), `McpClient` to the server over Streamable HTTP, `AgentSkills` plugin, `ModelRouter` fallback, host guardrails on money tools | `orchestrator/` |
 | Household logic | Budgets (envelopes), negotiated quotes, plans, holds, changes, partial capture, refunds | `src/mandat.mjs`, `src/core/` |
 | AWS | Lambda (Node 22, arm64) + Function URL, DynamoDB single table, Bedrock (Amazon Nova 2 Lite brain, Amazon Nova Lite merchant agents), Polly neural voice, least-privilege IAM, AWS Budgets alert | `src/lambda.mjs`, `src/store/dynamodb.mjs`, `src/providers/`, `scripts/deploy-aws.sh` |
@@ -210,4 +210,4 @@ PayPal Server SDK (sandbox) · Node.js 22
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). Wallpaper images and other credits: [CREDITS.md](CREDITS.md).
