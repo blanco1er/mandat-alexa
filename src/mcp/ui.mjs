@@ -10,9 +10,9 @@ import { CARD_STRINGS, PHRASES } from '../core/i18n.mjs';
 export const MCP_APP_MIME = 'text/html;profile=mcp-app';
 export const UI_EXTENSION = 'io.modelcontextprotocol/ui';
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'ui');
-export const CARD_NAMES = ['status', 'mandate', 'offers', 'plan', 'receipt', 'item'];
+export const CARD_NAMES = ['status', 'mandate', 'offers', 'plan', 'receipt', 'item', 'settings'];
 
-const TITLES = { status: 'Household status', mandate: 'Spending budget', offers: 'Options and quotes', plan: 'Plan to approve', receipt: 'Receipt and payment timeline', item: 'Item details and comparison' };
+const TITLES = { status: 'Household status', mandate: 'Spending budget', offers: 'Options and quotes', plan: 'Plan to approve', receipt: 'Receipt and payment timeline', item: 'Item details and comparison', settings: 'Autonomy settings' };
 
 let cache = null;
 export function cards() {

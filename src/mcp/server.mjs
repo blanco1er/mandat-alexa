@@ -21,10 +21,16 @@ export const INSTRUCTIONS = `Mandat runs household errands inside a spending bud
 Flow: find_home_services / find_products -> (negotiate_offer) -> propose_plan -> read the total aloud -> the user says yes -> confirm_plan with user_confirmation set to the user's words.
 Before the yes, the user may look closer (get_offer_details), ask for other options (list_alternatives), compare (compare_offers) or swap and remove items (revise_plan, which returns a new plan and a new confirmation_token). review_plan shows the plan waiting for a yes.
 Never call confirm_plan for a plan that needs a yes before the user has said it. Never invent ids: use the ones in the results.
+The household's rules live in Mandat settings (get_settings / update_settings): weekly budget, auto-buy amount, autonomy level (ask me first, balanced, hands-off within limits), allowed categories, daily limit. "Pause Mandat" or "stop all spending" means pause_spending, at once. Only the user can resume (resume_spending).
 Speak content[0] only. Offer at most 5 options (3 on screenless devices). After an error, propose the one next step it gives.`;
 
 const HOUSEHOLD_RE = /^[a-z0-9_-]{1,40}$/i;
+// Which household a call belongs to: the one bound to the verified OAuth access token (account linking). Only when
+// the server runs without required auth (local tests, MANDAT_AUTH=optional) and no token came, the X-Mandat-Household
+// header picks it (the router strips that header whenever auth is required).
 export function householdFrom(extra, fallback = 'demo') {
+  const linked = extra?.authInfo?.extra?.household;
+  if (linked && HOUSEHOLD_RE.test(linked)) return linked;
   const h = extra?.requestInfo?.headers?.['x-mandat-household'];
   const v = Array.isArray(h) ? h[0] : h;
   return v && HOUSEHOLD_RE.test(v) ? v : fallback;
@@ -49,6 +55,10 @@ function idsFor(tool, d) {
     case 'propose_plan': return { plan_id: d.plan?.id, mandate_id: d.plan?.mandate_id, total: d.plan?.breakdown?.total, needs_user_yes: d.needs_user_yes, confirmation_token: d.confirmation_token, lines: d.plan?.lines?.map((l) => ({ offer_id: l.offer_id, merchant: l.merchant, total: l.total })) };
     case 'confirm_plan': case 'change_order': case 'close_order':
       return { orders: d.receipt?.orders?.map((o) => ({ order_id: o.id, merchant: o.merchant, state: o.state, amount: o.amount, captured: o.captured || undefined, mandate_id: o.mandate_id, close_token: o.close_token })), alternatives: d.alternatives?.map((o) => ({ offer_id: o.id, merchant: o.merchant, total: o.total, when: o.slot_label })), replacement: d.alternatives?.length ? `propose_plan with item_ids ["${d.alternatives[0].id}"] and mandate_id "${d.receipt?.orders?.[0]?.mandate_id}"` : undefined };
+    case 'get_settings': case 'update_settings': return { settings: d.settings && (({ weekly_budget, auto_buy_under, autonomy, daily_cap, categories, paused, onboarded }) => ({ weekly_budget, auto_buy_under, autonomy, daily_cap, categories, paused, onboarded }))(d.settings), changed: d.changed, next_question: d.onboarding_step || undefined };
+    case 'pause_spending': return { paused: true, voided_holds: d.stop?.voided?.length || 0, voided_amount: d.stop?.amount || 0 };
+    case 'resume_spending': return { paused: false };
+    case 'delete_my_data': return { deleted: !!d.deleted, unlinked: !!d.unlinked };
     default: return {};
   }
 }
@@ -70,6 +80,12 @@ const UI_TEXT = {
   revise_plan: ['Updating the plan…', 'Plan updated'],
   review_plan: ['Opening the plan…', 'Plan ready'],
   refresh_card: ['Refreshing…', 'Up to date'],
+  get_settings: ['Opening your settings…', 'Settings'],
+  update_settings: ['Saving your settings…', 'Settings saved'],
+  pause_spending: ['Stopping all spending…', 'Mandat paused'],
+  resume_spending: ['Turning Mandat back on…', 'Mandat resumed'],
+  delete_my_data: ['Erasing your household…', 'Data deleted'],
+  apply_customer_permissions: ['Saving what you shared…', 'Details saved'],
 };
 
 // Live activity lines for each tool call, in the user's language (the merchant-by-merchant and hold-by-hold lines
@@ -94,6 +110,9 @@ export function liveStart(name, a = {}) {
     case 'compare_offers': return T('ls_compare');
     case 'revise_plan': return T('ls_revise');
     case 'review_plan': return T('ls_review');
+    case 'get_settings': case 'update_settings': return T('ls_settings');
+    case 'pause_spending': return T('ls_pause');
+    case 'resume_spending': return T('ls_resume');
     default: return T('ls_working');
   }
 }
@@ -114,6 +133,7 @@ export function liveEnd(name, d = {}) {
     case 'compare_offers': return { text: T('le_compared', { n: d.offers?.length || 0 }), detail: d.difference ? T('le_apart', { amt: $(d.difference) }) : undefined };
     case 'list_alternatives': return { text: T('le_others', { n: Math.max(0, (d.offers?.length || 1) - 1) }) };
     case 'close_order': case 'change_order': return { text: T('le_done'), detail: env ? T('le_left', { left: $(env.remaining) }) : undefined };
+    case 'pause_spending': return { text: T('ev_paused', { n: d.stop?.voided?.length || 0 }) };
     default: return { text: T('le_done') };
   }
 }
@@ -133,11 +153,16 @@ export function createMcpServer({ service, household = householdFrom }) {
   }
 
   // ---------- tools ----------
+  // Tools that can move money or change the household's rules need the "spend" scope of the account link.
+  const SPEND = new Set(['set_spending_mandate', 'confirm_plan', 'change_order', 'close_order', 'update_settings', 'resume_spending', 'delete_my_data']);
   const tool = (name, { title, description, input, card, annotations = {}, visibility }, run) => {
     const [invoking, invoked] = UI_TEXT[name];
     const uiMeta = { resourceUri: ui[card].uri, invoking, invoked, ...(visibility ? { visibility } : {}) };
     server.registerTool(name, { title, description, inputSchema: input, annotations: { title, ...annotations }, _meta: { ui: uiMeta } }, async (args, extra) => {
       const hid = household(extra);
+      if (extra?.authInfo && SPEND.has(name) && !(extra.authInfo.scopes || []).includes('spend')) {
+        return { isError: true, content: [{ type: 'text', text: 'This account link is read-only (no "spend" scope), so Mandat cannot do that. Next step: tell the user to link Mandat again in the Alexa app and allow spending inside their rules.' }] };
+      }
       // The voice turn this call belongs to (live activity feed) and the user's locale, from the host's headers.
       return runWith({ household: hid, turn: header(extra, 'x-mandat-turn'), locale: header(extra, 'x-mandat-locale') }, () => call(hid, args));
     });
@@ -310,6 +335,67 @@ export function createMcpServer({ service, household = householdFrom }) {
     input: { plan_id: z.string().max(40).optional().describe('Omit for the latest plan waiting for a yes.') },
     card: 'plan', annotations: { readOnlyHint: true, openWorldHint: false },
   }, (hid, a) => service.reviewPlan(hid, a));
+
+  // ---------- autonomy settings, emergency stop, data controls (account linking era) ----------
+  const amount = (max) => z.number().min(0).max(max);
+  tool('get_settings', {
+    title: 'Open Mandat settings',
+    description: 'Use when the user asks to see or change how Mandat spends ("open Mandat settings", "what are my rules?"), and right after Mandat is linked (first run). Returns the weekly budget, the auto-buy amount, the autonomy level (ask me first, balanced, hands-off within limits), the allowed categories, the daily limit for buying on its own, and whether Mandat is paused. Changes nothing.',
+    input: { first_run: z.boolean().default(false).describe('true right after account linking.') },
+    card: 'settings', annotations: { readOnlyHint: true, openWorldHint: false },
+  }, (hid, a) => service.getSettings(hid, a));
+
+  tool('update_settings', {
+    title: 'Change Mandat settings',
+    description: 'Use when the user changes a rule: "200 a week" (weekly_budget), "buy on your own under $40" (auto_buy_under), "Balanced" / "ask me first" / "hands-off" (autonomy), "no catering" (categories_off), "a $60 daily limit" (daily_cap), or "that\'s all" at the end of the first run (onboarded: true). Only pass what the user said. The server enforces every rule on every later payment.',
+    input: {
+      weekly_budget: amount(2000).optional().describe('Weekly budget in USD.'),
+      auto_buy_under: amount(500).optional().describe('Mandat may buy on its own up to this amount per plan (Balanced).'),
+      autonomy: z.enum(['ask', 'balanced', 'hands_off']).optional().describe('ask = ask me first; balanced; hands_off = hands-off within limits.'),
+      daily_cap: amount(1000).optional().describe('Most Mandat may buy on its own in one day.'),
+      categories_on: z.array(z.enum(['cleaning', 'catering', 'repairs', 'home', 'pets', 'pantry'])).max(6).optional().describe('Categories to allow.'),
+      categories_off: z.array(z.enum(['cleaning', 'catering', 'repairs', 'home', 'pets', 'pantry'])).max(6).optional().describe('Categories Mandat must never buy.'),
+      onboarded: z.boolean().optional().describe('true when the user finishes the first-run settings.'),
+      answered: z.array(z.enum(['weekly_budget', 'auto_buy_under', 'autonomy', 'daily_cap'])).max(4).optional().describe('First run only: the questions the user answered, even when keeping the value (set by the host).'),
+    },
+    card: 'settings', annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, (hid, a) => service.updateSettings(hid, a));
+
+  tool('pause_spending', {
+    title: 'Emergency stop: pause Mandat',
+    description: 'Use at once when the user says "pause Mandat", "stop all spending", "freeze everything" or similar. Pauses every autonomy level, voids every payment hold still open (nothing was charged on them) and drops plans waiting for a yes. Nothing can be bought until the user says "resume Mandat". Needs no confirmation.',
+    input: {},
+    card: 'status', annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+  }, (hid) => service.pauseSpending(hid));
+
+  tool('resume_spending', {
+    title: 'Resume Mandat after a pause',
+    description: 'Use only when the user explicitly asks to resume ("resume Mandat", "turn Mandat back on"). Voided holds stay voided. Never call it on your own.',
+    input: {},
+    card: 'status', annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, (hid) => service.resumeSpending(hid));
+
+  tool('delete_my_data', {
+    title: 'Delete my Mandat data',
+    description: 'Use when the user asks to delete or erase their Mandat data, after you told them what is erased and they said yes. Voids open holds, then erases budgets, orders, memory, settings and shared details, and revokes the account link. Pass the user\'s exact words in user_confirmation.',
+    input: { user_confirmation: z.string().max(120).describe('The user\'s own words of approval, e.g. "Yes, delete it".') },
+    card: 'status', annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+  }, (hid, a) => service.deleteHouseholdData(hid, a));
+
+  // App-only (the host, as Alexa, after the customer-data permission screen): what the person allowed to share.
+  tool('apply_customer_permissions', {
+    title: 'Apply Alexa customer-data permissions',
+    description: 'Used by the Alexa host after the permission screen. Not for the assistant.',
+    input: {
+      granted: z.object({ name: z.boolean(), email: z.boolean(), address: z.boolean() }).describe('What the person allowed.'),
+      values: z.object({
+        name: z.object({ full: z.string().max(80), given: z.string().max(40) }).optional(),
+        email: z.string().max(120).optional(),
+        address: z.object({ line1: z.string().max(80), city: z.string().max(40).optional(), region: z.string().max(20).optional(), postal: z.string().max(12).optional() }).optional(),
+      }).describe('The values Alexa shares for the allowed items.'),
+    },
+    card: 'status', annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }, visibility: ['app'],
+  }, (hid, a) => service.applyCustomerPermissions(hid, a));
 
   // App-only: the cards call it to refresh themselves; hidden from the model (MCP Apps visibility).
   tool('refresh_card', {

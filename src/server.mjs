@@ -36,7 +36,7 @@ export async function start({ port = Number(process.env.PORT) || 8787, host = pr
   service.publicUrl = process.env.MANDAT_PUBLIC_URL || url;
   if (brainKind === 'simulated') brain = new SimulatedBrain({ mcpUrl: process.env.MANDAT_MCP_URL || `${url}/mcp`, headers: process.env.MANDAT_DEMO_TOKEN ? { Authorization: `Bearer ${process.env.MANDAT_DEMO_TOKEN}` } : {} });
   if (brainKind === 'strands') brain = await (await import('../orchestrator/brain.mjs')).createStrandsBrain({ mcpUrl: `${url}/mcp` });
-  const app = createApp({ service, brain, allowedOrigins: (process.env.MANDAT_ALLOWED_ORIGINS || `${url},http://localhost:${server.address().port}`).split(',') });
+  const app = createApp({ service, brain, mcpUrl: `${url}/mcp`, allowedOrigins: (process.env.MANDAT_ALLOWED_ORIGINS || `${url},http://localhost:${server.address().port}`).split(',') });
   server.on('request', async (req, res) => {
     try { await sendResponse(res, await app(toRequest(req, url))); } catch (e) { console.error(e); if (!res.headersSent) res.writeHead(500); res.end(); }
   });

@@ -6,6 +6,14 @@
 //   POST /tts              Polly when MANDAT_TTS=polly, else 501 (the browser speaks)
 //   GET  /paypal/return    PayPal sandbox vault approval comes back here
 //   GET  /healthz          liveness + which providers are on
+//   GET  /.well-known/oauth-protected-resource   RFC 9728 metadata Alexa reads for account linking (+ /mcp suffix)
+//   GET  /.well-known/oauth-authorization-server RFC 8414 metadata (endpoints, S256)
+//   GET|POST /oauth/authorize, POST /oauth/token, POST /oauth/revoke   Mandat's OAuth 2.1 server (src/core/oauth.mjs)
+//   GET  /privacy          the privacy policy account linking needs
+// MANDAT_AUTH=required (the deployed demo): tools/call without a valid access token answers HTTP 401 with
+// WWW-Authenticate (Alexa then starts account linking), and the household always comes from the token.
+// MANDAT_AUTH=optional (default, local and tests): a token is verified when present; without one the old
+// X-Mandat-Household header still picks a household.
 //   GET  /simulator/*      the Alexa+ web simulator (static)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,6 +26,9 @@ import { MODE as PAYPAL_MODE } from './core/paypal.mjs';
 import { spendViewShared } from './core/spend.mjs';
 import { readFeed } from './core/activity.mjs';
 import { TURN_RE } from './core/context.mjs';
+import { authorizationServerMetadata, OAuthServer, privacyPage, protectedResourceMetadata, wwwAuthenticate } from './core/oauth.mjs';
+import { runHostIntent } from './brain/host-intents.mjs';
+import { tr } from './core/i18n.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATIC = { '/simulator/': path.join(ROOT, 'simulator'), '/media/': path.join(ROOT, 'media') };
@@ -52,23 +63,50 @@ export function originAllowed(origin, allowed) {
   return allowed.includes(origin);
 }
 
-export function createApp({ service, brain = null, allowedOrigins, demoToken = process.env.MANDAT_DEMO_TOKEN || '', tts = createTts(), internalKey = '' }) {
+export function createApp({ service, brain = null, allowedOrigins, demoToken = process.env.MANDAT_DEMO_TOKEN || '', tts = createTts(), internalKey = '', authMode = process.env.MANDAT_AUTH || 'optional', oauth = null, mcpUrl = null }) {
   const origins = allowedOrigins || (process.env.MANDAT_ALLOWED_ORIGINS || 'http://localhost:8787,http://127.0.0.1:8787').split(',').map((s) => s.trim()).filter(Boolean);
-  const limits = { turn: createLimiter({ perHour: limitOf('MANDAT_LIMIT_TURNS', 60) }), tts: createLimiter({ perHour: limitOf('MANDAT_LIMIT_TTS', 120) }), mcp: createLimiter({ perHour: limitOf('MANDAT_LIMIT_MCP', 600) }), activity: createLimiter({ perHour: limitOf('MANDAT_LIMIT_ACTIVITY', 3000) }) };
+  const limits = { turn: createLimiter({ perHour: limitOf('MANDAT_LIMIT_TURNS', 60) }), tts: createLimiter({ perHour: limitOf('MANDAT_LIMIT_TTS', 120) }), mcp: createLimiter({ perHour: limitOf('MANDAT_LIMIT_MCP', 600) }), activity: createLimiter({ perHour: limitOf('MANDAT_LIMIT_ACTIVITY', 3000) }), oauth: createLimiter({ perHour: limitOf('MANDAT_LIMIT_OAUTH', 300) }) };
   const internal = (request) => !!internalKey && request.headers.get('x-mandat-internal') === internalKey;
+  const required = authMode === 'required';
+  const auth = oauth || new OAuthServer({ store: service.store, publicUrl: service.publicUrl, origins, seed: (kind) => service.seedHousehold(kind) });
+  const selfMcp = () => mcpUrl || `${String(service.publicUrl).replace(/\/$/, '')}/mcp`;
+  const unauthorized = (error, message, id = null) => json(401, { error: 'unauthorized', message, ...(id !== undefined ? { jsonrpc: '2.0', id } : {}) }, { 'www-authenticate': wwwAuthenticate(service.publicUrl, error) });
+  // The account link behind a request: null when there is no bearer token; false when one came but is not valid.
+  const linkOf = async (request) => {
+    const h = request.headers.get('authorization') || '';
+    if (!/^Bearer\s/i.test(h) || (demoToken && h === `Bearer ${demoToken}`)) return null;
+    return (await auth.verify(h)) || false;
+  };
 
   async function mcp(request) {
     if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { jsonrpc: '2.0', error: { code: -32000, message: 'Forbidden origin' }, id: null });
-    if (demoToken && request.headers.get('authorization') !== `Bearer ${demoToken}`) return json(401, { jsonrpc: '2.0', error: { code: -32001, message: 'Missing or wrong bearer token' }, id: null }, { 'www-authenticate': 'Bearer' });
+    const link = await linkOf(request);
+    if (link === false) return unauthorized('invalid_token', 'The access token is invalid or expired. Alexa refreshes it or links the account again.');
+    if (!link && demoToken && request.headers.get('authorization') !== `Bearer ${demoToken}`) return json(401, { jsonrpc: '2.0', error: { code: -32001, message: 'Missing or wrong bearer token' }, id: null }, { 'www-authenticate': 'Bearer' });
     if (request.method === 'POST' && !internal(request)) {
       const l = limits.mcp(clientIp(request));
       if (!l.ok) return json(429, { jsonrpc: '2.0', error: { code: -32000, message: 'Too many requests from this address; try again later.' }, id: null }, { 'retry-after': String(l.retryAfter) });
+    }
+    // Amazon (account linking for MCP add-ons): a tool called without a valid token answers 401, and Alexa starts
+    // the linking flow. initialize, tools/list and resources stay public, so an add-on can still be discovered.
+    if (required && !link && request.method === 'POST') {
+      const body = await request.clone().json().catch(() => null);
+      const msgs = Array.isArray(body) ? body : [body];
+      const call = msgs.find((m) => m && m.method === 'tools/call');
+      if (call) return unauthorized(undefined, 'Access token required to use this tool. Link Mandat in the Alexa app first.', call.id ?? null);
+    }
+    // The household comes from the token; a household header is only honoured in optional mode without a token.
+    if (required || link) {
+      const h = new Headers(request.headers);
+      h.delete('x-mandat-household');
+      request = new Request(request, { headers: h, ...(request.body ? { duplex: 'half' } : {}) });
     }
     const server = createMcpServer({ service });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
     try {
-      return await transport.handleRequest(request);
+      const authInfo = link ? { token: 'verified', clientId: link.client_id, scopes: link.scope, expiresAt: link.expiresAt, extra: { household: link.household, link_id: link.link_id } } : undefined;
+      return await transport.handleRequest(request, { authInfo });
     } finally {
       // stateless: everything for this request is done once the JSON response exists
       queueMicrotask(() => { transport.close().catch(() => {}); server.close().catch(() => {}); });
@@ -94,20 +132,45 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
     const p = url.pathname;
     try {
       if (p === '/mcp') return await mcp(request);
-      if (p === '/healthz') return json(200, { ok: true, protocol: LATEST_PROTOCOL_VERSION, model: service.provider.name, store: service.store.kind, paypal: PAYPAL_MODE, paypal_buyer: PAYPAL_MODE === 'sandbox' ? ((await service.demoBuyer().catch(() => null)) ? 'linked' : 'not linked') : undefined, brain: brain?.name || null, tts: tts?.name || 'browser', llm_budget: (({ usd, budget, left, paused }) => ({ usd, budget, left, paused }))(await spendViewShared()) });
+      // ---------- account linking (OAuth 2.1 + PKCE S256) ----------
+      if (p === '/.well-known/oauth-protected-resource' || p === '/.well-known/oauth-protected-resource/mcp') return json(200, protectedResourceMetadata(service.publicUrl), { 'access-control-allow-origin': '*', 'cache-control': 'max-age=300' });
+      if (p === '/.well-known/oauth-authorization-server' || p === '/.well-known/oauth-authorization-server/mcp') return json(200, authorizationServerMetadata(service.publicUrl), { 'access-control-allow-origin': '*', 'cache-control': 'max-age=300' });
+      if (p.startsWith('/oauth/')) {
+        const l = limits.oauth(clientIp(request));
+        if (!l.ok) return tooMany(l.retryAfter);
+        if (p === '/oauth/authorize' && request.method === 'GET') return auth.authorizePage(url);
+        if (p === '/oauth/authorize' && request.method === 'POST') {
+          if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { error: 'Forbidden origin' });
+          return await auth.authorizeSubmit(request);
+        }
+        if (p === '/oauth/token' && request.method === 'POST') return await auth.token(request);
+        if (p === '/oauth/revoke' && request.method === 'POST') return await auth.revoke(request);
+        return json(405, { error: 'method not allowed' });
+      }
+      if (p === '/privacy') return privacyPage();
+      if (p === '/healthz') return json(200, { ok: true, protocol: LATEST_PROTOCOL_VERSION, auth: required ? 'oauth2.1 required' : 'oauth2.1 optional', model: service.provider.name, store: service.store.kind, paypal: PAYPAL_MODE, paypal_buyer: PAYPAL_MODE === 'sandbox' ? ((await service.demoBuyer().catch(() => null)) ? 'linked' : 'not linked') : undefined, brain: brain?.name || null, tts: tts?.name || 'browser', llm_budget: (({ usd, budget, left, paused }) => ({ usd, budget, left, paused }))(await spendViewShared()) });
       if (p === '/turn' && request.method === 'POST') {
         if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { error: 'Forbidden origin' });
         if (!brain) return json(501, { error: 'No orchestrator configured' });
         const body = await request.json().catch(() => ({}));
         const text = String(body.text || '').slice(0, 500);
         if (!text.trim()) return json(400, { error: 'Say something.' });
-        const household = /^[a-z0-9_-]{1,40}$/i.test(body.household || '') ? body.household : 'demo';
+        const locale = typeof body.locale === 'string' ? body.locale.slice(0, 12) : undefined;
+        // Like Alexa: the add-on is used with the person's linked account; without one, the host starts linking.
+        const link = await linkOf(request);
+        if (link === false || (required && !link)) return json(401, { error: link === false ? 'invalid_token' : 'link_required', link_required: true, speech: tr(locale, 'link_needed') }, { 'www-authenticate': wwwAuthenticate(service.publicUrl, link === false ? 'invalid_token' : undefined) });
+        const household = link ? link.household : /^[a-z0-9_-]{1,40}$/i.test(body.household || '') ? body.household : 'demo';
         const l = limits.turn(clientIp(request));
         if (!l.ok) return tooMany(l.retryAfter, 'That is a lot of requests from here in one hour. Please try again a little later; nothing was booked or charged.');
         try {
           const turn = TURN_RE.test(body.turn || '') ? body.turn : undefined;
-          const locale = typeof body.locale === 'string' ? body.locale.slice(0, 12) : undefined;
-          const out = await brain.runTurn({ text, session: { ...(body.session || {}), device: body.device || 'show' }, household, turn, locale });
+          const authorization = link ? request.headers.get('authorization') : undefined;
+          const session = { ...(body.session || {}), device: body.device || 'show' };
+          // Settings by voice, the emergency stop and "delete my data" never depend on a model (src/brain/host-intents.mjs).
+          const fast = await runHostIntent({ text, session, locale, household, turn, authorization, mcpUrl: selfMcp(), headers: internalKey ? { 'X-Mandat-Internal': internalKey } : {} });
+          if (fast) return json(200, fast);
+          // anything else is the model's turn: the settings card and the first-run questions are left behind
+          const out = await brain.runTurn({ text, session: { ...session, settingsOpen: false, onboarding: null, pendingDelete: false }, household, turn, locale, authorization });
           return json(200, out);
         } catch (e) {
           if (e.code === 'LLM_BUDGET') return json(503, { error: 'Model budget used up', speech: e.message });
@@ -119,7 +182,9 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
         if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { error: 'Forbidden origin' });
         const l = limits.activity(clientIp(request));
         if (!l.ok) return tooMany(l.retryAfter);
-        const household = /^[a-z0-9_-]{1,40}$/i.test(url.searchParams.get('household') || '') ? url.searchParams.get('household') : 'demo';
+        const link = await linkOf(request);
+        if (link === false || (required && !link)) return unauthorized(link === false ? 'invalid_token' : undefined, 'Link Mandat first.', undefined);
+        const household = link ? link.household : /^[a-z0-9_-]{1,40}$/i.test(url.searchParams.get('household') || '') ? url.searchParams.get('household') : 'demo';
         return json(200, { events: await readFeed(service.store, household, url.searchParams.get('turn')) }, { 'cache-control': 'no-store' });
       }
       if (p === '/tts' && request.method === 'POST') {

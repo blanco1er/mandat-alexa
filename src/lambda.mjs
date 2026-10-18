@@ -1,7 +1,8 @@
 // AWS Lambda entry point (Function URL, payload format 2.0, buffered response). Same router as the local server.
 // Handler: src/lambda.handler. Env (names only): MANDAT_STORE=dynamodb, MANDAT_TABLE, MANDAT_MODEL=bedrock,
 // MANDAT_TTS=polly, MANDAT_PUBLIC_URL, MANDAT_ALLOWED_ORIGINS, MANDAT_DEMO_TOKEN, MANDAT_NETWORK_SECRET,
-// MANDAT_LLM_BUDGET_USD, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET (sandbox), MANDAT_BRAIN, MANDAT_BRAIN_MODEL.
+// MANDAT_AUTH (required on the public demo: account linking), MANDAT_OAUTH_CLIENT_ID / _SECRET / _REDIRECT_URIS (the
+// real Alexa+ client, optional), MANDAT_LLM_BUDGET_USD, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET (sandbox), MANDAT_BRAIN, MANDAT_BRAIN_MODEL.
 import { createApp } from './app.mjs';
 import { Mandat } from './mandat.mjs';
 import { createStore } from './store/index.mjs';
@@ -28,7 +29,7 @@ async function appFor(origin) {
   const brain = process.env.MANDAT_BRAIN === 'strands'
     ? await (await import('../orchestrator/brain.mjs')).createStrandsBrain({ mcpUrl: `${publicUrl}/mcp`, headers })
     : new SimulatedBrain({ mcpUrl: `${publicUrl}/mcp`, headers });
-  app = createApp({ service, brain, internalKey, allowedOrigins: (process.env.MANDAT_ALLOWED_ORIGINS || publicUrl).split(",").map((x) => x.trim()) });
+  app = createApp({ service, brain, internalKey, mcpUrl: `${publicUrl}/mcp`, allowedOrigins: (process.env.MANDAT_ALLOWED_ORIGINS || publicUrl).split(",").map((x) => x.trim()) });
   return app;
 }
 

@@ -40,29 +40,31 @@ test('a request from a foreign Origin is refused with 403 (2025-11-25 transport 
   assert.equal(r.status, 403);
 });
 
-test('tools/list: 15 intent tools + 1 app-only tool, each with a schema and a ui:// resourceUri', async () => {
+test('tools/list: 20 intent tools + 2 app-only tools, each with a schema and a ui:// resourceUri', async () => {
   const c = await client(srv.mcpUrl);
   const { tools } = await c.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), [...TOOLS, 'refresh_card'].sort());
+  assert.deepEqual(tools.map((t) => t.name).sort(), [...TOOLS, 'get_settings', 'update_settings', 'pause_spending', 'resume_spending', 'delete_my_data', 'refresh_card', 'apply_customer_permissions'].sort());
   for (const t of tools) {
     assert.equal(t.inputSchema.type, 'object', t.name);
-    assert.match(t._meta.ui.resourceUri, /^ui:\/\/mandat\/(status|mandate|offers|plan|receipt|item)-[0-9a-f]{10}\.html$/, t.name);
+    assert.match(t._meta.ui.resourceUri, /^ui:\/\/mandat\/(status|mandate|offers|plan|receipt|item|settings)-[0-9a-f]{10}\.html$/, t.name);
     assert.ok(t._meta.ui.invoking && t._meta.ui.invoked, t.name);
     assert.ok(t.description.length > 40, t.name);
     // Alexa+ tool-schema guide: every parameter says what it is for
     for (const [k, v] of Object.entries(t.inputSchema.properties || {})) assert.ok(v.description && v.description.length > 8, `${t.name}.${k} has no description`);
   }
   assert.deepEqual(tools.find((t) => t.name === 'refresh_card')._meta.ui.visibility, ['app']);
+  assert.deepEqual(tools.find((t) => t.name === 'apply_customer_permissions')._meta.ui.visibility, ['app']);
+  assert.ok(tools.find((t) => t.name === 'pause_spending').annotations.destructiveHint);
   assert.ok(tools.find((t) => t.name === 'close_order').annotations.destructiveHint);
   assert.ok(tools.find((t) => t.name === 'confirm_plan').annotations.idempotentHint);
   assert.deepEqual(tools.find((t) => t.name === 'confirm_plan').inputSchema.required.sort(), ['confirmation_token', 'plan_id']);
   await c.close();
 });
 
-test('resources: 6 MCP Apps views, text/html;profile=mcp-app, self-contained, with _meta.ui', async () => {
+test('resources: 7 MCP Apps views, text/html;profile=mcp-app, self-contained, with _meta.ui', async () => {
   const c = await client(srv.mcpUrl);
   const { resources } = await c.listResources();
-  assert.equal(resources.length, 6);
+  assert.equal(resources.length, 7);
   for (const r of resources) {
     assert.equal(r.mimeType, 'text/html;profile=mcp-app');
     const { contents } = await c.readResource({ uri: r.uri });

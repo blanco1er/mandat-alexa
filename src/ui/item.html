@@ -29,6 +29,9 @@
 .why { list-style: none; margin: 0; padding: 0; display: grid; gap: .3em; font-size: var(--t-meta); }
 .why li { display: flex; gap: .5em; align-items: baseline; }
 .why li::before { content: ""; flex: none; width: .5em; height: .5em; border-radius: 50%; background: var(--ok); translate: 0 -.08em; }
+/* a price disadvantage is never shown in the positive colour: amber dot; neutral facts: grey dot */
+.why li.t-cost::before { background: var(--warn); }
+.why li.t-info::before { background: var(--label-3); }
 .rule { margin: 0; }
 /* compare: two or three columns, rows aligned so the eye reads across */
 .cmp { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--gap); }
@@ -100,7 +103,7 @@ function detail(sc) {
         <div class="stack"><h1>${esc(svc ? o.merchant : P(o.title))}</h1><span class="meta">${esc(svc ? `${P(o.title)} · ${slotL(o.slot_label)}` : `${o.merchant} · ${slotL(o.slot_label)}`)}</span></div>
         <div class="price"><span class="num">${usd(o.total)}</span>${o.discount ? `<s>${usd(o.base + (o.fees || 0))}</s>` : ''}</div>
         <ul class="facts">${specs.map((x) => `<li><span>${esc(x.k)}</span><b>${esc(x.v)}</b></li>`).join('')}</ul>
-        ${(sc.why || []).length ? `<ul class="why" aria-label="${tx('Why Mandat picked it')}">${sc.why.slice(0, 3).map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+        ${(sc.why || []).length ? `<ul class="why" aria-label="${tx('Why Mandat picked it')}">${sc.why.slice(0, 3).map((w) => (typeof w === 'string' ? { text: w, tone: 'plus' } : w)).map((w) => `<li class="t-${esc(w.tone)}">${esc(w.text)}</li>`).join('')}</ul>` : ''}
         ${rule ? `<p class="rule">${status(rule.buys_on_its_own ? 'ok' : 'wait', rule.text)}</p>` : ''}
         <div class="actions">
           ${sc.in_plan ? '' : `<button class="btn primary" id="choose" data-label="${tx('Choose')}">${tx('Choose')}</button>`}

@@ -19,6 +19,7 @@ import * as I from './core/i18n.mjs';
 import { DAY_NAMES, guardQuote, identityCard, merchant as merchantById, MERCHANTS, normalizeCategory, parseGuests, parseWhen, search, usTime, verifyCard } from './core/merchants.mjs';
 import { pkOf } from './store/index.mjs';
 import { merchantSay } from './providers/simulated.mjs';
+import * as S from './core/settings.mjs';
 
 export class ToolError extends Error {
   constructor(message, next) { super(message); this.next = next; }
@@ -135,7 +136,14 @@ export class Mandat {
       preferences: section && section !== 'preferences' ? undefined : preferences,
       pending_decisions: pending.map((p) => ({ plan_id: p.id, total: p.breakdown.total, lines: p.lines.map((l) => l.merchant) })),
     };
+    // Autonomy at a glance (level, paused, what it may still buy alone today), who the household is, what it did last.
+    const settings = await this.settings(hid);
+    if (settings) data.settings = { ...this.settingsView(settings), auto_spent_today: await this.autoSpentToday(hid) };
+    const profile = await this.profile(hid);
+    if (profile) data.profile = publicProfile(profile);
+    data.recent = await this.recentActions(hid);
     const parts = [];
+    if (settings?.paused) parts.push(T('st_paused'));
     if (!section || section === 'budget') {
       if (!envelopes.length) parts.push(T('st_none'));
       for (const e of envelopes.slice(0, 2)) parts.push(T('st_env', { purpose: e.purpose, left: usd(e.remaining, e.currency), budget: usd(e.budget, e.currency), period: e.period, held: e.held ? usd(e.held, e.currency) : '' }));
@@ -147,7 +155,7 @@ export class Mandat {
   }
 
   // ---------- 2. set_spending_mandate ----------
-  async setSpendingMandate(hid, { budget, currency = 'USD', period, auto_approve_under = 0, purpose }) {
+  async setSpendingMandate(hid, { budget, currency = 'USD', period, auto_approve_under = 0, purpose, fromSettings = false }) {
     budget = round(budget);
     auto_approve_under = round(auto_approve_under || 0);
     if (!(budget > 0) || budget > MAX_BUDGET) throw new ToolError(`The budget must be between $1 and ${usd(MAX_BUDGET)} in this sandbox.`, 'Ask the user for a smaller amount.');
@@ -161,7 +169,7 @@ export class Mandat {
       const paypal = buyer
         ? { mode: 'sandbox', paymentTokenId: buyer.paymentTokenId, demo_buyer: true }
         : { mode: 'offline', paymentTokenId: `PTOKEN-${crypto.randomBytes(6).toString('hex').toUpperCase()}` };
-      const m = { id: mid, purpose, budget, currency, period, auto_approve_under, created: new Date(this.now()).toISOString(), status: 'active', paypal };
+      const m = { id: mid, purpose, budget, currency, period, auto_approve_under, created: new Date(this.now()).toISOString(), status: 'active', paypal, ...(period === 'weekly' ? { settings_managed: true } : {}) };
       // One active budget per purpose: a new one replaces the old.
       for (const old of await this.mandates(hid)) {
         if (old.status === 'active' && old.purpose.toLowerCase() === purpose.toLowerCase() && old.period === period) {
@@ -171,6 +179,13 @@ export class Mandat {
       }
       await this.store.put(pkOf(hid), `MANDATE#${mid}`, m);
       await this.event(hid, 'mandate.set', { mandate_id: mid, budget, period, auto_approve_under });
+      // A weekly budget said aloud is the same thing as the settings card's weekly budget: keep both in step.
+      const st = period === 'weekly' && !fromSettings ? await this.settings(hid) : null;
+      if (st) {
+        // a weekly budget said aloud replaces the old weekly envelope (one active budget per purpose and period)
+        for (const old of await this.mandates(hid)) if (old.id !== mid && old.status === 'active' && old.period === 'weekly' && old.settings_managed) { old.status = 'replaced'; await this.store.put(pkOf(hid), `MANDATE#${old.id}`, old); }
+        await this.store.put(pkOf(hid), 'SETTINGS', { ...st, weekly_budget: budget, auto_buy_under: auto_approve_under, daily_cap: Math.max(st.daily_cap, auto_approve_under), updated: new Date(this.now()).toISOString() });
+      }
       const env = m.status === 'active' ? this.envelopeView(m, await this.envelopeOf(hid, m)) : null;
       const rule = auto_approve_under > 0 ? T('md_rule_auto', { amt: usd(auto_approve_under, currency) }) : T('md_rule_ask');
       const when = T('md_per', { period });
@@ -329,6 +344,7 @@ export class Mandat {
       id: id('off'), kind: 'product', merchant_id: p.shop, merchant: p.shopName, product_id: p.id, title: p.title, quantity,
       base: round(p.price * quantity), discount: 0, fees: round(p.delivery || 0), tax: 0, total: round(p.price * quantity + (p.delivery || 0)), currency: 'USD',
       matches_preference: liked(p), slot_label: 'Delivery in 2 days', search_id: sid, contains: p.contains || [], unit_price: round(p.price),
+      product_category: p.category || 'home', product_type: p.type || null, features: p.features || [],
       ...mediaFor({ kind: 'product', product_id: p.id }, this.publicUrl),
       created: new Date(now).toISOString(), expires: new Date(now + OFFER_TTL).toISOString(),
     }));
@@ -377,9 +393,11 @@ export class Mandat {
     if (!ids.length) throw new ToolError('A plan needs at least one option.', 'Pick options from the last search.');
     const offers = [];
     for (const oid of ids) offers.push(await this.offer(hid, oid));
+    const settings = await this.settings(hid);
+    if (settings?.paused) throw new ToolError(T('e_paused'), 'Tell the user Mandat is paused; they can say "resume Mandat".');
     const m = await this.mandate(hid, mandate_id);
     const env = await this.envelopeOf(hid, m);
-    const lines = offers.map((o) => ({ offer_id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, merchant_id: o.merchant_id, title: o.title, detail: o.slot_label, guests: o.guests ?? null, quantity: o.quantity ?? null, base: o.base, discount: o.discount, fees: o.fees, tax: o.tax, total: o.total, search_id: o.search_id || null, ...(o.image_url ? { image_url: o.image_url, image_alt: o.image_alt } : {}) }));
+    const lines = offers.map((o) => ({ offer_id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, merchant_id: o.merchant_id, title: o.title, detail: o.slot_label, guests: o.guests ?? null, quantity: o.quantity ?? null, base: o.base, discount: o.discount, fees: o.fees, tax: o.tax, total: o.total, search_id: o.search_id || null, product_category: o.product_category ?? null, ...(o.image_url ? { image_url: o.image_url, image_alt: o.image_alt } : {}) }));
     const sum = (k) => round(lines.reduce((s, l) => s + (l[k] || 0), 0));
     const breakdown = { base: sum('base'), discount: sum('discount'), fees: sum('fees'), tax: sum('tax'), total: sum('total'), currency: m.currency };
     const verdict = envelope.check(env, breakdown.total);
@@ -392,10 +410,14 @@ export class Mandat {
     if (!verdict.ok) {
       throw new ToolError(T('e_over', { total: usd(breakdown.total), left: usd(t.remaining), purpose: m.purpose }), 'Drop an item, pick cheaper options, or ask the user to raise the budget with set_spending_mandate.');
     }
+    // The household's own rules (settings): categories turned off are never bought; autonomy decides who says yes.
+    const blocked = S.blockedLines(settings, lines);
+    if (blocked.length) throw new ToolError(T('e_category_off', { cats: listWords([...new Set(blocked.map((l) => T('cat_' + S.categoryOf(l))))]) }), 'Tell the user; they can turn the category on in Mandat settings.');
+    const autonomy = S.autonomyVerdict({ settings, threshold: auto, total: breakdown.total, autoSpentToday: await this.autoSpentToday(hid) });
     const token = crypto.randomBytes(16).toString('hex');
     const plan = {
       id: id('plan'), mandate_id: m.id, purpose: m.purpose, lines, breakdown, note: note || '', status: 'proposed',
-      auto_approved: !verdict.needsApproval, token_hash: sha(token),
+      auto_approved: settings ? autonomy.auto : !verdict.needsApproval, auto_reason: autonomy.reason, token_hash: sha(token),
       remaining_after: round(t.remaining - breakdown.total), budget: t.total,
       created: new Date(this.now()).toISOString(), expires: new Date(this.now() + PLAN_TTL).toISOString(),
     };
@@ -403,10 +425,10 @@ export class Mandat {
     await this.event(hid, 'plan.proposed', { plan_id: plan.id, total: breakdown.total, auto_approved: plan.auto_approved });
     const items = lines.map((l) => `${l.merchant} ${usd(l.total)}`);
     const speech = plan.auto_approved
-      ? T('plan_auto', { items: listWords(items), total: usd(breakdown.total), auto: usd(m.auto_approve_under) })
-      : T('plan_ask', { items: listWords(items), total: usd(breakdown.total), discount: breakdown.discount ? usd(breakdown.discount) : '', left: usd(plan.remaining_after), budget: usd(t.total) });
+      ? T(plan.auto_reason === 'hands_off' ? 'plan_auto_hands_off' : 'plan_auto', { items: listWords(items), total: usd(breakdown.total), auto: usd(m.auto_approve_under), cap: usd(settings?.daily_cap || 0) })
+      : T('plan_ask', { items: listWords(items), total: usd(breakdown.total), discount: breakdown.discount ? usd(breakdown.discount) : '', left: usd(plan.remaining_after), budget: usd(t.total), why: settings ? T('ask_why_' + autonomy.reason, { amt: usd(auto), left: usd(autonomy.left ?? 0) }) : '' });
     const { token_hash, ...pub } = plan;
-    return { speech, data: { plan: pub, confirmation_token: token, needs_user_yes: !plan.auto_approved, envelope: this.envelopeView(m, env) }, card: 'plan' };
+    return { speech, data: { plan: pub, confirmation_token: token, needs_user_yes: !plan.auto_approved, envelope: this.envelopeView(m, env), autonomy: settings ? { level: settings.autonomy, reason: autonomy.reason } : undefined }, card: 'plan' };
   }
 
   // ---------- 8. confirm_plan ----------
@@ -421,15 +443,25 @@ export class Mandat {
       // Only the plan the user is looking at can be paid: a revised (swapped) or dropped plan is dead with its token.
       if (plan.status !== 'proposed') throw new ToolError(plan.status === 'revised' ? T('e_changed') : `That plan is ${plan.status}, so I did not pay anything.`, plan.status === 'revised' ? `Use the newer plan ${plan.revised_to} and its confirmation_token from revise_plan.` : 'Call review_plan or get_household_status.');
       if (Date.parse(plan.expires) < this.now()) throw new ToolError('This plan expired before it was confirmed.', 'Propose it again so prices are fresh.');
-      if (!plan.auto_approved && !isExplicitYes(user_confirmation)) {
+      const settings = await this.settings(hid);
+      // Emergency stop: nothing is bought while Mandat is paused, not even with a yes.
+      if (settings?.paused) throw new ToolError(T('e_paused'), 'Tell the user Mandat is paused; they can say "resume Mandat".');
+      const m = await this.mandate(hid, plan.mandate_id);
+      // Autonomy is checked again now: the daily limit may have been used since the proposal, or the level changed.
+      let alone = plan.auto_approved;
+      if (alone && settings) alone = S.autonomyVerdict({ settings, threshold: Number(m.auto_approve_under) || 0, total: plan.breakdown.total, autoSpentToday: await this.autoSpentToday(hid) }).auto;
+      if (!alone && !isExplicitYes(user_confirmation)) {
         throw new ToolError(T('e_need_yes', { total: usd(plan.breakdown.total) }), 'Read the total aloud, ask the user to say yes, then call confirm_plan with their words in user_confirmation.');
       }
-      const m = await this.mandate(hid, plan.mandate_id);
+      // Booking at home or delivering needs an address: only when this household linked through Alexa and did not
+      // share it (an old household without a profile keeps working as before).
+      const profile = await this.profile(hid);
+      if (profile?.permissions && !profile.address) throw new ToolError(T('e_need_address'), 'Tell the user to allow the address for Mandat in the Alexa app (Mandat > Manage), then say yes again.');
       if (!m.paypal?.paymentTokenId) throw new ToolError('The budget is not approved with PayPal yet.', 'Ask the user to open the approval link once.');
       const env = await this.envelopeOf(hid, m);
       const verdict = envelope.check(env, plan.breakdown.total); // re-checked: money may have moved since the proposal
       if (!verdict.ok) throw new ToolError(T('e_left_now', { left: usd(envelope.totals(env).remaining), total: usd(plan.breakdown.total) }), 'Propose a smaller plan.');
-      if (verdict.needsApproval && !isExplicitYes(user_confirmation)) throw new ToolError('This plan needs your explicit yes.', 'Ask the user to confirm.');
+      if (!settings && verdict.needsApproval && !isExplicitYes(user_confirmation)) throw new ToolError('This plan needs your explicit yes.', 'Ask the user to confirm.');
       if (!(await this.store.putIfAbsent(pkOf(hid), `IDEMP#${plan.id}`, { at: new Date(this.now()).toISOString() }))) {
         throw new ToolError('This plan is already being booked.', 'Wait a moment and call get_household_status.');
       }
@@ -444,7 +476,8 @@ export class Mandat {
           orders.push({
             id: oid, plan_id: plan.id, mandate_id: m.id, kind: l.kind, category: l.category ?? null, merchant_id: l.merchant_id, merchant: l.merchant, label: l.title, slotLabel: l.detail,
             guests: l.guests, quantity: l.quantity, amount: l.total, currency: m.currency, state: 'held', paypal: { orderId: pp.orderId, authorizationId: pp.authorizationId, mode: pp.mode },
-            close_token: crypto.randomBytes(12).toString('hex'), timeline: [{ state: 'held', amount: l.total, at }],
+            close_token: crypto.randomBytes(12).toString('hex'), timeline: [{ state: 'held', amount: l.total, at }], auto: !!alone && !isExplicitYes(user_confirmation),
+            ...(profile?.address ? { deliver_to: profile.address.line1 } : {}),
             ...(l.image_url ? { image_url: l.image_url, image_alt: l.image_alt } : {}),
           });
         }
@@ -457,13 +490,13 @@ export class Mandat {
       for (const o of orders) await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
       await this.saveEnvelope(hid, m, env);
       plan.status = 'confirmed';
-      plan.confirmed_with = plan.auto_approved ? 'auto-approve rule' : String(user_confirmation).slice(0, 80);
+      plan.confirmed_with = alone && !isExplicitYes(user_confirmation) ? 'auto-approve rule' : String(user_confirmation).slice(0, 80);
       await this.store.put(pkOf(hid), `PLAN#${plan.id}`, plan);
       await this.store.put(pkOf(hid), `IDEMP#${plan.id}`, { receipt: { order_ids: orders.map((o) => o.id) } });
       await this.event(hid, 'plan.confirmed', { plan_id: plan.id, total: plan.breakdown.total, orders: orders.length, how: plan.confirmed_with });
       const t = envelope.totals(env);
       const n = orders.length;
-      const speech = T('booked', { auto: plan.auto_approved, n, total: usd(plan.breakdown.total), left: usd(t.remaining), purpose: m.purpose });
+      const speech = T('booked', { auto: plan.confirmed_with === 'auto-approve rule', n, total: usd(plan.breakdown.total), left: usd(t.remaining), purpose: m.purpose });
       return this.receipt(hid, orders.map((o) => o.id), speech, { idempotency_key: plan.id });
     });
   }
@@ -505,7 +538,7 @@ export class Mandat {
         if (total < o.amount) o.expected_total = total; // captured later for less; the rest is released
         o.timeline.push({ state: 'changed', note: `${change.field}: ${change.value}`, at });
         await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
-        await this.event(hid, 'order.changed', { order_id: o.id, change });
+        await this.event(hid, 'order.changed', { order_id: o.id, change, merchant: o.merchant });
         await this.live({ step: `c-${o.id}`, state: 'done', text: T('l_moved', { m: mer.name }), detail: I.slot(usTime(o.slotLabel || ''), loc()), image_url: o.image_url });
         return { ...(await this.receipt(hid, [o.id], T('chg_agreed', { m: mer.name, slot: spokenSlot(o.slotLabel), amount: usd(o.amount) }))), accepted: true };
       }
@@ -518,7 +551,7 @@ export class Mandat {
       o.timeline.push({ state: 'released', amount: o.amount, note: `${mer.name} declined: ${r.reply}`, at });
       await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
       await this.saveEnvelope(hid, m, env);
-      await this.event(hid, 'order.released', { order_id: o.id, reason: 'merchant declined change' });
+      await this.event(hid, 'order.released', { order_id: o.id, reason: 'merchant declined change', merchant: o.merchant, amount: o.amount });
       let alternatives = [];
       if (change.field === 'date') {
         try {
@@ -585,7 +618,7 @@ export class Mandat {
       } else throw new ToolError('The action must be capture, cancel or refund.', 'Pick one.');
       await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
       await this.saveEnvelope(hid, m, env);
-      await this.event(hid, `order.${action}`, { order_id: o.id, amount });
+      await this.event(hid, `order.${action}`, { order_id: o.id, amount: amount ?? o.amount, merchant: o.merchant });
       const t = envelope.totals(env);
       return this.receipt(hid, [o.id], `${speech} ${T('left_in', { left: usd(t.remaining), purpose: m.purpose })}`);
     });
@@ -602,20 +635,31 @@ export class Mandat {
     if (plan_id) return plans.find((p) => p.id === plan_id) || null;
     return plans.sort((a, b) => b.created.localeCompare(a.created))[0] || null;
   }
-  // Why Mandat picked this option, in facts the household can check (no marketing).
-  whyOf(o, sibs, search) {
+  // Why this option, in facts the household can check (no marketing). Each fact has a tone the card shows honestly:
+  //   plus  a real advantage (green dot)    cost  a price disadvantage (amber, never green)    info  neutral
+  // Prices are compared only with options of the same kind (sheet sets with sheet sets, not with towels), and an
+  // option that is not the cheapest says what it costs more AND what it is chosen for.
+  whyOf(o, sibs, search, { inPlan = false } = {}) {
     const why = [];
-    const n = sibs.length;
-    const rank = sibs.findIndex((x) => x.id === o.id);
+    const same = o.kind === 'product' && o.product_type ? sibs.filter((x) => x.product_type === o.product_type) : sibs;
+    const n = same.length;
+    const cheapest = [...same].sort((a, b) => a.total - b.total)[0];
+    const name = (x) => (x.kind === 'service' ? x.merchant : P(x.title).split(/[:：(]/)[0].trim());
     const noun = nounOf(o.kind === 'service' ? o.category : 'products', n);
-    if (n > 1 && rank === 0) why.push(T('why_cheapest', { n, noun }));
-    else if (n > 1 && rank > 0) why.push(T('why_more', { diff: usd(o.total - sibs[0].total), n }));
-    if (o.discount) why.push(T('why_off', { amt: usd(o.discount), deal: o.conditions ? I.dealOf(o.conditions, loc()) : '' }));
-    if (o.kind === 'service' && n > 1 && o.rating && o.rating >= Math.max(...sibs.map((x) => x.rating || 0))) why.push(T('why_rated', { r: o.rating }));
-    if (o.matches_preference) why.push(T('why_usual'));
+    // what it is chosen for (the item's own qualities), first
+    const quality = o.kind === 'service'
+      ? [o.rating && n > 1 && o.rating >= Math.max(...same.map((x) => x.rating || 0)) ? T('why_q_rated', { r: o.rating }) : '', o.slot_label ? spokenSlot(o.slot_label) : ''].filter(Boolean)
+      : [...(o.features || []).slice(0, 2).map((f) => P(f)), P('delivery in 2 days')];
+    const notCheapest = n > 1 && cheapest && cheapest.id !== o.id && o.total > cheapest.total;
+    if (quality.length && (notCheapest || o.kind === 'product')) why.push({ tone: 'plus', text: T(inPlan ? 'why_chosen_for' : 'why_offers', { list: listWords(quality) }) });
+    if (n > 1 && !notCheapest) why.push({ tone: 'plus', text: o.kind === 'service' ? T('why_cheapest', { n, noun }) : T('why_cheapest_similar', { n }) });
+    if (o.kind === 'service' && !notCheapest && n > 1 && o.rating && o.rating >= Math.max(...same.map((x) => x.rating || 0))) why.push({ tone: 'plus', text: T('why_rated', { r: o.rating }) });
+    if (notCheapest) why.push({ tone: 'cost', text: T('why_costs_more', { diff: usd(o.total - cheapest.total), name: name(cheapest), n }) });
+    if (o.discount) why.push({ tone: 'plus', text: T('why_off', { amt: usd(o.discount), deal: o.conditions ? I.dealOf(o.conditions, loc()) : '' }) });
+    if (o.matches_preference) why.push({ tone: 'plus', text: T('why_usual') });
     const skipped = search?.skipped || [];
-    if (skipped.length) why.push(T('why_skipped', { n: skipped.length, ing: listWords([...new Set(skipped.map((x) => P(x.ingredient)))]), because: skipped[0].because }));
-    if (o.kind === 'service' && o.card_verified) why.push(T('why_verified'));
+    if (skipped.length) why.push({ tone: 'plus', text: T('why_skipped', { n: skipped.length, ing: listWords([...new Set(skipped.map((x) => P(x.ingredient)))]), because: skipped[0].because }) });
+    if (o.kind === 'service' && o.card_verified) why.push({ tone: 'info', text: T('why_verified') });
     return why;
   }
   async ruleFor(hid, o, plan) {
@@ -632,19 +676,22 @@ export class Mandat {
     const search = o.search_id ? await this.store.get(pkOf(hid), `SEARCH#${o.search_id}`) : null;
     const plan = await this.pendingPlan(hid);
     const inPlan = !!plan?.lines.some((l) => l.offer_id === o.id);
-    const why = this.whyOf(o, sibs, search);
+    const why = this.whyOf(o, sibs, search, { inPlan });
+    const addr = (await this.profile(hid))?.address?.line1 || '';
     const rule = await this.ruleFor(hid, o, plan);
     const m = o.kind === 'service' ? merchantById(o.merchant_id) : null;
     const L = loc();
     const specs = o.kind === 'service'
-      ? [{ k: T('spec_what'), v: P(o.title) }, { k: T('spec_when'), v: I.slot(o.slot_label, L) }, ...(o.guests ? [{ k: T('spec_guests'), v: T('spec_per_guest', { n: o.guests, price: usd(m.price) }) }] : []), { k: T('spec_where'), v: T('spec_area', { area: o.area, r: o.rating }) }, { k: T('spec_about'), v: P(m.pitch) }]
-      : [{ k: T('spec_what'), v: P(o.title) }, { k: T('spec_delivery'), v: o.fees ? T('spec_fee', { slot: I.slot(o.slot_label, L), fee: usd(o.fees) }) : T('spec_free', { slot: I.slot(o.slot_label, L) }) }, ...(o.contains?.length ? [{ k: T('spec_made'), v: listWords(o.contains.map(P)) }] : []), ...(o.quantity > 1 ? [{ k: T('spec_qty'), v: String(o.quantity) }] : [])];
+      ? [{ k: T('spec_what'), v: P(o.title) }, { k: T('spec_when'), v: I.slot(o.slot_label, L) }, ...(o.guests ? [{ k: T('spec_guests'), v: T('spec_per_guest', { n: o.guests, price: usd(m.price) }) }] : []), { k: T('spec_where'), v: addr ? T('spec_at_home', { addr }) : T('spec_area', { area: o.area, r: o.rating }) }, { k: T('spec_about'), v: P(m.pitch) }]
+      : [{ k: T('spec_what'), v: P(o.title) }, { k: T('spec_delivery'), v: `${o.fees ? T('spec_fee', { slot: I.slot(o.slot_label, L), fee: usd(o.fees) }) : T('spec_free', { slot: I.slot(o.slot_label, L) })}${addr ? T('spec_to', { addr }) : ''}` }, ...(o.contains?.length ? [{ k: T('spec_made'), v: listWords(o.contains.map(P)) }] : []), ...(o.quantity > 1 ? [{ k: T('spec_qty'), v: String(o.quantity) }] : [])];
     const history = (o.history || []).map((h) => ({ ...h }));
     const what = P(o.title);
     const lead = o.kind === 'service'
       ? T('det_svc', { m: o.merchant, total: usd(o.total), what: what.charAt(0).toLowerCase() + what.slice(1), slot: spokenSlot(o.slot_label) })
       : T('det_prod', { title: what, total: usd(o.total), m: o.merchant });
-    const speech = `${lead} ${why.length ? why[0] + '.' : ''}${inPlan ? ' ' + T('in_plan') : ''}`.replace(/\s+/g, ' ').trim();
+    // say the reason, and the trade-off when there is one (a higher price is never presented as an advantage)
+    const said = [why.find((w) => w.tone === 'plus'), why.find((w) => w.tone === 'cost')].filter(Boolean).map((w) => w.text + '.').join(' ');
+    const speech = `${lead} ${said}${inPlan ? ' ' + T('in_plan') : ''}`.replace(/\s+/g, ' ').trim();
     return { speech, data: { mode: 'detail', offer: o, images: galleryFor(o, this.publicUrl), specs, why, rule, history, in_plan: inPlan, plan_id: plan?.id || null, alternatives: sibs.filter((x) => x.id !== o.id).length }, card: 'item' };
   }
 
@@ -717,6 +764,195 @@ export class Mandat {
     return { speech: T('review', { items: listWords(items), total: usd(plan.breakdown.total), left: usd(plan.remaining_after), budget: usd(env.budget), ask: !plan.auto_approved }), data: { plan: pub, needs_user_yes: !plan.auto_approved, envelope: env, reviewed: true }, card: 'plan' };
   }
 
+  // ---------- household identity, settings and the emergency stop (account linking, first run) ----------
+  async profile(hid) { return (await this.store.get(pkOf(hid), 'PROFILE')) || null; }
+  async settings(hid) { return (await this.store.get(pkOf(hid), 'SETTINGS')) || null; }
+  // What Mandat bought on its own today (counts toward the daily limit). A voided hold gives its room back.
+  async autoSpentToday(hid) {
+    const day = new Date(this.now()).toISOString().slice(0, 10);
+    const orders = (await this.store.query(pkOf(hid), 'ORDER#')).map((r) => r.value);
+    return round(orders.filter((o) => o.auto && o.state !== 'released' && String(o.timeline?.[0]?.at || '').startsWith(day)).reduce((s, o) => s + (o.captured ?? o.amount) - (o.refunded || 0), 0));
+  }
+
+  // A new household behind a new account link (src/core/oauth.mjs). "demo" is pre-filled for judges: the two facts
+  // the stories rely on (Max's allergy, the coffee brand); no budget and no settings yet, so the first run shows.
+  async seedHousehold(kind = 'demo') {
+    const hid = `${kind === 'demo' ? 'demo' : 'hh'}-${crypto.randomBytes(5).toString('hex')}`;
+    const at = new Date(this.now()).toISOString();
+    await this.store.put(pkOf(hid), 'PROFILE', { kind, created: at });
+    if (kind === 'demo') {
+      for (const [subject, fact] of [['Max (dog)', 'allergic to chicken'], ['Coffee', 'We drink Northbeam medium roast']]) {
+        const p = { id: id('pref'), subject, fact, at };
+        await this.store.put(pkOf(hid), `PREF#${p.id}`, p);
+      }
+    }
+    await this.event(hid, 'household.created', { kind });
+    return hid;
+  }
+
+  // Alexa customer-data permissions (simulated host side: Amazon's Permissions page does not say how the data reaches
+  // an MCP add-on). Only what the person allowed is kept; a permission turned off deletes that detail at once.
+  async applyCustomerPermissions(hid, { granted = {}, values = {} }) {
+    return this.locked(hid, async () => {
+      const p = (await this.profile(hid)) || { kind: 'linked', created: new Date(this.now()).toISOString() };
+      p.permissions = { name: !!granted.name, email: !!granted.email, address: !!granted.address };
+      p.name = granted.name && values.name ? { full: String(values.name.full || '').slice(0, 80), given: String(values.name.given || '').slice(0, 40) } : null;
+      p.email = granted.email && values.email ? String(values.email).slice(0, 120) : null;
+      const a = values.address || {};
+      p.address = granted.address && a.line1 ? { line1: String(a.line1).slice(0, 80), city: String(a.city || '').slice(0, 40), region: String(a.region || '').slice(0, 20), postal: String(a.postal || '').slice(0, 12) } : null;
+      p.permissions_at = new Date(this.now()).toISOString();
+      p.source = 'Alexa customer-data permissions (simulated)';
+      await this.store.put(pkOf(hid), 'PROFILE', p);
+      await this.event(hid, 'permissions.updated', { granted: Object.keys(p.permissions).filter((k) => p.permissions[k]) });
+      const shared = Object.keys(p.permissions).filter((k) => p.permissions[k]).map((k) => T('perm_' + k));
+      return { speech: T('perm_ok', { name: p.name?.given || '', list: shared.length ? listWords(shared) : '' }), data: { profile: publicProfile(p) }, card: 'status' };
+    });
+  }
+
+  settingsView(s, extra = {}) {
+    return { ...S.DEFAULTS, ...s, categories: [...(s?.categories || S.CATEGORIES)], ...extra };
+  }
+  // ---------- 16. get_settings ("Alexa, open Mandat settings"; also the first-run card) ----------
+  async getSettings(hid, { first_run = false } = {}) {
+    let s = await this.settings(hid);
+    if (!s) { s = { ...S.DEFAULTS, categories: [...S.CATEGORIES], created: new Date(this.now()).toISOString() }; await this.store.put(pkOf(hid), 'SETTINGS', s); }
+    // the weekly envelope exists from the first look at the settings, so the defaults already protect the household
+    if (!(await this.weeklyMandate(hid))) await this.syncWeeklyMandate(hid, s);
+    const profile = await this.profile(hid);
+    const given = profile?.name?.given || '';
+    const step = s.onboarded ? null : S.nextStep(s.answered || [], s);
+    const speech = !s.onboarded
+      ? `${T('set_welcome', { name: given })} ${T('ask_' + (step || 'done'), this.askVars(s))}`
+      : `${T('set_summary', this.summaryVars(s))} ${s.paused ? T('set_paused_note') : ''}`.trim();
+    return { speech, data: { settings: this.settingsView(s), first_run: !s.onboarded || !!first_run, onboarding_step: step, auto_spent_today: await this.autoSpentToday(hid), profile: publicProfile(profile) }, card: 'settings' };
+  }
+  askVars(s) { return { week: usd(s.weekly_budget), auto: usd(s.auto_buy_under), cap: usd(s.daily_cap), level: T('lvl_' + s.autonomy) }; }
+  summaryVars(s) {
+    const off = S.CATEGORIES.filter((c) => !(s.categories || S.CATEGORIES).includes(c));
+    return { week: usd(s.weekly_budget), level: T('lvl_' + s.autonomy), rule: T('rule_' + s.autonomy, this.askVars(s)), off: off.length ? T('set_off', { cats: listWords(off.map((c) => T('cat_' + c))) }) : T('set_all_on') };
+  }
+
+  // ---------- 17. update_settings (touch on the card, or by voice: "200 a week", "Balanced") ----------
+  async updateSettings(hid, patch = {}) {
+    const cur = (await this.settings(hid)) || { ...S.DEFAULTS, categories: [...S.CATEGORIES], created: new Date(this.now()).toISOString() };
+    const r = S.applyPatch(cur, patch);
+    if (r.error) throw new ToolError(T(r.error.key, { ...r.error, lo: usd(r.error.lo ?? 0), hi: usd(r.error.hi ?? 0), ...this.askVars({ ...cur, ...patch }) }), 'Tell the user the limit and ask for another amount.');
+    const next = { ...r.next, answered: [...new Set([...(cur.answered || []), ...r.changed.filter((k) => S.ONBOARDING_STEPS.includes(k)), ...(patch.answered || []).filter((k) => S.ONBOARDING_STEPS.includes(k))])], updated: new Date(this.now()).toISOString() };
+    // The weekly budget is the household's recurring envelope: keep it in step (in place: held and spent stay).
+    if (r.changed.includes('weekly_budget') || r.changed.includes('auto_buy_under') || !(await this.weeklyMandate(hid))) await this.syncWeeklyMandate(hid, next);
+    await this.store.put(pkOf(hid), 'SETTINGS', next);
+    if (r.changed.length) await this.event(hid, 'settings.updated', { changed: r.changed });
+    // confirm what the person set, even when it was already that value ("Balanced." -> "Balanced.")
+    const asked = [...new Set([...r.changed, ...Object.keys(patch).filter((k) => ['weekly_budget', 'auto_buy_under', 'autonomy', 'daily_cap'].includes(k)), ...(patch.categories_on || patch.categories_off ? ['categories'] : [])])];
+    const said = asked.filter((k) => k !== 'onboarded').map((k) => T('chg_' + k, { ...this.askVars(next), cats: this.summaryVars(next).off }));
+    const finished = r.changed.includes('onboarded');
+    const speech = finished ? T('set_done', this.summaryVars(next)) : said.length ? said.join(' ') : T('set_same');
+    const step = next.onboarded ? null : S.nextStep(next.answered, next);
+    return { speech, data: { settings: this.settingsView(next), changed: r.changed, onboarding_step: step, first_run: !next.onboarded, auto_spent_today: await this.autoSpentToday(hid) }, card: 'settings' };
+  }
+  async weeklyMandate(hid) {
+    return (await this.mandates(hid)).filter((m) => m.status === 'active' && m.period === 'weekly').sort((a, b) => Number(!!b.settings_managed) - Number(!!a.settings_managed) || b.created.localeCompare(a.created))[0] || null;
+  }
+  async syncWeeklyMandate(hid, s) {
+    const m = await this.weeklyMandate(hid);
+    if (!m) {
+      await this.setSpendingMandate(hid, { budget: s.weekly_budget, period: 'weekly', auto_approve_under: s.auto_buy_under, purpose: T('purpose_weekly'), fromSettings: true });
+      return;
+    }
+    await this.locked(hid, async () => {
+      const env = await this.envelopeOf(hid, m);
+      const t = envelope.totals(env);
+      if (s.weekly_budget < t.held + t.spent - 1e-9) throw new ToolError(T('set_e_below_committed', { amt: usd(t.held + t.spent) }), 'Ask the user for a weekly budget at least that high.');
+      Object.assign(m, { budget: s.weekly_budget, auto_approve_under: s.auto_buy_under, settings_managed: true });
+      env.total = s.weekly_budget; env.approveAbove = s.auto_buy_under;
+      await this.store.put(pkOf(hid), `MANDATE#${m.id}`, m);
+      await this.saveEnvelope(hid, m, env);
+    });
+  }
+
+  // ---------- 18. pause_spending: the emergency stop ("Alexa, pause Mandat", "stop all spending") ----------
+  // Pauses every autonomy level, voids every payment hold still open (nothing was charged on them) and drops the
+  // plans waiting for a yes. Nothing can be bought until the person says "resume Mandat".
+  async pauseSpending(hid) {
+    const out = await this.locked(hid, async () => {
+      const s = (await this.settings(hid)) || { ...S.DEFAULTS, categories: [...S.CATEGORIES], created: new Date(this.now()).toISOString() };
+      s.paused = true; s.paused_at = new Date(this.now()).toISOString();
+      await this.store.put(pkOf(hid), 'SETTINGS', s);
+      const voided = [];
+      const at = new Date(this.now()).toISOString();
+      for (const o of (await this.store.query(pkOf(hid), 'ORDER#')).map((r) => r.value).filter((x) => x.state === 'held')) {
+        const pp = await this.paypal.release({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId });
+        const m = (await this.mandates(hid)).find((x) => x.id === o.mandate_id);
+        if (m) { const env = await this.envelopeOf(hid, m); try { envelope.release(env, o.id, pp); } catch {} await this.saveEnvelope(hid, m, env); }
+        o.state = 'released';
+        o.timeline.push({ state: 'released', amount: o.amount, note: 'emergency stop', at });
+        await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
+        await this.live({ step: `p-${o.id}`, state: 'done', text: T('l_released', { amt: usd(o.amount) }), detail: o.merchant, image_url: o.image_url });
+        voided.push(o);
+      }
+      let plans = 0;
+      for (const p of (await this.store.query(pkOf(hid), 'PLAN#')).map((r) => r.value).filter((x) => x.status === 'proposed')) {
+        p.status = 'cancelled'; plans++;
+        await this.store.put(pkOf(hid), `PLAN#${p.id}`, p);
+      }
+      const amount = round(voided.reduce((x, o) => x + o.amount, 0));
+      await this.event(hid, 'spending.paused', { voided: voided.length, amount, plans });
+      return { voided, amount, plans };
+    });
+    const status = await this.getHouseholdStatus(hid, {});
+    const speech = T('pause_done', { n: out.voided.length, amt: usd(out.amount), names: listWords(out.voided.slice(0, 3).map((o) => o.merchant)), plans: out.plans });
+    return { speech, data: { ...status.data, stop: { voided: out.voided.map(publicOrder), amount: out.amount, plans: out.plans } }, card: 'status' };
+  }
+  // ---------- 19. resume_spending ----------
+  async resumeSpending(hid) {
+    const s = await this.settings(hid);
+    if (!s?.paused) { const st = await this.getHouseholdStatus(hid, {}); return { speech: T('resume_not_paused'), data: st.data, card: 'status' }; }
+    s.paused = false; s.resumed_at = new Date(this.now()).toISOString();
+    await this.store.put(pkOf(hid), 'SETTINGS', s);
+    await this.event(hid, 'spending.resumed', {});
+    const st = await this.getHouseholdStatus(hid, {});
+    return { speech: T('resume_done', this.summaryVars(s)), data: { ...st.data, resumed: true }, card: 'status' };
+  }
+
+  // ---------- 20. delete_my_data: void the holds, then erase the whole household and its account links ----------
+  async deleteHouseholdData(hid, { user_confirmation }) {
+    if (!(isExplicitYes(user_confirmation) || user_confirmation === 'tap:delete')) throw new ToolError(T('e_delete_yes'), 'Explain what is erased, ask the user to say yes, then call delete_my_data with their words in user_confirmation.');
+    return this.locked(hid, async () => {
+      let voided = 0;
+      for (const o of (await this.store.query(pkOf(hid), 'ORDER#')).map((r) => r.value).filter((x) => x.state === 'held')) {
+        try { await this.paypal.release({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId }); voided++; } catch {}
+      }
+      const rows = await this.store.query(pkOf(hid), '');
+      // account links: their tokens live under their own keys
+      for (const r of rows.filter((x) => x.sk.startsWith('LINK#'))) for (const t of r.value.tokens || []) await this.store.delete(t.pk, 'T');
+      for (const r of rows) await this.store.delete(pkOf(hid), r.sk);
+      return { speech: T('deleted', { n: voided }), data: { deleted: true, rows: rows.length, voided, unlinked: true }, card: 'status' };
+    });
+  }
+
+  // Recent actions for the status card (from the household's own event log), newest first.
+  async recentActions(hid, max = 4) {
+    const rows = (await this.store.query(pkOf(hid), 'EVENT#')).map((r) => r.value).slice(-30);
+    const text = (e) => {
+      switch (e.type) {
+        case 'mandate.set': return T('ev_budget', { amt: usd(e.budget) });
+        case 'plan.confirmed': return T(e.how === 'auto-approve rule' ? 'ev_bought_alone' : 'ev_booked_yes', { amt: usd(e.total) });
+        case 'order.released': return T('ev_declined', { m: e.merchant || '' });
+        case 'order.capture': return T('ev_paid', { m: e.merchant || '', amt: usd(e.amount || 0) });
+        case 'order.cancel': return T('ev_cancel', { m: e.merchant || '' });
+        case 'order.refund': return T('ev_refund', { m: e.merchant || '', amt: usd(e.amount || 0) });
+        case 'order.changed': return T('ev_moved', { m: e.merchant || '' });
+        case 'settings.updated': return T('ev_settings');
+        case 'spending.paused': return T('ev_paused', { n: e.voided || 0 });
+        case 'spending.resumed': return T('ev_resumed');
+        case 'permissions.updated': return T('ev_permissions');
+        case 'preference.saved': return T('ev_pref', { s: e.subject });
+        default: return null;
+      }
+    };
+    return rows.map((e) => ({ at: e.at, type: e.type, text: text(e) })).filter((x) => x.text).slice(-max).reverse();
+  }
+
   // ---------- app-only: refresh a card ----------
   async refreshCard(hid, { card, plan_id, order_ids }) {
     if (card === 'receipt' && order_ids?.length) return this.receipt(hid, order_ids, '');
@@ -731,6 +967,11 @@ export class Mandat {
   }
 }
 
+// What the household shared through Alexa, as the cards show it (never more).
+export function publicProfile(p) {
+  if (!p) return null;
+  return { kind: p.kind, permissions: p.permissions || null, name: p.name?.full || null, given_name: p.name?.given || null, email: p.email || null, address: p.address ? [p.address.line1, p.address.city].filter(Boolean).join(', ') : null };
+}
 export function publicOrder(o) {
   const { close_token, paypal, ...rest } = o;
   return { ...rest, paypal_mode: paypal?.mode, paypal_authorization: paypal?.authorizationId };

@@ -8,7 +8,8 @@ const TABLE = () => process.env.MANDAT_TABLE || 'mandat';
 export const commands = {
   get: (pk, sk) => ({ TableName: TABLE(), Key: { PK: pk, SK: sk }, ConsistentRead: true }),
   // Live-activity rows (ACT#…) expire after a day through the table's TTL attribute "ttl" (enabled by the deploy).
-  put: (pk, sk, value) => ({ TableName: TABLE(), Item: { PK: pk, SK: sk, v: value, updatedAt: new Date().toISOString(), ...(sk.startsWith('ACT#') ? { ttl: Math.floor(Date.now() / 1000) + 86400 } : {}) } }),
+  // OAuth codes and tokens (OAUTH#…) expire with their own exp (seconds), plus a day of grace for reuse detection.
+  put: (pk, sk, value) => ({ TableName: TABLE(), Item: { PK: pk, SK: sk, v: value, updatedAt: new Date().toISOString(), ...(sk.startsWith('ACT#') ? { ttl: Math.floor(Date.now() / 1000) + 86400 } : pk.startsWith('OAUTH#') && Number(value?.exp) ? { ttl: Number(value.exp) + 86400 } : {}) } }),
   // Idempotency: the write only happens if the key does not exist yet (confirm_plan uses IDEMP#<plan_id>).
   putIfAbsent: (pk, sk, value) => ({ ...commands.put(pk, sk, value), ConditionExpression: 'attribute_not_exists(PK)' }),
   query: (pk, prefix) => ({

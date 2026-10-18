@@ -18,9 +18,10 @@ export async function connectMcp(url, { household = 'demo', name = 'mandat-alexa
 
 export class SimulatedBrain {
   constructor({ mcpUrl, headers = {} }) { this.mcpUrl = mcpUrl; this.headers = headers; this.name = 'simulated'; }
-  async runTurn({ text, session = {}, household = 'demo', maxSteps = 12, turn, locale }) {
-    // The turn id ties every tool call of this utterance to the live activity feed; the locale shapes the speech.
-    const extra = { ...(turn ? { 'X-Mandat-Turn': turn } : {}), ...(locale ? { 'X-Mandat-Locale': locale } : {}) };
+  async runTurn({ text, session = {}, household = 'demo', maxSteps = 12, turn, locale, authorization }) {
+    // The turn id ties every tool call of this utterance to the live activity feed; the locale shapes the speech;
+    // the household's access token (account linking) goes with every call.
+    const extra = { ...(turn ? { 'X-Mandat-Turn': turn } : {}), ...(locale ? { 'X-Mandat-Locale': locale } : {}), ...(authorization ? { Authorization: authorization } : {}) };
     const { client, transport } = await connectMcp(this.mcpUrl, { household, headers: { ...this.headers, ...extra } });
     const steps = [];
     let s = { ...session };

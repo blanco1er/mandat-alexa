@@ -22,8 +22,12 @@ test('get_offer_details: gallery, specs, why, the rule, negotiation; voice-compl
   assert.match(text(r), /in your plan/i);
   assert.equal(d.rule.buys_on_its_own, false);
   const svc = sc(await c.callTool({ name: 'get_offer_details', arguments: { offer_id: sc(clean).offers[0].id } }));
-  assert.ok(svc.why.some((w) => /Cheapest of the 3 cleaners/.test(w)), svc.why.join(' | '));
-  assert.ok(svc.why.some((w) => /\$10 off/.test(w)));
+  assert.ok(svc.why.some((w) => /Cheapest of the 3 cleaners/.test(w.text) && w.tone === 'plus'), svc.why.map((w) => w.text).join(' | '));
+  assert.ok(svc.why.some((w) => /\$10 off/.test(w.text)));
+  // the guest bed bundle is compared with the other sheet set only (not with towels), and said why it is chosen
+  assert.ok(d.why.some((w) => /^Chosen for queen size, with 2 pillowcases, cotton percale and delivery in 2 days$/.test(w.text) && w.tone === 'plus'), d.why.map((w) => w.text).join(' | '));
+  assert.ok(d.why.some((w) => /Cheapest of the 2 similar options/.test(w.text)), d.why.map((w) => w.text).join(' | '));
+  assert.ok(!d.why.some((w) => w.tone === 'cost'));
   assert.equal(svc.history[0].list, 95);
   assert.equal(svc.history[0].total, 85);
   await c.close();

@@ -7,6 +7,11 @@
 .fact { margin: 0; font-size: var(--t-title); font-weight: 700; letter-spacing: -.022em; line-height: 1.12; text-wrap: balance; }
 .fact .who-is { display: block; font-size: var(--t-body); font-weight: 590; color: var(--label-2); letter-spacing: -.012em; margin-bottom: .2em; }
 .memory .who b { font-weight: 590; }
+.rules { margin: 0; display: flex; align-items: center; gap: .8em; flex-wrap: wrap; font-size: var(--t-meta); color: var(--label-2); }
+.rules > span:not(.status) { white-space: nowrap; }
+.label { margin: 0 0 .2em; font-size: var(--t-meta); color: var(--label-2); font-weight: 590; }
+.rows .when { font-size: var(--t-meta); color: var(--label-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.voided .amt { color: var(--label-2); }
 .memory li.is-new .who b::after { content: " · just now"; font-weight: 400; color: var(--label-2); font-size: var(--t-meta); }
 </style></head>
 <body><main class="card" id="app" aria-live="polite"><p class="context">Checking your household…</p></main>
@@ -16,10 +21,34 @@ function memoryList(prefs, savedId, max) {
   if (!prefs.length) return '';
   return `<ul class="rows memory">${prefs.slice(-max).reverse().map((p) => `<li class="${p.id === savedId ? 'is-new' : ''}">${icon('memory')}<span class="who"><b>${esc(p.subject)}</b><span>${esc(p.fact)}</span></span><span></span></li>`).join('')}</ul>`;
 }
+const LEVEL = { ask: 'Ask me first', balanced: 'Balanced', hands_off: 'Hands-off within limits' };
+const time = (at) => { try { return new Intl.DateTimeFormat(LOC(), { hour: 'numeric', minute: '2-digit' }).format(new Date(at)); } catch { return ''; } };
+function rulesLine(s) {
+  if (!s) return '';
+  const rule = s.autonomy === 'ask' ? tx('Always asks') : s.autonomy === 'balanced' ? tx('Buys alone under {amt}', { amt: usd(s.auto_buy_under) }) : tx('Up to {amt} a day alone', { amt: usd(s.daily_cap) });
+  return `<p class="rules">${s.paused ? status('bad', tx('Paused')) : status('info', tx(LEVEL[s.autonomy] || 'Balanced'))}<span>${esc(rule)}</span>${s.autonomy !== 'ask' && !s.paused ? `<span>${esc(tx('Up to {amt} a day alone', { amt: usd(s.daily_cap) }))}</span>` : ''}</p>`;
+}
+function recentList(items) {
+  if (!items || !items.length) return '';
+  return `<div><p class="label">${tx('Recent')}</p><ul class="rows compact">${items.slice(0, 3).map((r) => `<li>${icon('check')}<span class="who"><b>${esc(r.text)}</b></span><span class="when">${esc(time(r.at))}</span></li>`).join('')}</ul></div>`;
+}
 function render(result) {
   if (result.isError) return showError(result);
   ready();
   const sc = result.structuredContent || {};
+  if (sc.deleted) {
+    $('#app').innerHTML = `<div class="head"><p class="context">Mandat</p>${status('ok', tx('Done'))}</div>
+      <h1>${tx('Mandat forgot this household')}</h1><p class="lead">${tx('Budgets, orders, memory and shared details are erased. Mandat is unlinked.')}</p>`;
+    return;
+  }
+  if (sc.stop) {
+    const v = sc.stop.voided || [];
+    $('#app').innerHTML = `<div class="head"><p class="context">Mandat</p>${status('bad', tx('Paused'))}</div>
+      <h1>${tx('Mandat is paused')}</h1><p class="lead">${esc(tx('Nothing will be bought until you say “Alexa, resume Mandat”.'))}</p>
+      ${v.length ? `<ul class="rows voided">${v.slice(0, 3).map((o) => `<li>${thumb(o, 'sm')}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(tx('Hold released'))}</span></span><span class="amt"><s>${usd(o.amount)}</s></span></li>`).join('')}</ul>
+      <p class="note">${esc(tx('Voided {n} · nothing charged', { n: v.length }))}</p>` : ''}`;
+    return;
+  }
   const envs = sc.envelopes || [];
   const prefs = sc.preferences || [];
   const open = sc.open_orders || [];
@@ -34,17 +63,19 @@ function render(result) {
     return;
   }
   const pending = (sc.pending_decisions || []).length;
-  const st = pending ? status('wait', tx('{n} waiting for your yes', { n: pending })) : open.length ? status('info', tx('{n} on hold', { n: open.length })) : status('ok', tx('All settled'));
+  const st = sc.settings?.paused ? status('bad', tx('Paused')) : sc.resumed ? status('ok', tx('Back on')) : pending ? status('wait', tx('{n} waiting for your yes', { n: pending })) : open.length ? status('info', tx('{n} on hold', { n: open.length })) : status('ok', tx('All settled'));
+  const who = sc.profile?.given_name ? tx('{name}’s household', { name: sc.profile.given_name }) : '';
   if (!main) {
     $('#app').innerHTML = `<div class="head"><p class="context">${tx('Household')}</p>${st}</div>
       <h1>${tx('No budget yet')}</h1><p class="lead">${esc(tx('Say “Set a weekly household budget of $150, and buy on your own under $40.”'))}</p>${memoryList(prefs, null, 3)}`;
     return;
   }
   $('#app').innerHTML = `
-    <div class="head"><p class="context">${tx(envs.length === 1 ? 'Household · {n} budget' : 'Household · {n} budgets', { n: envs.length })}</p>${st}</div>
+    <div class="head"><p class="context">${who ? esc(who) + ' · ' : ''}${tx(envs.length === 1 ? 'Household · {n} budget' : 'Household · {n} budgets', { n: envs.length }).replace(who ? /^[^·]*·\s*/ : /^$/, '')}</p>${st}</div>
     <div class="hero"><h1>${esc(main.purpose)}</h1><span class="num">${usd(main.remaining)}<small>${tx('left')}</small></span></div>
     <div class="envs">${envs.slice(0, 2).map((e, i) => (i ? `<div class="env-head">${esc(e.purpose)}<span>${tx('{amt} left', { amt: usd(e.remaining) })}</span></div>` : '') + gauge(e)).join('')}</div>
-    ${open.length ? `<ul class="rows">${open.slice(0, 3).map((o) => `<li>${thumb(o, 'sm')}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.slotLabel ? slotL(o.slotLabel) : P(o.label) || '')}</span></span><span class="amt">${usd(o.amount)}</span></li>`).join('')}</ul>` : memoryList(prefs, null, 2)}`;
+    ${rulesLine(sc.settings)}
+    ${open.length ? `<ul class="rows">${open.slice(0, 3).map((o) => `<li>${thumb(o, 'sm')}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.slotLabel ? slotL(o.slotLabel) : P(o.label) || '')}</span></span><span class="amt">${usd(o.amount)}</span></li>`).join('')}</ul>` : (sc.recent || []).length ? recentList(sc.recent) : memoryList(prefs, null, 2)}`;
 }
 mcpApp.on('result', render);
 mcpApp.connect('mandat-status');

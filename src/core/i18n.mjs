@@ -6,6 +6,7 @@
 // Data stays canonical (English catalogue titles, "Friday 10 AM" slots, USD amounts): only what is said or shown is
 // translated, so ids, prices and slots never drift between languages. The household's currency is kept (USD in this
 // sandbox); numbers, prices and times follow the locale ("372 $", "19 h 30", "las 19:30").
+import { SETTINGS_CARD, SETTINGS_MSG, SETTINGS_PHRASES } from './i18n-settings.mjs';
 
 export const LOCALES = ['en-US', 'fr-FR', 'es-ES', 'es-US'];
 export function normLocale(x) {
@@ -187,7 +188,7 @@ export const MSG = {
     neg_says: (v) => `${v.m} says: ${v.reply}`,
     neg_agreed: (v) => `${v.m} agreed: ${v.total} instead of ${v.before}, ${v.slot}.`,
     plan_auto: (v) => `${v.items}. That is ${v.total}, under your ${v.auto} auto-approve rule, so I can buy it right away.`,
-    plan_ask: (v) => `Here is the plan: ${v.items}. Total ${v.total}${v.discount ? `, after ${v.discount} negotiated off` : ''}. That leaves ${v.left} of your ${v.budget}. Should I book it?`,
+    plan_ask: (v) => `Here is the plan: ${v.items}. Total ${v.total}${v.discount ? `, after ${v.discount} negotiated off` : ''}. That leaves ${v.left} of your ${v.budget}. ${v.why ? v.why + ' ' : ''}Should I book it?`,
     booked: (v) => `${v.auto ? 'Bought, under your auto-approve rule.' : 'Booked.'} ${v.n === 1 ? 'One payment hold' : `${v.n} payment holds`} for ${v.total}; nothing is charged until ${v.n === 1 ? 'it is' : 'each is'} delivered. ${v.left} left in ${v.purpose}.`,
     already: () => 'Already booked: nothing new was charged.',
     chg_agreed: (v) => `${v.m} agreed: ${v.slot}, same hold of ${v.amount}.`,
@@ -275,7 +276,7 @@ export const MSG = {
     neg_says: (v) => `${v.m} répond : ${v.reply}`,
     neg_agreed: (v) => `${v.m} accepte : ${v.total} au lieu de ${v.before}, ${v.slot}.`,
     plan_auto: (v) => `${v.items}. Ça fait ${v.total}, sous votre règle des ${v.auto}, donc je peux l’acheter tout de suite.`,
-    plan_ask: (v) => `Voici le plan : ${v.items}. Total ${v.total}${v.discount ? `, après ${v.discount} négociés` : ''}. Il restera ${v.left} sur vos ${v.budget}. Je réserve ?`,
+    plan_ask: (v) => `Voici le plan : ${v.items}. Total ${v.total}${v.discount ? `, après ${v.discount} négociés` : ''}. Il restera ${v.left} sur vos ${v.budget}. ${v.why ? v.why + ' ' : ''}Je réserve ?`,
     booked: (v) => `${v.auto ? 'Acheté, sous votre règle d’achat automatique.' : 'C’est réservé.'} ${v.n === 1 ? 'Un paiement réservé' : `${v.n} paiements réservés`} pour ${v.total} ; rien n’est débité avant la livraison. Il reste ${v.left} pour ${v.purpose}.`,
     already: () => 'Déjà réservé : rien de nouveau n’a été débité.',
     chg_agreed: (v) => `${v.m} accepte : ${v.slot}, même réservation de ${v.amount}.`,
@@ -360,7 +361,7 @@ export const MSG = {
     neg_says: (v) => `${v.m} responde: ${v.reply}`,
     neg_agreed: (v) => `${v.m} acepta: ${v.total} en lugar de ${v.before}, ${v.slot}.`,
     plan_auto: (v) => `${v.items}. Son ${v.total}, por debajo de tu regla de ${v.auto}, así que puedo comprarlo ya.`,
-    plan_ask: (v) => `Este es el plan: ${v.items}. Total ${v.total}${v.discount ? `, con ${v.discount} de descuento negociado` : ''}. Te quedarán ${v.left} de tus ${v.budget}. ¿Lo reservo?`,
+    plan_ask: (v) => `Este es el plan: ${v.items}. Total ${v.total}${v.discount ? `, con ${v.discount} de descuento negociado` : ''}. Te quedarán ${v.left} de tus ${v.budget}. ${v.why ? v.why + ' ' : ''}¿Lo reservo?`,
     booked: (v) => `${v.auto ? 'Comprado, dentro de tu regla de compra automática.' : 'Reservado.'} ${v.n === 1 ? 'Un pago retenido' : `${v.n} pagos retenidos`} por ${v.total}; no se cobra nada hasta la entrega. Quedan ${v.left} para ${v.purpose}.`,
     already: () => 'Ya estaba reservado: no se ha cobrado nada nuevo.',
     chg_agreed: (v) => `${v.m} acepta: ${v.slot}, con la misma retención de ${v.amount}.`,
@@ -646,3 +647,7 @@ export const CARD_STRINGS = {
     '{n} options side by side': '{n} opciones lado a lado', '{amt} apart': '{amt} de diferencia', Cheapest: 'El más barato', 'Best rated': 'El mejor valorado', When: 'Cuándo', Rating: 'Valoración', Saved: 'Ahorro', '{name} is {amt} cheaper.': '{name} es {amt} más barato.',
   },
 };
+
+// account linking, permissions, autonomy settings, emergency stop, delete my data (src/core/i18n-settings.mjs)
+for (const l of ['en', 'fr', 'es']) Object.assign(MSG[l], SETTINGS_MSG[l]);
+for (const l of ['fr', 'es']) { Object.assign(CARD_STRINGS[l], SETTINGS_CARD[l]); Object.assign(PHRASES[l], SETTINGS_PHRASES[l]); }

@@ -12,6 +12,7 @@ import { ScriptedModel } from './scripted-model.mjs';
 import { absorb, absorbTokens } from '../src/brain/policy.mjs';
 import { checkBudget, recordUsage } from '../src/core/spend.mjs';
 import { normLocale, tr } from '../src/core/i18n.mjs';
+import { norm } from '../src/brain/host-intents.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const SKILLS_DIR = path.join(HERE, '..', 'skill');
@@ -38,8 +39,17 @@ class ThrottleAwareRetry extends DefaultModelRetryStrategy {
 //    "explicit yes" check (src/mandat.mjs isExplicitYes) judges what the person really said, not what the model wrote.
 //  - set_spending_mandate: refused unless the user said an amount in this turn.
 export const STATES_AMOUNT = /\$\s?\d|\d\s?\$|\b\d+\s*(dollars?|bucks|usd|dólares)(?![\p{L}])/iu; // "$150", "150 $", "150 dollars", "150 dólares"
+//  - update_settings: an amount only when the user said a number; resume_spending only when the user asked to resume
+//    (a model may never lift an emergency stop on its own); delete_my_data: the user's exact words, like confirm_plan.
+const RESUME_WORDS = /\b(resume|unpause|restart|reactivate|back on|reprends|reprendre|reactive|relance|reanuda|reanudar|reactiva)\b/;
 export function guardToolCall(name, input, utterance) {
-  if (name === 'confirm_plan') return { input: { ...input, user_confirmation: String(utterance).slice(0, 120) } };
+  if (name === 'confirm_plan' || name === 'delete_my_data') return { input: { ...input, user_confirmation: String(utterance).slice(0, 120) } };
+  if (name === 'update_settings' && ['weekly_budget', 'auto_buy_under', 'daily_cap'].some((k) => input[k] !== undefined) && !/\d/.test(utterance)) {
+    return { cancel: 'Refused by the host: the user did not say an amount. Never change a budget or a limit on your own; ask the user.' };
+  }
+  if (name === 'resume_spending' && !RESUME_WORDS.test(norm(utterance))) {
+    return { cancel: 'Refused by the host: only the user can resume Mandat after an emergency stop. Tell them to say "resume Mandat".' };
+  }
   if (name === 'set_spending_mandate' && !STATES_AMOUNT.test(utterance)) {
     return { cancel: 'Refused by the host: the user did not state a budget amount in this request. Never create or change a budget on your own; tell the user and ask.' };
   }
@@ -125,7 +135,7 @@ class RecordingMcpClient extends McpClient {
 
 // MCP Apps: a tool whose _meta.ui.visibility is ["app"] is for the cards only and MUST NOT reach the model.
 // Strands 1.21 does not read _meta.ui.visibility, so the host filters it by name (see FRICTION.md).
-export const APP_ONLY_TOOLS = ['refresh_card'];
+export const APP_ONLY_TOOLS = ['refresh_card', 'apply_customer_permissions'];
 
 // With Bedrock, the skill's instructions are pinned in the system prompt: on our runs Nova 2 Lite called the
 // AgentSkills `skills` tool before acting in only 4 of 11 turns, and skipped the playbooks the rest of the time
@@ -167,8 +177,10 @@ export async function createStrandsBrain({ mcpUrl, model = BRAIN_MODEL, headers 
   }
   return {
     name: model === 'bedrock' ? `strands+bedrock(${BEDROCK_BRAIN_ID})` : 'strands+scripted',
-    async runTurn({ text, session = {}, household = 'demo', turn, locale }) {
+    async runTurn({ text, session = {}, household = 'demo', turn, locale, authorization }) {
       const e = await agentFor(household);
+      // the household's account link: every MCP call of this turn carries its access token (Alexa does the same)
+      if (authorization) e.hdrs.Authorization = authorization; else if (headers.Authorization) e.hdrs.Authorization = headers.Authorization; else delete e.hdrs.Authorization;
       if (turn) e.hdrs['X-Mandat-Turn'] = turn; else delete e.hdrs['X-Mandat-Turn'];
       if (locale) e.hdrs['X-Mandat-Locale'] = locale; else delete e.hdrs['X-Mandat-Locale'];
       const start = e.trace.length;
