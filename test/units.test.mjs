@@ -57,3 +57,10 @@ test('policy: intents and wishes from the demo sentences', () => {
   assert.equal(parseGuests('dinner for six at home'), 6);
   assert.deepEqual(parseWhen('Saturday 7pm'), { day: 'sat', part: 'evening', hour: 19 });
 });
+
+test('en-US voice: merchant times are spoken the American way (Sunday at 7:30 PM, not 19:30)', async () => {
+  const { usTime } = await import('../src/core/merchants.mjs');
+  assert.equal(usTime('Sunday 19:30'), 'Sunday 7:30 PM');
+  assert.equal(usTime('We only have 09:00, 12:30, 18:00.'), 'We only have 9 AM, 12:30 PM, 6 PM.');
+  assert.equal(usTime('at 7:30 pm'), 'at 7:30 pm');
+});

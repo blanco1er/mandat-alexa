@@ -145,6 +145,14 @@ export function parseGuests(text = '') {
   if (!m) return null;
   return NUMBER_WORDS[m[1]] || Number(m[1]);
 }
+// "19:30" -> "7:30 PM", "10:00" -> "10 AM", inside any text (en-US speech and cards).
+export function usTime(text = '') {
+  return String(text).replace(/\b([01]?\d|2[0-3]):([0-5]\d)\b(?!\s*[ap]\.?m)/gi, (_, h, m) => {
+    const H = Number(h);
+    const h12 = H % 12 || 12;
+    return `${h12}${m === '00' ? '' : ':' + m} ${H < 12 ? 'AM' : 'PM'}`;
+  });
+}
 export const DAY_NAMES = { sun: 'Sunday', mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday' };
 
 // The list price of a booking before any discount.

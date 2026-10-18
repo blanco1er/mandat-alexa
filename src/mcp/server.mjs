@@ -207,5 +207,8 @@ export function createMcpServer({ service, household = householdFrom }) {
     card: 'status', annotations: { readOnlyHint: true, openWorldHint: false }, visibility: ['app'],
   }, (hid, a) => service.refreshCard(hid, a));
 
+  // McpServer turns listChanged on when the first tool/resource is registered. This server is stateless and its
+  // lists never change at runtime, so it announces what it really does (found with MCP Inspector).
+  server.server.registerCapabilities({ tools: { listChanged: false }, resources: { listChanged: false } });
   return server;
 }

@@ -16,6 +16,9 @@ test('initialize negotiates 2025-11-25 over Streamable HTTP and announces the UI
   assert.equal(d.result.protocolVersion, '2025-11-25');
   assert.ok(d.result.capabilities.tools && d.result.capabilities.resources);
   assert.ok(d.result.capabilities.extensions['io.modelcontextprotocol/ui']);
+  // stateless, fixed lists: no list_changed notifications are ever sent, so none are announced (MCP Inspector check)
+  assert.equal(d.result.capabilities.tools.listChanged, false);
+  assert.equal(d.result.capabilities.resources.listChanged, false);
   assert.equal(d.result.serverInfo.name, 'mandat-for-alexa-plus');
   assert.match(d.result.instructions, /confirm_plan/);
 });

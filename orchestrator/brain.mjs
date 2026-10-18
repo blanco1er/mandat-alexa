@@ -31,12 +31,16 @@ class RecordingMcpClient extends McpClient {
   }
 }
 
+// MCP Apps: a tool whose _meta.ui.visibility is ["app"] is for the cards only and MUST NOT reach the model.
+// Strands 1.21 does not read _meta.ui.visibility, so the host filters it by name (see FRICTION.md).
+export const APP_ONLY_TOOLS = ['refresh_card'];
+
 export async function createStrandsBrain({ mcpUrl, model = BRAIN_MODEL, headers = {} }) {
   const agents = new Map(); // household -> { agent, trace, model }
   async function agentFor(household) {
     if (agents.has(household)) return agents.get(household);
     const trace = [];
-    const mcp = new RecordingMcpClient({ url: mcpUrl, headers: { 'X-Mandat-Household': household, ...headers }, applicationName: 'mandat-alexa-brain' }, trace);
+    const mcp = new RecordingMcpClient({ url: mcpUrl, headers: { 'X-Mandat-Household': household, ...headers }, applicationName: 'mandat-alexa-brain', toolFilters: { rejected: APP_ONLY_TOOLS } }, trace);
     const llm = model === 'bedrock'
       ? new BedrockModel({ modelId: BEDROCK_BRAIN_ID, region: process.env.AWS_REGION || 'us-east-1' })
       : new ScriptedModel({ trace });

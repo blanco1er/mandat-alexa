@@ -39,3 +39,10 @@ test('the AgentSkills plugin is loaded on the agent and exposes the skill to the
   const names = (await e.skills.getAvailableSkills(e.agent)).map((s) => s.name);
   assert.deepEqual(names, ['mandat-household-errands']);
 });
+
+test('app-only tools (MCP Apps visibility ["app"]) never reach the model', async () => {
+  const e = brain.agents.get('strands');
+  const names = (await e.mcp.listTools()).map((t) => t.name);
+  assert.ok(names.includes('confirm_plan'));
+  assert.ok(!names.includes('refresh_card'), 'refresh_card is for the cards only');
+});

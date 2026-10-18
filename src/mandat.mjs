@@ -190,7 +190,9 @@ export class Mandat {
         await this.event(hid, 'preference.saved', { subject });
         prefs.push(p);
       }
-      return { speech: `Got it. ${subject}: ${fact}. I will remember that.`, data: { saved: p, preferences: prefs }, card: 'status' };
+      // "We drink Northbeam" reads mid-sentence as "we drink Northbeam"; proper nouns ("Max is…") keep their capital.
+      const said = /^(We|Our|They|Their|He|She|His|Her|It|Its|My)\b/.test(fact) ? fact[0].toLowerCase() + fact.slice(1) : fact;
+      return { speech: `Got it. ${subject}: ${said.replace(/[.!]+$/, '')}. I will remember that.`, data: { saved: p, preferences: prefs }, card: 'status' };
     });
   }
 

@@ -9,7 +9,7 @@ import { DAY_NAMES } from '../core/merchants.mjs';
 
 export const BEDROCK_MODELS = {
   merchant: process.env.MANDAT_MERCHANT_MODEL || 'us.amazon.nova-2-lite-v1:0',
-  brain: process.env.MANDAT_BRAIN_MODEL || 'us.anthropic.claude-haiku-5-5',
+  brain: process.env.MANDAT_BEDROCK_BRAIN_ID || 'us.anthropic.claude-haiku-5-5',
   planner: process.env.MANDAT_PLANNER_MODEL || 'us.anthropic.claude-sonnet-5-5',
 };
 

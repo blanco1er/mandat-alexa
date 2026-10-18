@@ -16,7 +16,7 @@ import { createTts } from './providers/tts.mjs';
 import { MODE as PAYPAL_MODE } from './core/paypal.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const STATIC = { '/simulator/': path.join(ROOT, 'simulator'), '/brain/': path.join(ROOT, 'src', 'brain') };
+const STATIC = { '/simulator/': path.join(ROOT, 'simulator') };
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json' };
 
 const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });

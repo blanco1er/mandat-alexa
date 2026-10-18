@@ -63,9 +63,9 @@ test('scenario 2 "Four days later": memory across sessions, auto-buys under $40,
 test('scenario 3 "Plans change": cleaner moves, caterer declines -> void + replacement -> yes; then partial capture and refund', async () => {
   const out = await say('Their flight moved to Sunday.');
   assert.deepEqual(tools(out), ['get_household_status', 'change_order', 'change_order', 'propose_plan']);
-  assert.match(out.speech, /BrightNest Cleaning agreed: Saturday at 10:00/);
+  assert.match(out.speech, /BrightNest Cleaning agreed: Saturday at 10 AM/);
   assert.match(out.speech, /Hearth Table Catering can't do it.*voided their \$195 hold/);
-  assert.match(out.speech, /Olive & Thyme Kitchen can do Sunday at 19:30 for \$210/);
+  assert.match(out.speech, /Olive & Thyme Kitchen can do Sunday at 7:30 PM for \$210/);
   const changed = out.steps.filter((s) => s.name === 'change_order').map((s) => sc(s.result).receipt.orders[0]);
   assert.equal(changed.find((o) => /Hearth Table/.test(o.merchant)).state, 'released');
   assert.equal(changed.find((o) => /BrightNest/.test(o.merchant)).state, 'held');
