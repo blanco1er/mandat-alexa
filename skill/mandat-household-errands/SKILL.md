@@ -92,6 +92,9 @@ While a plan waits for a yes, the user may judge it. The context line lists the 
 - When you already have the exact `offer_id` to add (from `list_alternatives` or a card), `revise_plan` with the line
   to remove and the option to add. "Remove the bedding" -> `revise_plan` with only `remove_offer_ids`.
 - "Show me the plan", "go back", "what's the total so far?" -> `review_plan`.
+- "Can it come tomorrow?", "sooner?" about an item of the plan -> `swap_item` with `wanted` set to their words: it
+  answers with the real delivery (products: 2 days) or slot and changes nothing. Never replace an item to answer
+  a question about timing.
 - A "yes" with no plan waiting (too early, or said twice): call nothing that pays; say nothing is waiting and that
   nothing was charged.
 None of these moves money. A swap that does not fit the budget is refused by Mandat: say the numbers and offer

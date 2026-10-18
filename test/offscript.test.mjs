@@ -100,3 +100,23 @@ test('POST /turn: a bare yes with nothing waiting is answered by the host, no mo
   const fr = await (await fetch(`${srv.url}/turn`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Oui, réserve.', session: {}, household: 'host-yes', locale: 'fr-FR' }) })).json();
   assert.match(fr.speech, /Rien n’attend votre oui/);
 });
+
+test('"can it come tomorrow?" is answered with the real delivery; a swap is always like for like', async () => {
+  const c = await client(srv.mcpUrl);
+  const { clean, bed, plan } = await inLawsPlan(c);
+  const t = await c.callTool({ name: 'swap_item', arguments: { wanted: 'can it come tomorrow', item: 'bedding' } });
+  assert.match(text(t), /^Hearth & Linen delivers in 2 days, so the Guest bed bundle cannot come tomorrow\. Nothing changed: your plan is still \$372\.$/);
+  assert.equal(sc(await c.callTool({ name: 'review_plan', arguments: {} })).plan.id, sc(plan).plan.id);
+  // seen live: the bedding swapped for a second cleaner to "answer" a timing question -> refused by the server
+  const other = sc(clean).offers[1];
+  const bad = await c.callTool({ name: 'revise_plan', arguments: { plan_id: sc(plan).plan.id, remove_offer_ids: [sc(bed).offers[0].id], add_offer_ids: [other.id] } });
+  assert.ok(bad.isError);
+  assert.match(text(bad), /different kind/);
+  const dup = await c.callTool({ name: 'revise_plan', arguments: { plan_id: sc(plan).plan.id, add_offer_ids: [other.id] } });
+  assert.ok(dup.isError);
+  assert.match(text(dup), /already has one/);
+  // nothing in linen besides what is in the plan: up to three closest options
+  const linen = await c.callTool({ name: 'swap_item', arguments: { wanted: 'linen' } });
+  assert.equal(sc(linen).offers.length - 1, 3, text(linen));
+  await c.close();
+});

@@ -26,6 +26,7 @@ const SWAP_STOP = new Set(['the', 'take', 'instead', 'set', 'one', 'please', 'wi
 const SWAP_SYN = { satin: 'sateen', saten: 'sateen', lin: 'linen', linge: 'linen', drap: 'sheets', draps: 'sheets', sabanas: 'sheets', serviettes: 'towels', toallas: 'towels', couette: 'duvet', edredon: 'duvet', nordico: 'duvet', traiteur: 'catering', menage: 'cleaning', limpieza: 'cleaning', cafe: 'coffee', saumon: 'salmon', salmon: 'salmon', agneau: 'lamb', cordero: 'lamb', grand: 'king', king: 'king', queen: 'queen', caterer: 'catering', cleaner: 'cleaning', dinner: 'catering' };
 const SWAP_CHEAPER = /\b(cheaper|cheapest|less expensive|lower price|moins cher|mas barato|más barato|economico|económico)\b/i;
 const SWAP_BETTER = /\b(better rated|best rated|higher rated|top rated|mieux note|mieux noté|mejor valorado)\b/i;
+const SWAP_TIMING = /\b(tomorrow|today|tonight|sooner|earlier|faster|quicker|next day|same day|by (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|demain|aujourd'hui|plus tot|manana|hoy|antes)\b/i;
 const SWAP_ANOTHER = /\b(another|different|other|autre|otro|otra)\b/i;
 const CAT_WORDS = { cleaning: 'cleaning cleaner clean', catering: 'catering caterer dinner food meal', plumbing: 'plumber plumbing', handyman: 'handyman', sheets: 'sheets bedding linen bed', duvet: 'duvet bedding comforter', towels: 'towels bath', 'dog food': 'dog food kibble', coffee: 'coffee beans' };
 
@@ -745,6 +746,18 @@ export class Mandat {
     const ids = [...new Set([...kept, ...add_offer_ids])];
     if (!ids.length) throw new ToolError(T('e_empty'), 'Keep at least one item, or tell the user the plan is dropped and nothing was paid.');
     if (ids.length === old.lines.length && ids.every((x) => old.lines.some((l) => l.offer_id === x))) throw new ToolError(T('e_same'), 'Use offer_ids from the plan (to remove) or from list_alternatives (to add).');
+    // A swap is like for like: what comes in replaces something of the same kind (seen live: a model "answered"
+    // "can it come tomorrow?" by swapping the bedding for a second cleaner). Adding a new kind needs no removal.
+    const kindOf = (o) => (o.kind === 'service' ? `service:${o.category}` : `product:${o.product_type || o.product_category || 'item'}`);
+    const removedKinds = old.lines.filter((l) => removing.has(l.offer_id)).map(async (l) => kindOf((await this.store.get(pkOf(hid), `OFFER#${l.offer_id}`)) || l));
+    const outKinds = await Promise.all(removedKinds);
+    const keptKinds = await Promise.all(old.lines.filter((l) => !removing.has(l.offer_id)).map(async (l) => kindOf((await this.store.get(pkOf(hid), `OFFER#${l.offer_id}`)) || l)));
+    for (const aid of add_offer_ids) {
+      const a = await this.offer(hid, aid);
+      const k = kindOf(a);
+      if (outKinds.length && !outKinds.includes(k)) throw new ToolError(T('e_swap_kind'), 'Only swap an item for one of the same kind; ask the user what they want instead.');
+      if (!outKinds.length && keptKinds.includes(k)) throw new ToolError(T('e_dup_kind'), 'To replace it, remove the current one in the same revise_plan call.');
+    }
     const next = await this.proposePlan(hid, { item_ids: ids, mandate_id: old.mandate_id, note: old.note });
     old.status = 'revised';
     old.revised_to = next.data.plan.id;
@@ -773,6 +786,17 @@ export class Mandat {
     const want = String(wanted);
     const wantWords = words(want);
     const cheaper = SWAP_CHEAPER.test(want), better = SWAP_BETTER.test(want);
+    // "Can it come tomorrow?": a question about timing, not a swap. Answer with the real delivery or slot, change nothing.
+    if (SWAP_TIMING.test(`${want} ${item}`)) {
+      const lines = plan.lines;
+      const iw = words(item);
+      const line = lines.find((l) => iw.length && iw.some((w) => words(`${l.title} ${l.merchant} ${l.category || ''} ${CAT_WORDS[l.category] || ''}`).includes(w))) || lines.find((l) => l.kind === 'product') || lines[0];
+      const o = (await this.store.get(pkOf(hid), `OFFER#${line.offer_id}`)) || line;
+      const name = o.kind === 'service' ? o.merchant : P(o.title).split(/[:(]/)[0].trim();
+      const speech = o.kind === 'product' ? T('swap_timing_product', { name, m: o.merchant }) : T('swap_timing_service', { m: o.merchant, slot: spokenSlot(o.slot_label) });
+      const review = await this.reviewPlan(hid, { plan_id: plan.id });
+      return { speech: `${speech} ${T('swap_nothing_changed', { total: usd(plan.breakdown.total) })}`, data: { ...review.data, swap: { matched: false, timing: true } }, card: 'plan' };
+    }
     const itemWords = words(item);
     const textOf = (o) => words([o.title, o.merchant, o.category, o.product_type, ...(o.features || []), ...(o.contains || []), CAT_WORDS[o.category] || '', o.kind === 'product' ? CAT_WORDS[o.product_type] || '' : ''].join(' '));
     const inPlan = new Set(plan.lines.map((l) => l.offer_id));
@@ -812,7 +836,7 @@ export class Mandat {
       // nothing matches: say it plainly and put the 2-3 closest options on screen
       const near = (itemWords.length ? best : tries.find((x) => x.sibs.length) || best);
       const closest = [...near.sibs].filter((x) => x.kind === near.cur.kind && (!near.cur.product_type || x.product_type === near.cur.product_type)).sort((a, b) => a.total - b.total).slice(0, 3);
-      const list = (closest.length ? closest : near.sibs.slice(0, 3));
+      const list = [...closest, ...[...near.sibs].sort((a, b) => a.total - b.total).filter((x) => !closest.includes(x))].slice(0, 3);
       const name = (x) => (x.kind === 'service' ? x.merchant : P(x.title).split(/[:(]/)[0].trim());
       const speech = cheaper && !itemWords.length
         ? T('swap_all_cheapest')
