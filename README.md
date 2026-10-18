@@ -8,8 +8,9 @@ builds one plan, asks for your yes, places payment holds instead of charging, an
 session to the next. When plans change, it moves, voids, captures less or refunds.
 
 > Hackathon entry for Amazon "Build, Ship, Shape": Alexa+ track, AWS Builder mini-challenge.
-> Unofficial Alexa+ simulator. No real money moves: the public demo simulates the payment holds; the PayPal sandbox
-> integration (authorize / capture / void / refund) switches on when sandbox keys are set.
+> Unofficial Alexa+ simulator. No real money moves. PayPal **sandbox** (test money): holds, captures, voids and refunds
+> are real sandbox transactions once the owner has linked the demo's sandbox buyer; until then they are simulated, and
+> every card and the page footer say which. Judges never need a PayPal account.
 
 ## Try it in 2 minutes (judges)
 
@@ -19,8 +20,13 @@ session to the next. When plans change, it moves, voids, captures less or refund
 2. On the right, click the lines of the demo script in order, or type them, or press Space and talk.
    Each line is one turn: Amazon Nova 2 Lite on Bedrock (a Strands agent) calls the Mandat MCP server, the card on the
    Echo Show is an MCP App, Alexa answers with an Amazon Polly voice. A turn takes about 2 to 15 seconds.
-3. Switch **Echo Show 15 / Show 8 / Echo Dot** at the top; press **D** to watch the MCP JSON-RPC traffic.
-4. Want a clean start? Add `?household=anything-you-like` to the URL.
+3. While Alexa works, the Echo Show shows **what she is doing, live**: each merchant agent's answer as it lands
+   ("TidyHive $110 → $105 · verified agent"), each payment hold. The voice stays short.
+4. Before saying yes, **judge the plan**: "Show me the bed linen" (photo gallery, why Mandat picked it, the rule that
+   applies), "Other options?", "Take the sateen set instead" (new total vs budget), "Compare the two caterers".
+   Tap a plan line or a card button: it is the same sentence sent to Alexa, with the same money rules.
+5. Switch **Echo Show 15 / Show 8 / Echo Dot** at the top, and the language (**EN · FR · ES**, auto from the browser);
+   press **D** to watch the MCP JSON-RPC traffic. Clean start: add `?household=anything-you-like` to the URL.
 
 **MCP endpoint (any MCP client):** `https://fonzkp2f5pszfit6xmqqiw7qdm0dybyu.lambda-url.us-east-1.on.aws/mcp`
 (Streamable HTTP, protocol 2025-11-25), for example:
@@ -30,6 +36,15 @@ The public demo has a hard model budget and per-address limits; if a limit is re
 booked or charged.
 
 ![Live on AWS: the in-laws plan built by Amazon Nova, waiting for a yes](docs/screenshots/live-aws-show15-story1-plan.png)
+
+| Live activity (Amazon Nova, public URL) | Look closer | Swap, new total vs budget | Compare |
+|---|---|---|---|
+| ![Live activity](docs/screenshots/live-aws-activity.png) | ![Item](docs/screenshots/inspect/flow-show15-dark-3-item.png) | ![Swap](docs/screenshots/inspect/flow-show15-dark-6-swapped.png) | ![Compare](docs/screenshots/inspect/flow-show15-dark-7-compare.png) |
+
+**Languages.** English (default), French and Spanish end to end: what Alexa says (Polly neural voices Danielle, Léa,
+Lucia), the cards (`hostContext.locale`), the live activity, the demo script, speech recognition, and the money rules
+("oui" and "sí" are a yes; "oui mais attends" is not). Prices stay in the household's currency (USD) with local formats
+("372 $", "samedi à 19 h 30"). Alexa+ availability by country is Amazon's decision; the add-on is ready for these locales.
 
 ## Three stories
 
@@ -49,8 +64,8 @@ Echo Dot mode (no screen): at most 3 options read, the price breakdown read back
 
 | Part | What it is | Where |
 |---|---|---|
-| MCP server | MCP **2025-11-25** over **Streamable HTTP** (stateless, JSON responses, Origin check), 10 intent tools + 1 app-only tool | `src/mcp/server.mjs` |
-| MCP Apps | 5 cards (`ui://` resources, `text/html;profile=mcp-app`, spec 2026-01-26): status, budget, options carousel, plan, receipt. Theme and size from `hostContext`, auto-fit to the container | `src/ui/` |
+| MCP server | MCP **2025-11-25** over **Streamable HTTP** (stateless, JSON responses, Origin check), 15 intent tools + 1 app-only tool | `src/mcp/server.mjs` |
+| MCP Apps | 6 cards (`ui://` resources, `text/html;profile=mcp-app`, spec 2026-01-26): status, budget, options carousel, plan, receipt, item (photo gallery and side-by-side comparison). Item photos from our own origin only (`resourceDomains`); theme, size and locale from `hostContext`, auto-fit to the container | `src/ui/` |
 | Agent Skill | `mandat-household-errands` (agentskills.io format): money rules, 3 playbooks, voice style; loaded by Strands' `AgentSkills` plugin | `skill/` |
 | Alexa+ web simulator | Voice-first page that is itself a real MCP client and MCP Apps host: Echo Show 15 (1920×1080), Echo Show 8 (1280×800), Echo Dot; ambient home screen with full-bleed photo wallpapers that cross-fade every 20 s (still with Reduce Motion) and blur behind cards; listening / thinking / speaking / confirming states; JSON-RPC drawer (press **D**) | `simulator/` |
 | Orchestrator | Strands Agents (TypeScript) on Amazon Bedrock (**Amazon Nova 2 Lite**), `McpClient` to the server over Streamable HTTP, `AgentSkills` plugin, `ModelRouter` fallback, host guardrails on money tools | `orchestrator/` |
@@ -71,6 +86,11 @@ Echo Dot mode (no screen): at most 3 options read, the price breakdown read back
 | `confirm_plan` | PayPal authorization holds, idempotent on the plan |
 | `change_order` | New date, time or quantity; a declined change voids the hold and returns replacements |
 | `close_order` | Capture (partial: the rest is released), cancel, refund |
+| `get_offer_details` | One option up close: photo gallery, facts, slot or delivery, negotiation so far, why Mandat picked it, the rule that applies |
+| `list_alternatives` | Other options from the same search (or only cheaper ones); says plainly when nothing is cheaper |
+| `compare_offers` | Two or three options side by side, which is cheaper, which is rated higher |
+| `revise_plan` | Swap or remove items before the yes: a new plan and a new token (the old plan can no longer be paid), budget checked again |
+| `review_plan` | Shows the plan waiting for a yes |
 | `refresh_card` | App-only (`_meta.ui.visibility: ["app"]`): cards refresh themselves; never shown to the model |
 
 Every result carries `content[0]` (what Alexa says, no ids), `content[1]` (ids for the assistant, "do not read aloud"),
@@ -82,7 +102,7 @@ Requirements: Node.js 22+.
 
 ```bash
 npm ci
-npm test                      # 46 tests: protocol, money rules, guards, the 3 stories, deploy script (no network, no AWS)
+npm test                      # 64 tests: protocol, money rules, guards, the 3 stories in EN/FR/ES, look-closer/swap, PayPal flow, deploy (no network, no AWS)
 npm run demo                  # open http://127.0.0.1:8787/simulator/
 ```
 
@@ -108,7 +128,15 @@ AWS_PROFILE=<profile> DEPLOY_STAGE=bedrock npm run deploy:aws   # Strands + Amaz
 ```
 
 Idempotent; settings by environment variable names only (see the header of `scripts/deploy-aws.sh`); PayPal sandbox
-keys are read from your shell, never from a file. It works on a brand-new AWS account: no reserved concurrency when
+keys are read from your shell or kept from the live function (`scripts/set-paypal-sandbox.sh` stores them with hidden
+input), never from a file, never printed.
+
+**PayPal sandbox without a PayPal login for judges.** The owner links one sandbox buyer once:
+`AWS_PROFILE=<profile> zsh scripts/link-paypal-demo-buyer.sh` (an IAM-signed direct invoke creates a Vault v3 setup
+token; he approves it with the sandbox personal account from developer.paypal.com; "Save payment methods" must be on
+in the sandbox app). Every budget then pays with that saved payment token: Orders v2 `AUTHORIZE` with
+`payment_source.paypal.vault_id` per item, capture (partial: the rest is released), void, refund. Check it end to end
+on the public URL with `node scripts/live-paypal-check.mjs`. Receipts show "PayPal sandbox · <authorization id>". It works on a brand-new AWS account: no reserved concurrency when
 the account's Lambda limit is 10, a hard LLM budget shared by every container (`MANDAT_LLM_BUDGET_USD`, default $15,
 one DynamoDB counter) and per-address limits (`MANDAT_LIMIT_TURNS`, `MANDAT_LIMIT_TTS`, `MANDAT_LIMIT_MCP`).
 
@@ -121,7 +149,7 @@ Browser: Alexa+ simulator (MCP client + MCP Apps host, Web Speech in, Polly or b
    ▼                    │ McpClient (Streamable HTTP)
 Mandat MCP server (/mcp, stateless; AWS Lambda + Function URL; locally node :8787)
    ├─ DynamoDB (one table: household, budgets, envelopes, offers, plans, orders, preferences, events)
-   ├─ Payments: PayPal sandbox (vault, authorize / capture / void / refund); simulated on the public demo
+   ├─ Payments: PayPal sandbox (Vault v3 demo buyer, authorize / capture / void / refund, test money); simulated until linked
    ├─ Merchant network (signed agent cards, merchant agents on Amazon Nova Lite, prices and days from each
    │  merchant's own booking rules)
    └─ Products (sandbox catalogue; Channel3 when enabled)
@@ -165,9 +193,9 @@ modules unchanged so the diff shows exactly what is new: `git diff 0f4e29f HEAD`
 - PayPal Vault + authorize / capture / void / refund, signed merchant agent cards, budget envelopes.
 
 **After (this repository, 17–23 Oct 2026)**
-- An **MCP server** (2025-11-25, Streamable HTTP, stateless, Origin check) instead of an app: 10 intent tools designed
+- An **MCP server** (2025-11-25, Streamable HTTP, stateless, Origin check) instead of an app: 15 intent tools designed
   from the Alexa+ tool-schema guidance, plus an app-only tool.
-- **5 MCP Apps cards** (`ui://`, `text/html;profile=mcp-app`) built for Echo Show distances, with a hand-written
+- **6 MCP Apps cards** (`ui://`, `text/html;profile=mcp-app`) built for Echo Show distances, with a hand-written
   host bridge; dark and light; auto-fit to the device.
 - An **Agent Skill** (`mandat-household-errands`) and a **Strands Agents** orchestrator on **Amazon Bedrock**.
 - A **household** product: recurring budgets with an auto-approve rule, preferences remembered across sessions,

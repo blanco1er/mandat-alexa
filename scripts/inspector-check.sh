@@ -41,16 +41,16 @@ check "initialize: MCP Apps extension io.modelcontextprotocol/ui announced" "$(j
 check "initialize: listChanged false (stateless, fixed lists)" "$(jq -e '.result.capabilities.tools.listChanged == false and .result.capabilities.resources.listChanged == false' "$OUT/01-initialize.json" >/dev/null; echo $?)"
 
 insp --method tools/list > "$OUT/02-tools-list.json" 2>&1
-check "tools/list: 11 tools (10 intents + refresh_card)" "$(jq -e '.result.tools | length == 11' "$OUT/02-tools-list.json" >/dev/null; echo $?)"
+check "tools/list: 16 tools (15 intents + refresh_card)" "$(jq -e '.result.tools | length == 16' "$OUT/02-tools-list.json" >/dev/null; echo $?)"
 check "tools/list: every tool has annotations and _meta.ui.resourceUri" "$(jq -e '[.result.tools[] | (.annotations != null and (._meta.ui.resourceUri | startswith("ui://")))] | all' "$OUT/02-tools-list.json" >/dev/null; echo $?)"
 npx -y "$INSPECTOR" --cli "$MCP_URL" --transport http --method tools/list --strict -q >/dev/null 2>"$OUT/03-strict.txt"
 check "tools/list --strict: no schema portability error" "$?" "$(head -c 300 "$OUT/03-strict.txt")"
 npx -y "$INSPECTOR" --cli "$MCP_URL" --transport http --method tools/list --app-info --advertise-apps -q > "$OUT/04-app-info.ndjson" 2>&1
-check "--app-info: 11/11 tools have an MCP App (text/html;profile=mcp-app)" "$( [ "$(grep -c '"resourceMimeType":"text/html;profile=mcp-app"' "$OUT/04-app-info.ndjson")" = 11 ]; echo $?)"
+check "--app-info: 16/16 tools have an MCP App (text/html;profile=mcp-app)" "$( [ "$(grep -c '"resourceMimeType":"text/html;profile=mcp-app"' "$OUT/04-app-info.ndjson")" = 16 ]; echo $?)"
 check "--app-info: refresh_card is app-only (visibility [\"app\"])" "$(grep '"toolName":"refresh_card"' "$OUT/04-app-info.ndjson" | grep -q '"visibility":\["app"\]'; echo $?)"
 
 insp --method resources/list > "$OUT/05-resources-list.json" 2>&1
-check "resources/list: 5 ui:// cards with mimeType text/html;profile=mcp-app" "$(jq -e '[.result.resources[] | select(.mimeType == "text/html;profile=mcp-app" and (.uri | startswith("ui://mandat/")))] | length == 5' "$OUT/05-resources-list.json" >/dev/null; echo $?)"
+check "resources/list: 6 ui:// cards with mimeType text/html;profile=mcp-app" "$(jq -e '[.result.resources[] | select(.mimeType == "text/html;profile=mcp-app" and (.uri | startswith("ui://mandat/")))] | length == 6' "$OUT/05-resources-list.json" >/dev/null; echo $?)"
 URI="$(jq -r '.result.resources[] | select(.uri | contains("/plan-")) | .uri' "$OUT/05-resources-list.json")"
 insp --method resources/read --uri "$URI" > "$OUT/06-resources-read-plan.json" 2>&1
 check "resources/read: plan card is self-contained HTML with _meta.ui.csp" "$(jq -e '.result.contents[0].mimeType == "text/html;profile=mcp-app" and (.result.contents[0].text | contains("ui/initialize")) and (.result.contents[0]._meta.ui.csp != null)' "$OUT/06-resources-read-plan.json" >/dev/null; echo $?)"
@@ -95,7 +95,7 @@ check "invalid input is rejected with an error, no crash" "$(jq -e '.result.isEr
 npx -y "$INSPECTOR" --cli "$MCP_URL" --transport http --header "Origin: https://evil.example" --method tools/list --format json -q > "$OUT/24-foreign-origin.json" 2>&1
 check "foreign Origin is refused (403, MCP 2025-11-25 transport rule)" "$(grep -q '403\|Forbidden' "$OUT/24-foreign-origin.json"; echo $?)"
 npx -y "$INSPECTOR" --cli "$MCP_URL" --transport http --protocol-era auto --method tools/list --format json -q > "$OUT/25-era-auto.json" 2>&1
-check "--protocol-era auto falls back to 2025-11-25 and lists tools" "$(jq -e '.result.tools | length == 11' "$OUT/25-era-auto.json" >/dev/null; echo $?)"
+check "--protocol-era auto falls back to 2025-11-25 and lists tools" "$(jq -e '.result.tools | length == 16' "$OUT/25-era-auto.json" >/dev/null; echo $?)"
 
 rm -f "$OUT"/*.err
 printf -- '----\n%s passed, %s failed\n' "$PASS" "$FAIL" | tee -a "$OUT/summary.txt"
