@@ -94,7 +94,7 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
     const p = url.pathname;
     try {
       if (p === '/mcp') return await mcp(request);
-      if (p === '/healthz') return json(200, { ok: true, protocol: LATEST_PROTOCOL_VERSION, model: service.provider.name, store: service.store.kind, paypal: PAYPAL_MODE, brain: brain?.name || null, tts: tts?.name || 'browser', llm_budget: (({ usd, budget, left, paused }) => ({ usd, budget, left, paused }))(await spendViewShared()) });
+      if (p === '/healthz') return json(200, { ok: true, protocol: LATEST_PROTOCOL_VERSION, model: service.provider.name, store: service.store.kind, paypal: PAYPAL_MODE, paypal_buyer: PAYPAL_MODE === 'sandbox' ? ((await service.demoBuyer().catch(() => null)) ? 'linked' : 'not linked') : undefined, brain: brain?.name || null, tts: tts?.name || 'browser', llm_budget: (({ usd, budget, left, paused }) => ({ usd, budget, left, paused }))(await spendViewShared()) });
       if (p === '/turn' && request.method === 'POST') {
         if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { error: 'Forbidden origin' });
         if (!brain) return json(501, { error: 'No orchestrator configured' });
@@ -120,7 +120,7 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
         const l = limits.activity(clientIp(request));
         if (!l.ok) return tooMany(l.retryAfter);
         const household = /^[a-z0-9_-]{1,40}$/i.test(url.searchParams.get('household') || '') ? url.searchParams.get('household') : 'demo';
-        return json(200, { events: await readFeed(service.store, household, url.searchParams.get('turn')) });
+        return json(200, { events: await readFeed(service.store, household, url.searchParams.get('turn')) }, { 'cache-control': 'no-store' });
       }
       if (p === '/tts' && request.method === 'POST') {
         if (!tts) return json(501, { error: 'No server TTS; the browser voice is used.' });
@@ -136,6 +136,15 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
         return new Response(`<!doctype html><meta charset="utf-8"><title>Mandat</title><body style="font:20px system-ui;padding:40px">Budget “${m.purpose}” approved in PayPal sandbox. You can close this tab.</body>`, { headers: { 'content-type': 'text/html; charset=utf-8' } });
       }
       if (p === '/paypal/cancel') return new Response('Approval cancelled. Nothing was set up.', { status: 200 });
+      // The owner's one-time demo buyer link (scripts/link-paypal-demo-buyer.sh): PayPal comes back here.
+      if (p === '/paypal/demo-buyer/return') {
+        const page = (msg, status = 200) => new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Mandat</title><body style="font:20px/1.4 system-ui;padding:40px;max-width:640px">${msg}</body>`, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
+        try {
+          const r = await service.finishDemoBuyerLink(url.searchParams.get('approval_token_id') || url.searchParams.get('token') || '');
+          return page(`<b>Demo buyer linked</b> (PayPal sandbox, ${r.payer.replace(/[<>&]/g, '')}). Every new budget of the public demo now places real sandbox holds with test money. You can close this tab.`);
+        } catch (e) { return page(`Not linked: ${String(e.message || e).replace(/[<>&]/g, '')}`, 400); }
+      }
+      if (p === '/paypal/demo-buyer/cancel') return new Response('Demo buyer link cancelled. Nothing changed.', { status: 200 });
       if (p === '/' || p === '/simulator') return Response.redirect(new URL('/simulator/', url), 302);
       for (const prefix of Object.keys(STATIC)) if (p.startsWith(prefix) && request.method === 'GET') return await serveStatic(prefix, p);
       return new Response('Not found', { status: 404 });

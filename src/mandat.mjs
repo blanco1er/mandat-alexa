@@ -25,6 +25,7 @@ export class ToolError extends Error {
 }
 
 const OFFER_TTL = 30 * 60 * 1000;
+const PAYPAL_PK = 'SYSTEM#paypal'; // the demo buyer's sandbox payment token (shared by every household of the demo)
 const PLAN_TTL = 15 * 60 * 1000;
 const MAX_BUDGET = 5000; // sandbox demo cap
 const round = (x) => Math.round(Number(x) * 100) / 100;
@@ -153,15 +154,14 @@ export class Mandat {
     if (auto_approve_under < 0 || auto_approve_under > budget) throw new ToolError('The auto-approve limit must be between zero and the budget.', 'Ask the user under which amount Mandat may buy without asking.');
     return this.locked(hid, async () => {
       const mid = id('mdt');
-      const returnUrl = `${this.publicUrl}/paypal/return?household=${encodeURIComponent(hid)}&mandate=${mid}`;
-      const setup = await this.paypal.createMandateSetup({ returnUrl, cancelUrl: `${this.publicUrl}/paypal/cancel?mandate=${mid}`, description: `Mandat for Alexa+: ${purpose}`.slice(0, 120) });
-      const m = { id: mid, purpose, budget, currency, period, auto_approve_under, created: new Date(this.now()).toISOString(), status: 'awaiting_approval', paypal: { setupId: setup.id, mode: setup.mode } };
-      // Offline (simulated) PayPal: the mandate is signed on the spot, clearly flagged as simulated.
-      if (setup.mode === 'offline') {
-        const t = await this.paypal.activateMandate(setup.id);
-        m.status = 'active';
-        m.paypal.paymentTokenId = t.paymentTokenId;
-      }
+      // No PayPal login for the household (nor for judges): with sandbox keys and the demo buyer the owner linked
+      // once, the budget pays with that saved sandbox payment token (real sandbox holds, test money); otherwise
+      // payments are simulated, and every card says which.
+      const buyer = await this.demoBuyer();
+      const paypal = buyer
+        ? { mode: 'sandbox', paymentTokenId: buyer.paymentTokenId, demo_buyer: true }
+        : { mode: 'offline', paymentTokenId: `PTOKEN-${crypto.randomBytes(6).toString('hex').toUpperCase()}` };
+      const m = { id: mid, purpose, budget, currency, period, auto_approve_under, created: new Date(this.now()).toISOString(), status: 'active', paypal };
       // One active budget per purpose: a new one replaces the old.
       for (const old of await this.mandates(hid)) {
         if (old.status === 'active' && old.purpose.toLowerCase() === purpose.toLowerCase() && old.period === period) {
@@ -177,9 +177,37 @@ export class Mandat {
       const speech = m.status === 'active'
         ? T('md_done', { purpose, budget: usd(budget, currency), per: when, rule })
         : T('md_pending', { purpose, budget: usd(budget, currency), per: when, rule });
-      return { speech, data: { mandate: { ...m, paypal: { mode: setup.mode } }, approval_url: setup.mode === 'offline' ? null : setup.approveUrl, envelope: env }, card: 'mandate' };
+      return { speech, data: { mandate: { ...m, paypal: { mode: paypal.mode, demo_buyer: !!paypal.demo_buyer } }, approval_url: null, envelope: env }, card: 'mandate' };
     });
   }
+  // ---------- PayPal sandbox demo buyer (linked once by the owner; judges never log in to PayPal) ----------
+  async demoBuyer() {
+    if (this.paypal.MODE !== 'sandbox') return null;
+    return (await this.store.get(PAYPAL_PK, 'DEMO_BUYER')) || null;
+  }
+  async demoBuyerStatus() {
+    const b = await this.demoBuyer();
+    return { paypal: this.paypal.MODE, linked: !!b, payer: b?.payer || null, linked_at: b?.linked_at || null };
+  }
+  // Step 1 (owner only: reached by a direct, IAM-signed Lambda invoke, never by the public URL).
+  async startDemoBuyerLink() {
+    if (this.paypal.MODE !== 'sandbox') throw new Error('PayPal sandbox keys are not set (run scripts/set-paypal-sandbox.sh first).');
+    const setup = await this.paypal.createMandateSetup({ returnUrl: `${this.publicUrl}/paypal/demo-buyer/return`, cancelUrl: `${this.publicUrl}/paypal/demo-buyer/cancel`, description: 'Mandat for Alexa+ demo buyer: sandbox holds for the public demo (test money)' });
+    await this.store.put(PAYPAL_PK, 'DEMO_SETUP', { setupId: setup.id, at: new Date(this.now()).toISOString() });
+    return { approveUrl: setup.approveUrl };
+  }
+  // Step 2: PayPal sends the owner back here after he approved with a sandbox personal account.
+  async finishDemoBuyerLink(approvalTokenId) {
+    const pending = await this.store.get(PAYPAL_PK, 'DEMO_SETUP');
+    if (!pending || !approvalTokenId || pending.setupId !== approvalTokenId) throw new ToolError('This approval does not match the demo buyer setup in progress.', 'Run scripts/link-paypal-demo-buyer.sh again.');
+    const t = await this.paypal.activateMandate(approvalTokenId);
+    const mask = (e) => String(e || '').replace(/^(.).*?(@.*)$/, '$1•••$2');
+    const buyer = { paymentTokenId: t.paymentTokenId, payer: mask(t.payer), linked_at: new Date(this.now()).toISOString() };
+    await this.store.put(PAYPAL_PK, 'DEMO_BUYER', buyer);
+    await this.store.delete(PAYPAL_PK, 'DEMO_SETUP');
+    return { linked: true, payer: buyer.payer };
+  }
+
   // PayPal return URL (sandbox mode): the user approved the vault setup token.
   async activateMandate(hid, mid) {
     return this.locked(hid, async () => {
@@ -409,7 +437,7 @@ export class Mandat {
       try {
         for (const [i, l] of plan.lines.entries()) {
           const oid = id('ord');
-          const pp = await this.paypal.hold({ paymentTokenId: m.paypal.paymentTokenId, amount: l.total, currency: m.currency, merchant: l.merchant, description: `${l.title} (${l.detail})`, reference: `${plan.id}-${i}` });
+          const pp = await this.paypal.hold({ mode: m.paypal.mode, paymentTokenId: m.paypal.paymentTokenId, amount: l.total, currency: m.currency, merchant: l.merchant, description: `${l.title} (${l.detail})`, reference: `${plan.id}-${i}` });
           envelope.hold(env, { id: oid, merchant: l.merchant, label: l.title, amount: l.total, paypal: pp });
           await this.live({ step: `h-${oid}`, state: 'done', text: T('l_holding', { amt: usd(l.total), m: l.merchant }), detail: T('l_not_charged'), image_url: l.image_url });
           const at = new Date(this.now()).toISOString();
@@ -422,7 +450,7 @@ export class Mandat {
         }
       } catch (e) {
         // A hold failed half-way: void what was already held, leave nothing behind.
-        for (const o of orders) { try { await this.paypal.release({ authorizationId: o.paypal.authorizationId }); } catch {} }
+        for (const o of orders) { try { await this.paypal.release({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId }); } catch {} }
         await this.store.delete(pkOf(hid), `IDEMP#${plan.id}`);
         throw new ToolError(`PayPal refused the payment hold (${e.message}). Nothing was charged.`, 'Try again in a minute or pick another option.');
       }
@@ -483,7 +511,7 @@ export class Mandat {
       }
       // Declined: void the hold so the money is free again, then line up a replacement.
       await this.live({ step: `c-${o.id}`, state: 'failed', text: T('l_cant_move', { m: mer.name }), detail: firstSentence(r.reply), image_url: o.image_url });
-      const pp = await this.paypal.release({ authorizationId: o.paypal.authorizationId });
+      const pp = await this.paypal.release({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId });
       await this.live({ step: `r-${o.id}`, state: 'done', text: T('l_released', { amt: usd(o.amount) }), detail: T('l_nothing') });
       envelope.release(env, o.id, pp);
       o.state = 'released';
@@ -520,7 +548,7 @@ export class Mandat {
         if (o.state !== 'held') throw new ToolError(`That order is ${o.state}; only a held payment can be captured.`, 'Check the order with get_household_status.');
         const take = round(amount ?? o.expected_total ?? o.amount);
         if (!(take > 0) || take > o.amount + 1e-9) throw new ToolError(`I can capture at most the ${usd(o.amount)} on hold.`, 'Capture a smaller amount or approve a new plan for the difference.');
-        const pp = await this.paypal.capture({ authorizationId: o.paypal.authorizationId, amount: take < o.amount ? take : undefined, currency: o.currency });
+        const pp = await this.paypal.capture({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId, amount: take < o.amount ? take : undefined, currency: o.currency });
         envelope.capture(env, o.id, pp, take);
         Object.assign(o, { state: 'captured', captured: take, paypal: { ...o.paypal, captureId: pp.captureId } });
         o.timeline.push({ state: 'captured', amount: take, at });
@@ -528,7 +556,7 @@ export class Mandat {
         speech = take < o.amount ? T('cap_partial', { m: o.merchant, take: usd(take), diff: usd(o.amount - take) }) : T('cap_full', { m: o.merchant, take: usd(take) });
       } else if (action === 'cancel') {
         if (o.state !== 'held') throw new ToolError(`That order is ${o.state}; only a held payment can be cancelled. A paid order can be refunded.`, 'Use action refund instead.');
-        const pp = await this.paypal.release({ authorizationId: o.paypal.authorizationId });
+        const pp = await this.paypal.release({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId });
         envelope.release(env, o.id, pp);
         o.state = 'released';
         o.timeline.push({ state: 'released', amount: o.amount, note: 'cancelled', at });
@@ -538,7 +566,7 @@ export class Mandat {
         let settled = '';
         if (o.state === 'held' && amount > 0 && amount < o.amount - 1e-9) {
           const take = round(o.expected_total ?? o.amount);
-          const pc = await this.paypal.capture({ authorizationId: o.paypal.authorizationId, amount: take < o.amount ? take : undefined, currency: o.currency });
+          const pc = await this.paypal.capture({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId, amount: take < o.amount ? take : undefined, currency: o.currency });
           envelope.capture(env, o.id, pc, take);
           Object.assign(o, { state: 'captured', captured: take, paypal: { ...o.paypal, captureId: pc.captureId } });
           o.timeline.push({ state: 'captured', amount: take, note: 'settled before a part refund', at });
@@ -548,7 +576,7 @@ export class Mandat {
         const paid = round((o.captured ?? o.amount) - (o.refunded || 0));
         const back = round(amount ?? paid);
         if (!(back > 0) || back > paid + 1e-9) throw new ToolError(`At most ${usd(paid)} can be refunded on this order.`, 'Refund a smaller amount.');
-        const pp = await this.paypal.refund({ captureId: o.paypal.captureId, amount: back, currency: o.currency, note: 'Mandat for Alexa+ refund' });
+        const pp = await this.paypal.refund({ mode: o.paypal.mode, captureId: o.paypal.captureId, amount: back, currency: o.currency, note: 'Mandat for Alexa+ refund' });
         envelope.refund(env, o.id, back, pp);
         o.refunded = round((o.refunded || 0) + back);
         if (o.refunded >= (o.captured ?? o.amount) - 1e-9) o.state = 'refunded';

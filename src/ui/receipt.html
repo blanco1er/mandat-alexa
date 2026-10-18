@@ -12,6 +12,7 @@
 .tl .released i { --_c: transparent; box-shadow: inset 0 0 0 max(1.5px, .12vw) var(--label-2); }
 .tl .refunded i { --_c: var(--ok); }
 .tl li:last-child { color: var(--label); font-weight: 590; }
+.who .ppid { font-variant-numeric: tabular-nums; letter-spacing: .01em; }
 .alt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: .75em; align-items: center; padding: .7em .7em .7em 1em; border-radius: var(--radius-in); background: var(--surface-2); }
 .alt .who > span { white-space: normal; }
 @media (max-width: 700px) { .rows > li { grid-template-columns: auto minmax(0, 1fr) auto; } .rows > li .tl { grid-column: 2 / -1; grid-row: 2; margin-top: .2em; } }
@@ -35,11 +36,11 @@ function render(result) {
   const title = r.orders.length === 1 ? esc(r.orders[0].merchant) : tx('{n} orders', { n: r.orders.length });
   const st = declined ? status('wait', tx('Hold released')) : settled ? status('ok', tx('Settled')) : status('info', tx('{amt} on hold', { amt: usd(held) }));
   $('#app').innerHTML = `
-    <div class="head"><p class="context">${mode === 'offline' ? tx('Receipt · Simulated payments') : esc(tx('Receipt · PayPal {mode}', { mode }))}</p>${st}</div>
+    <div class="head"><p class="context">${mode === 'offline' ? tx('Receipt · Simulated payments') : tx('Receipt · PayPal sandbox (test money)')}</p>${st}</div>
     <div class="hero"><h1>${title}</h1><span class="num">${usd(settled ? paid : held)}<small>${tx(settled ? 'paid' : 'held')}</small></span></div>
     <ul class="rows${r.orders.length > 3 ? ' compact' : ''}">${r.orders.slice(0, 6).map((o) => {
       const tl = o.timeline.filter((t) => t.state !== 'changed');
-      return `<li>${thumb(o, 'sm')}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.kind === 'product' ? `${P(o.label)} · ${slotL(o.slotLabel)}` : slotL(o.slotLabel) || P(o.label) || '')}</span></span>
+      return `<li>${thumb(o, 'sm')}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.kind === 'product' ? `${P(o.label)} · ${slotL(o.slotLabel)}` : slotL(o.slotLabel) || P(o.label) || '')}</span>${o.paypal_mode === 'sandbox' && o.paypal_authorization ? `<span class="ppid">PayPal sandbox · ${esc(o.paypal_authorization)}</span>` : ''}</span>
         <ol class="tl" aria-label="${tx('Payment timeline')}">${tl.map((t) => `<li class="${t.state}"><i aria-hidden="true"></i>${esc(lab(t.state))}${t.amount ? ' ' + usd(t.amount) : ''}</li>`).join('')}</ol>
         <span class="amt">${usd(o.state === 'held' ? o.amount : (o.captured || 0) - (o.refunded || 0))}</span></li>`;
     }).join('')}</ul>

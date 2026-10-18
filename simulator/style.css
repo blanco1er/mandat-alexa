@@ -331,7 +331,7 @@ body[data-state="listening"] .mic { background: color-mix(in srgb, var(--accent)
 @media (pointer: coarse), (max-width: 1100px) {
   .sim-devices label { height: 44px; }
   .sim-tools .ui-icon-button, .sim-tools .ui-button { --_s: 44px; --_h: 44px; min-height: 44px; }
-  .sim-lang select { height: 44px; min-width: 44px; }
+  .sim-lang select { height: 44px; min-width: 44px; font-size: 17px; }
   .drawer .ui-button, .drawer .ui-icon-button { --_h: 44px; --_s: 44px; min-height: 44px; }
   .line { min-height: 48px; }
 }

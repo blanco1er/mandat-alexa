@@ -302,11 +302,12 @@ function startLive(turnId) {
   if (device === 'dot') return () => {};
   $('#live').hidden = false;
   document.body.dataset.live = 'on';
-  let stop = false, timer = 0;
+  let stop = false, timer = 0, polls = 0;
   const tick = async () => {
     if (stop) return;
     try {
-      const r = await fetch(`/activity?household=${encodeURIComponent(household)}&turn=${turnId}`);
+      // each poll is a distinct read (n), never served from a cache
+      const r = await fetch(`/activity?household=${encodeURIComponent(household)}&turn=${turnId}&n=${++polls}`, { cache: 'no-store' });
       if (r.ok && !stop) renderLive((await r.json()).events || []);
     } catch {}
     if (!stop) timer = setTimeout(tick, 650);
@@ -318,7 +319,7 @@ function startLive(turnId) {
 async function finishLive(turnId) {
   if (device === 'dot') return;
   let events = [];
-  try { events = (await (await fetch(`/activity?household=${encodeURIComponent(household)}&turn=${turnId}`)).json()).events || []; } catch {}
+  try { events = (await (await fetch(`/activity?household=${encodeURIComponent(household)}&turn=${turnId}&n=final`, { cache: 'no-store' })).json()).events || []; } catch {}
   const fresh = events.filter((e) => !liveShown.has(e.step) || liveShown.get(e.step).e.state !== e.state);
   const quick = matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (fresh.length > 1 && !quick) for (const e of events) { renderLive([e]); if (fresh.includes(e)) await new Promise((r) => setTimeout(r, 170)); }
@@ -600,7 +601,8 @@ new ResizeObserver(() => { cancelAnimationFrame(slotRaf); slotRaf = requestAnima
     // Say honestly what runs behind this page: real model or not, sandbox payments or simulated ones.
     fineText = () => {
       const brain = /nova-2-lite/.test(health.brain || '') ? t('Amazon Nova 2 Lite on Bedrock') : /bedrock/.test(health.brain || '') ? 'Amazon Bedrock' : t('a scripted demo brain');
-      const pay = health.paypal === 'offline' ? t('payments are simulated (PayPal sandbox not connected)') : t('PayPal sandbox (test money)');
+      // say what really runs: sandbox holds only once the owner linked the demo buyer
+      const pay = health.paypal === 'sandbox' && health.paypal_buyer === 'linked' ? t('PayPal sandbox (test money)') : t('payments are simulated (PayPal sandbox not connected)');
       return t('Unofficial Alexa+ simulator. Brain: {brain}; {pay}. No real money.', { brain, pay });
     };
     if (health.ok) $('#fine').textContent = fineText();

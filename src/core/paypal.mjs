@@ -10,7 +10,13 @@
 //  6. Split:   each friend gets a detailed PayPal invoice (see invoices.mjs, PayPal Agent Toolkit).
 //
 // Without PAYPAL_CLIENT_ID/SECRET the client runs in "offline" mode: same interface, fake ids, clearly flagged
-// (mode: 'offline') so the UI never pretends money moved. Real sandbox calls are used as soon as keys exist.
+// (mode: 'offline') so the UI never pretends money moved. Real sandbox calls are used as soon as keys exist AND the
+// mandate carries a real sandbox payment token (each call takes the mode of the mandate or order it is for).
+//
+// Judges need no PayPal account: the owner links ONE sandbox buyer once (scripts/link-paypal-demo-buyer.sh, a Vault v3
+// setup token he approves with a PayPal sandbox personal account). Every household's budget then uses that saved
+// payment token for merchant-initiated holds (Orders v2 intent AUTHORIZE with payment_source.paypal.vault_id), the
+// same flow the Mandat PayPal app runs in sandbox. Test money only.
 import crypto from 'node:crypto';
 import {
   ApiError, CheckoutPaymentIntent, Client, Environment, ExperienceContextShippingPreference, OrdersController,
@@ -116,8 +122,9 @@ export async function activateMandate(setupTokenId) {
 
 // --- 2. Hold ---------------------------------------------------------------------------------------
 // Authorize funds for a merchant with the vaulted mandate, no user interaction.
-export async function hold({ paymentTokenId, amount, currency, merchant, description, reference }) {
-  if (MODE === 'offline') return { orderId: fakeId('ORDER'), authorizationId: fakeId('AUTH'), status: 'AUTHORIZED', mode: MODE };
+const live = (mode) => MODE === 'sandbox' && mode === 'sandbox';
+export async function hold({ paymentTokenId, amount, currency, merchant, description, reference, mode = MODE }) {
+  if (!live(mode)) return { orderId: fakeId('ORDER'), authorizationId: fakeId('AUTH'), status: 'AUTHORIZED', mode: MODE };
   const rid = crypto.randomUUID();
   const order = await call('create order', () => orders.createOrder({
     paypalRequestId: rid,
@@ -139,8 +146,8 @@ export async function hold({ paymentTokenId, amount, currency, merchant, descrip
 }
 
 // --- 3. Capture / 4. Release / 5. Refund ----------------------------------------------------------
-export async function capture({ authorizationId, amount, currency }) {
-  if (MODE === 'offline') return { captureId: fakeId('CAPTURE'), status: 'COMPLETED', mode: MODE };
+export async function capture({ authorizationId, amount, currency, mode = MODE }) {
+  if (!live(mode)) return { captureId: fakeId('CAPTURE'), status: 'COMPLETED', mode: MODE };
   const rid = crypto.randomUUID();
   const data = await call('capture', () => payments.captureAuthorizedPayment({
     authorizationId,
@@ -151,15 +158,15 @@ export async function capture({ authorizationId, amount, currency }) {
   return { captureId: data.id, status: data.status, mode: MODE };
 }
 
-export async function release({ authorizationId }) {
-  if (MODE === 'offline') return { status: 'VOIDED', mode: MODE };
+export async function release({ authorizationId, mode = MODE }) {
+  if (!live(mode)) return { status: 'VOIDED', mode: MODE };
   const rid = crypto.randomUUID();
   await call('void', () => payments.voidPayment({ authorizationId, paypalRequestId: rid }));
   return { status: 'VOIDED', mode: MODE };
 }
 
-export async function refund({ captureId, amount, currency, note }) {
-  if (MODE === 'offline') return { refundId: fakeId('REFUND'), status: 'COMPLETED', mode: MODE };
+export async function refund({ captureId, amount, currency, note, mode = MODE }) {
+  if (!live(mode)) return { refundId: fakeId('REFUND'), status: 'COMPLETED', mode: MODE };
   const rid = crypto.randomUUID();
   const data = await call('refund', () => payments.refundCapturedPayment({
     captureId,

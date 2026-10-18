@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(ROOT, 'scripts', 'deploy-aws.sh');
 
-function fakeAws(dir, { existing = false } = {}) {
+function fakeAws(dir, { existing = false, currentEnv = null } = {}) {
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin, { recursive: true });
   // Answers: an empty account (every describe/get fails) or one where everything already exists.
@@ -28,7 +28,7 @@ case "$args" in
     ${existing ? 'echo "{}"' : 'echo "ResourceNotFoundException" >&2; exit 254'};;
   *" get-function-url-config "*)
     if ${existing ? 'true' : '[ -f "$STATE/url" ]'}; then echo '{"FunctionUrl":"https://abc123.lambda-url.us-east-1.on.aws/"}'; else touch "$STATE/url"; echo "ResourceNotFoundException" >&2; exit 254; fi;;
-  *" get-function-configuration "*) ${existing ? `echo '{"Environment":{"Variables":{"MANDAT_NETWORK_SECRET":"${'k'.repeat(64)}"}}}'` : `echo '{}'`};;
+  *" get-function-configuration "*) ${currentEnv ? `echo '${JSON.stringify({ Environment: { Variables: currentEnv } })}'` : existing ? `echo '{"Environment":{"Variables":{"MANDAT_NETWORK_SECRET":"${'k'.repeat(64)}"}}}'` : `echo '{}'`};;
   *" add-permission "*) ${existing ? 'echo "An error occurred (ResourceConflictException)" >&2; exit 254' : 'echo "{}"'};;
   *) echo '{}';;
 esac
@@ -125,4 +125,25 @@ test('deploy: refuses a zip that carries local state or secrets', () => {
   const r = run({ PATH: `${fakeAws(dir)}:${process.env.PATH}`, MANDAT_ZIP: path.join(dir, 'bad.zip') }, dir);
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /refusing to ship/);
+});
+
+test('deploy: a redeploy keeps the PayPal sandbox keys already in the function, never prints them', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mandat-deploy-'));
+  const secret = 'live-sandbox-secret-' + Date.now();
+  const bin = fakeAws(dir, { existing: true, currentEnv: { MANDAT_NETWORK_SECRET: 'k'.repeat(64), PAYPAL_CLIENT_ID: 'live-sandbox-client', PAYPAL_CLIENT_SECRET: secret } });
+  const r = run({ PATH: `${bin}:${process.env.PATH}`, DEPLOY_STAGE: 'bedrock' }, dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!(r.stdout + r.stderr).includes(secret) && !(r.stdout + r.stderr).includes('live-sandbox-client'), 'a PayPal value was printed');
+  const env = JSON.parse(fs.readFileSync(path.join(dir, 'env.json'), 'utf8')).Variables;
+  assert.equal(env.PAYPAL_CLIENT_ID, 'live-sandbox-client');
+  assert.equal(env.PAYPAL_CLIENT_SECRET, secret);
+  assert.equal(env.MANDAT_PAYPAL, undefined, 'keys kept: not forced offline');
+  // no keys anywhere: payments stay simulated
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'mandat-deploy-'));
+  const bin2 = fakeAws(dir2, { existing: true, currentEnv: { MANDAT_NETWORK_SECRET: 'k'.repeat(64) } });
+  const r2 = run({ PATH: `${bin2}:${process.env.PATH}` }, dir2);
+  assert.equal(r2.status, 0, r2.stderr);
+  const env2 = JSON.parse(fs.readFileSync(path.join(dir2, 'env.json'), 'utf8')).Variables;
+  assert.equal(env2.MANDAT_PAYPAL, 'offline');
+  assert.equal(env2.PAYPAL_CLIENT_ID, undefined);
 });

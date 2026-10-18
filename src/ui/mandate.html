@@ -25,7 +25,7 @@ function render(result) {
     <dl class="rules">
       <div><dt>${tx('Buys on its own')}</dt><dd>${m.auto_approve_under > 0 ? tx('Under {amt}', { amt: usd(m.auto_approve_under, m.currency) }) : tx('Never')}</dd></div>
       <div><dt>${tx('Above that')}</dt><dd>${tx('Asks for your yes')}</dd></div>
-      <div><dt>${tx('Pays with')}</dt><dd>${tx(sim ? 'Simulated payments' : 'PayPal sandbox')}</dd></div>
+      <div><dt>${tx('Pays with')}</dt><dd>${tx(sim ? 'Simulated payments' : 'PayPal sandbox (test money)')}</dd></div>
     </dl>
     ${sc.envelope ? gauge(sc.envelope) : ''}
     ${sc.approval_url ? `<div class="actions"><button class="btn primary" id="go">${tx('Approve with PayPal')}</button></div>` : ''}`;
