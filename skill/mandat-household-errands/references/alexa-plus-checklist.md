@@ -13,7 +13,7 @@ Sources: Alexa+ MCP add-on design guide (overview, functional requirements), rea
 | §8 | Modify one parameter | `change_order` changes exactly one field: date, time or quantity |
 | §8 | Cancellation with policy and fees | `close_order` `cancel` voids the hold (no fee before the service); merchant terms state their own policy |
 | §8 | Written receipt | Receipt card with the payment timeline held -> captured -> released -> refunded |
-| §9 Voice only | At most 5 options; read back and explicit "yes"; never refer to the screen | Dot mode: 3 options max, "Say yes to confirm.", no screen words (tested) |
+| §9 Voice only | At most 5 options; read back and explicit "yes"; never refer to the screen | Dot mode: 3 options max, "Say yes to confirm the plan.", no screen words (tested) |
 | §10 | Voice and screen consistent | Speech and card are built from the same tool result |
 | Policy | Shopping add-ons must protect customers from unintended purchases | Budget envelope, auto-approve threshold, explicit yes, idempotency, merchant floor guard |
 | Policy | Not targeted at children | Household errands for adults |

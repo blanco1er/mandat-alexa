@@ -87,7 +87,7 @@ test('scenario 3 "Plans change": cleaner moves, caterer declines -> void + repla
 test('Echo Dot (screenless) mode: at most 3 options read, explicit "say yes to confirm"', async () => {
   const dot = talker(srv.mcpUrl, 'dot-household', 'dot');
   const out = await dot('My in-laws land Saturday: a cleaner Friday and dinner for six at home Saturday. Keep it under $400.');
-  assert.match(out.speech, /Say yes to confirm\.$/);
+  assert.match(out.speech, /Say yes to confirm the plan\.$/);
   assert.doesNotMatch(out.speech, /screen|tap|card/i, 'never refers to the screen');
   const one = await dot('Find a plumber Monday for a leak.');
   assert.ok((one.speech.match(/\$\d+/g) || []).length <= 3 * 2);

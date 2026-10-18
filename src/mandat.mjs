@@ -691,7 +691,7 @@ export class Mandat {
       : T('det_prod', { title: what, total: usd(o.total), m: o.merchant });
     // say the reason, and the trade-off when there is one (a higher price is never presented as an advantage)
     const said = [why.find((w) => w.tone === 'plus'), why.find((w) => w.tone === 'cost')].filter(Boolean).map((w) => w.text + '.').join(' ');
-    const speech = `${lead} ${said}${inPlan ? ' ' + T('in_plan') : ''}`.replace(/\s+/g, ' ').trim();
+    const speech = `${lead} ${said}${inPlan ? ' ' + T('in_plan', { total: usd(plan.breakdown.total) }) : ''}`.replace(/\s+/g, ' ').trim();
     return { speech, data: { mode: 'detail', offer: o, images: galleryFor(o, this.publicUrl), specs, why, rule, history, in_plan: inPlan, plan_id: plan?.id || null, alternatives: sibs.filter((x) => x.id !== o.id).length }, card: 'item' };
   }
 

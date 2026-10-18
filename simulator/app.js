@@ -630,7 +630,7 @@ function showHeard(text) {
 }
 function setAsk(pending) {
   $('#ask').hidden = !pending && !session.pendingDelete;
-  if (pending) $('#askText').textContent = t('Say “yes” to confirm {amt}', { amt: usd(pending.total) });
+  if (pending) $('#askText').textContent = t('Say “yes” to confirm the plan · {amt}', { amt: usd(pending.total) });
   else if (session.pendingDelete) $('#askText').textContent = t('Say “yes, delete it” to confirm');
 }
 let busy = false;
@@ -712,7 +712,7 @@ function applyLanguage() {
   for (const el of document.querySelectorAll('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle);
   for (const el of document.querySelectorAll('[data-i18n-ph]')) el.placeholder = t(el.dataset.i18nPh);
   $('#micHint').innerHTML = esc(t('Or press {kbd}. Voice works in Chrome; typing works everywhere.', { kbd: '\u0001' })).replace('\u0001', '<kbd>Space</kbd>');
-  $('#askText').textContent = session.pending ? t('Say “yes” to confirm {amt}', { amt: usd(session.pending.total) }) : t('Say “yes” to confirm');
+  $('#askText').textContent = session.pending ? t('Say “yes” to confirm the plan · {amt}', { amt: usd(session.pending.total) }) : t('Say “yes” to confirm');
   $('#micLabel').textContent = label(document.body.dataset.state || 'idle');
   $('#fine').textContent = fineText();
   $('#lang').value = locale;

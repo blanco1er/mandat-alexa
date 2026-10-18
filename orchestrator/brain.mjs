@@ -209,7 +209,7 @@ export async function createStrandsBrain({ mcpUrl, model = BRAIN_MODEL, headers 
       }
       // Alexa+ voice-only rule: on a screenless device a request for approval ends with the explicit prompt.
       const sayYes = tr(locale, 'p_say_yes');
-      if (session.device === 'dot' && s.pending && !speech.trim().endsWith(sayYes) && !/say yes to confirm\.?$/i.test(speech)) speech = `${speech.replace(/\s*$/, '')} ${sayYes}`;
+      if (session.device === 'dot' && s.pending && !speech.trim().endsWith(sayYes) && !/say yes to confirm( the plan)?\.?$/i.test(speech)) speech = `${speech.replace(/\s*$/, '')} ${sayYes}`;
       return { speech, steps, session: s, protocolVersion: '2025-11-25', skills: e.skills.getActivatedSkills(e.agent), usage: usage ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } : undefined, stopReason: result.stopReason };
     },
     async close() { for (const e of agents.values()) await e.mcp.disconnect().catch(() => {}); },
