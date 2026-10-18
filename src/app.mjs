@@ -127,9 +127,9 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
         if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { error: 'Forbidden origin' });
         const l = limits.tts(clientIp(request));
         if (!l.ok) return tooMany(l.retryAfter);
-        const { text } = await request.json().catch(() => ({}));
+        const { text, locale } = await request.json().catch(() => ({}));
         if (!String(text || '').trim()) return json(400, { error: 'Nothing to say.' });
-        return new Response(await tts.synthesize(text), { headers: { 'content-type': 'audio/mpeg' } });
+        return new Response(await tts.synthesize(text, typeof locale === 'string' ? locale.slice(0, 12) : undefined), { headers: { 'content-type': 'audio/mpeg' } });
       }
       if (p === '/paypal/return') {
         const m = await service.activateMandate(url.searchParams.get('household') || 'demo', url.searchParams.get('mandate'));

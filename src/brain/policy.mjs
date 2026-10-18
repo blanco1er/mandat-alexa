@@ -4,6 +4,8 @@
 // Pure module (no Node imports): used by the simulated orchestrator, by the Strands ScriptedModel (orchestrator/),
 // and by the tests. It only covers the demo intents; the Bedrock brain handles free-form requests.
 
+import * as I from '../core/i18n.mjs';
+
 const sc = (r) => (r && r.structuredContent) || {};
 const said = (r) => (r && r.content && r.content[0] && r.content[0].text) || '';
 const failed = (r) => !!(r && r.isError);
@@ -56,17 +58,18 @@ export function wishes(u) {
   return out;
 }
 
-function purposeOf(u) {
+function purposeOf(u, L) {
   const t = u.toLowerCase();
-  if (/in-?laws/.test(t)) return 'In-laws visit';
-  if (/(party|guests|visit)/.test(t)) return 'Guests visit';
-  return 'This plan';
+  if (/in-?laws/.test(t)) return I.tr(L, 'pur_inlaws');
+  if (/(party|guests|visit|invités|invitados|fiesta|fête)/.test(t)) return I.tr(L, 'pur_guests');
+  return I.tr(L, 'pur_plan');
 }
 
 // ---- what the user points at ("the bed linen", "the caterer", "Olive & Thyme", "the sateen set", "that") ----
 const CATEGORY_WORDS = { cleaning: /\bclean(er|ers|ing)?\b|\bmaid/, catering: /\b(cater(er|ers|ing)?|dinner|food for|chef)\b/, plumbing: /\bplumb/, handyman: /\bhandy/ };
 const PRODUCT_WORDS = { bedding: /\b(bed ?linen|linens?|bedding|sheets?|pillow\w*|sateen|percale|duvet|towels?)\b/, dog: /\b(dog|kibble)\b/, coffee: /\b(coffee|beans|roast|espresso|decaf)\b/ };
-const words = (x) => String(x || '').toLowerCase().split(/[^a-z0-9&]+/).filter((w) => w.length > 2 && !['the', 'and', 'for', 'with', 'set', 'from'].includes(w));
+const fold = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const words = (x) => fold(x).split(/[^a-z0-9&]+/).filter((w) => w.length > 2 && !['the', 'and', 'for', 'with', 'set', 'from', 'des', 'les', 'pour', 'avec', 'del', 'los', 'las', 'con', 'para'].includes(w));
 const familyOf = (o) => (o.kind === 'product' ? (/(sheet|bed|duvet|towel|pillow)/i.test(o.title) ? 'bedding' : /dog/i.test(o.title) ? 'dog' : /coffee|roast|decaf/i.test(o.title) ? 'coffee' : 'other') : o.category);
 function known(session) {
   const out = new Map();
@@ -75,13 +78,14 @@ function known(session) {
   return [...out.values()];
 }
 // Best match for the words of the utterance; ties go to `prefer` (in the plan, or not in the plan).
-function pointAt(u, session, { prefer } = {}) {
+function pointAt(u, session, { prefer, locale } = {}) {
   const t = u.toLowerCase();
   const ws = new Set(words(t));
   const all = known(session);
   const score = (o) => {
     let s = 0;
-    for (const w of words(`${o.merchant} ${o.title}`)) if (ws.has(w)) s += 3;
+    // the item's name as the user may say it: English catalogue title, or its French / Spanish name on the card
+    for (const w of new Set(words(`${o.merchant} ${o.title} ${I.phrase(o.title, 'fr-FR')} ${I.phrase(o.title, 'es-ES')}`))) if (ws.has(w)) s += 3;
     const fam = familyOf(o);
     if (o.kind === 'service' && CATEGORY_WORDS[fam]?.test(t)) s += 2;
     if (o.kind === 'product' && PRODUCT_WORDS[fam]?.test(t)) s += 2;
@@ -116,76 +120,92 @@ export function absorb(session, name, result) {
   return s;
 }
 
-export function decide({ utterance, session = {}, steps = [] }) {
-  const u = String(utterance || '');
+export function decide({ utterance, session = {}, steps = [], locale }) {
+  // French and Spanish are mapped to the words the playbooks know (I.canon); what Alexa says comes back in the
+  // user's language (I.tr). The user's own words (a yes, a household fact) are kept as said.
+  const L = I.normLocale(locale || session.locale || 'en-US');
+  const lang = I.langOf(L);
+  const raw = String(utterance || '');
+  const u = I.canon(raw, L);
+  const tl = (k, v) => I.tr(L, k, v);
+  const usdL = (n) => I.money(n, L);
   const intent = classify(u, session);
   const last = steps[steps.length - 1];
   if (last && failed(last.result)) return say(said(last.result).replace(/ Next step:.*$/, ''));
   const n = steps.length;
   const dot = session.device === 'dot';
+  const YES = ' ' + tl('p_say_yes');
 
   switch (intent) {
     case 'confirm':
-      if (n === 0) return tool('confirm_plan', { plan_id: session.pending.plan_id, confirmation_token: session.pending.token, user_confirmation: u.slice(0, 120) });
+      if (n === 0) return tool('confirm_plan', { plan_id: session.pending.plan_id, confirmation_token: session.pending.token, user_confirmation: raw.slice(0, 120) });
       return say(said(last.result));
     case 'decline':
-      return say('Okay, I will not buy it. The plan stays unpaid.');
+      return say(tl('p_decline'));
 
     case 'show_plan':
       if (n === 0) return tool('review_plan', { plan_id: session.pending.plan_id });
-      return say(said(last.result) + (dot ? ' Say yes to confirm.' : ''));
+      return say(said(last.result) + (dot ? YES : ''));
 
     case 'inspect': case 'why': {
       const o = pointAt(u, session, { prefer: 'plan' }) || (session.focus && known(session).find((x) => x.id === session.focus));
-      if (!o) return say('Which one? You can say the cleaner, the caterer or the bedding.');
+      if (!o) return say(tl('p_which'));
       if (n === 0) return tool('get_offer_details', { offer_id: o.id });
       return say(said(last.result));
     }
 
     case 'alternatives': {
       const o = pointAt(u, session, { prefer: 'plan' }) || (session.focus && known(session).find((x) => x.id === session.focus)) || (session.pending?.lines?.length === 1 ? known(session).find((x) => x.inPlan) : null);
-      if (!o) return say('Other options for which one? The cleaner, the caterer or the bedding?');
+      if (!o) return say(tl('p_alts_which'));
       if (n === 0) return tool('list_alternatives', { offer_id: o.id, cheaper_only: /cheaper|less expensive/i.test(u) });
-      return say(said(last.result) + (session.pending ? ' Say which one you want instead.' : ''));
+      return say(said(last.result) + (session.pending ? ' ' + tl('p_say_instead') : ''));
     }
 
     case 'compare': {
       const all = known(session);
       const anchor = pointAt(u, session, { prefer: 'plan' }) || all.find((x) => x.id === session.focus);
-      if (!anchor) return say('Compare which ones? For example, the two caterers.');
+      if (!anchor) return say(tl('p_compare_which'));
       const group = all.filter((x) => sameSearch(x, anchor)).sort((a, b) => (b.inPlan - a.inPlan) || a.total - b.total);
       const howMany = /\b(two|2|both)\b/i.test(u) ? 2 : 3;
       const ids = group.slice(0, howMany).map((x) => x.id);
-      if (ids.length < 2) return say(`I only have one option for that. Want me to search again?`);
+      if (ids.length < 2) return say(tl('p_only_one'));
       if (n === 0) return tool('compare_offers', { offer_ids: ids });
       return say(said(last.result));
     }
 
     case 'swap': {
-      if (!session.pending) return say('There is no plan waiting for your yes, so there is nothing to swap.');
+      if (!session.pending) return say(tl('p_no_plan'));
       const add = pointAt(u, session, { prefer: 'other' });
-      if (!add || add.inPlan) return say('Which option should I take instead? Say its name, or ask for other options.');
+      if (!add || add.inPlan) return say(tl('p_swap_which'));
       const out = known(session).find((x) => x.inPlan && sameSearch(x, add)) || known(session).find((x) => x.inPlan && familyOf(x) === familyOf(add));
       if (n === 0) return tool('revise_plan', { plan_id: session.pending.plan_id, remove_offer_ids: out ? [out.id] : [], add_offer_ids: [add.id] });
-      return say(said(last.result) + (dot ? ' Say yes to confirm.' : ''));
+      return say(said(last.result) + (dot ? YES : ''));
     }
 
     case 'remove': {
       const o = pointAt(u, session, { prefer: 'plan' });
-      if (!o || !o.inPlan) return say('Which item should I take out of the plan?');
+      if (!o || !o.inPlan) return say(tl('p_remove_which'));
       if (n === 0) return tool('revise_plan', { plan_id: session.pending.plan_id, remove_offer_ids: [o.id] });
-      return say(said(last.result) + (dot ? ' Say yes to confirm.' : ''));
+      return say(said(last.result) + (dot ? YES : ''));
     }
 
     case 'choose': {
       const o = pointAt(u, session, {}) || known(session).find((x) => x.id === session.focus);
-      if (!o) return say('Which one should I plan?');
+      if (!o) return say(tl('p_choose_which'));
       if (n === 0) return tool('propose_plan', { item_ids: [o.id] });
-      return say(said(last.result) + (dot && sc(last.result).needs_user_yes ? ' Say yes to confirm.' : ''));
+      return say(said(last.result) + (dot && sc(last.result).needs_user_yes ? YES : ''));
     }
 
     case 'remember': {
       if (n === 0) {
+        if (lang !== 'en') {
+          // the fact is saved in the user's words; Mandat reads allergies in English, French and Spanish
+          const t = raw.replace(lang === 'fr' ? /^.*?(?:souviens-toi|rappelle-toi|retiens|n['’]oublie pas)\s*(?:que\s*|qu['’]\s*)?/i : /^.*?(?:recuerda|acuérdate de|no olvides)\s*(?:que\s*)?/i, '').replace(/[.!]$/, '').trim();
+          const dog = (lang === 'fr' ? /(\p{L}+),?\s+(?:notre|mon)\s+chien,?\s+est\s+(.*)$/iu : /(\p{L}+),?\s+(?:nuestro|mi)\s+perro,?\s+es\s+(.*)$/iu).exec(t);
+          if (dog) return tool('remember_preference', { subject: `${cap(dog[1])} (${tl('sub_dog')})`, fact: dog[2] });
+          if (/caf[ée]|torréfaction|tueste|roast/i.test(t)) return tool('remember_preference', { subject: tl('sub_coffee'), fact: cap(t) });
+          return tool('remember_preference', { subject: lang === 'fr' ? 'Maison' : 'Casa', fact: cap(t) });
+        }
         const t = u.replace(/^.*?\bremember\b\s*(that\s*)?/i, '').replace(/[.!]$/, '');
         const dog = /\b(\w+),?\s+(?:our|my)\s+dog,?\s+is\s+(.*)$/i.exec(t);
         if (dog) return tool('remember_preference', { subject: `${cap(dog[1])} (dog)`, fact: dog[2] });
@@ -200,7 +220,7 @@ export function decide({ utterance, session = {}, steps = [] }) {
       if (n === 0) {
         const amounts = [...u.matchAll(/\$\s?(\d+)/g)].map((m) => Number(m[1]));
         const auto = /(without asking|on your own|auto)/i.test(u) && amounts.length > 1 ? amounts[1] : 0;
-        return tool('set_spending_mandate', { budget: amounts[0], currency: 'USD', period: /month/i.test(u) ? 'monthly' : 'weekly', auto_approve_under: auto, purpose: /grocer/i.test(u) ? 'Groceries' : 'Household essentials' });
+        return tool('set_spending_mandate', { budget: amounts[0], currency: 'USD', period: /month/i.test(u) ? 'monthly' : 'weekly', auto_approve_under: auto, purpose: /grocer|courses|compra/i.test(u) ? tl('pur_groceries') : tl('pur_house') });
       }
       return say(said(last.result));
     }
@@ -212,17 +232,17 @@ export function decide({ utterance, session = {}, steps = [] }) {
     case 'big_plan': {
       // set budget -> one search per wish -> one plan -> ask
       const ws = wishes(u);
-      if (n === 0) return tool('set_spending_mandate', { budget: money(u), currency: 'USD', period: 'once', auto_approve_under: 0, purpose: purposeOf(u) });
+      if (n === 0) return tool('set_spending_mandate', { budget: money(u), currency: 'USD', period: 'once', auto_approve_under: 0, purpose: purposeOf(u, L) });
       if (n <= ws.length) {
         const w = ws[n - 1];
         return w.kind === 'product' ? tool('find_products', { query: w.query, quantity: 1 }) : tool('find_home_services', { need: w.need, category: w.category, when: w.when });
       }
       if (n === ws.length + 1) {
         const ids = steps.slice(1, ws.length + 1).map((s) => best(s.result)?.id).filter(Boolean);
-        return tool('propose_plan', { item_ids: ids, mandate_id: sc(steps[0].result).mandate.id, note: purposeOf(u) });
+        return tool('propose_plan', { item_ids: ids, mandate_id: sc(steps[0].result).mandate.id, note: purposeOf(u, L) });
       }
-      const asked = steps.slice(1, ws.length + 1).filter((s) => s.name === 'find_home_services').map((s) => { const n = sc(s.result).asked; const c = sc(s.result).category; return `${n} ${c === 'catering' ? 'caterer' : c === 'cleaning' ? 'cleaner' : 'pro'}${n === 1 ? '' : 's'}`; });
-      return say(`${asked.length ? `I asked ${asked.join(' and ')}. ` : ''}${said(last.result)}${dot ? ' Say yes to confirm.' : ''}`);
+      const asked = steps.slice(1, ws.length + 1).filter((s) => s.name === 'find_home_services').map((s) => { const k = sc(s.result).asked; return `${k} ${I.noun(sc(s.result).category, k, L)}`; });
+      return say(`${asked.length ? tl('p_asked', { list: I.list(asked, L) }) : ''}${said(last.result)}${dot ? YES : ''}`);
     }
 
     case 'restock': {
@@ -234,7 +254,7 @@ export function decide({ utterance, session = {}, steps = [] }) {
       if (!items.length) items.push(u.replace(/^.*(out of|low on|need more)\s*/i, '').replace(/[.!?]$/, ''));
       // walk the items: find -> propose -> (confirm if auto)
       const lines = [];
-      let i = 0, k = 0;
+      let i = 0, k = 0, asking = false;
       while (i < items.length) {
         const find = steps[k], prop = steps[k + 1], conf = steps[k + 2];
         if (!find) return tool('find_products', { query: items[i], quantity: 1 });
@@ -242,16 +262,17 @@ export function decide({ utterance, session = {}, steps = [] }) {
         const p = sc(prop.result);
         if (p.needs_user_yes) {
           const o = best(find.result);
-          lines.push(`${o.matches_preference ? 'Your usual ' : ''}${o.title} is ${'$' + p.plan.breakdown.total}, above your auto-approve limit, so I'm asking: should I buy it?`);
+          lines.push(tl('p_restock_ask', { usual: o.matches_preference, title: I.phrase(o.title, L), total: usdL(p.plan.breakdown.total) }));
+          asking = true;
           k += 2; i++;
           continue;
         }
         if (!conf) return tool('confirm_plan', { plan_id: p.plan.id, confirmation_token: p.confirmation_token });
         const skipped = sc(find.result).skipped || [];
-        lines.push(`I ordered ${best(find.result).title}, ${'$' + p.plan.breakdown.total}, under your auto-approve rule${skipped.length ? `, and skipped ${skipped.length} with ${skipped[0].ingredient} because ${skipped[0].because}` : ''}.`);
+        lines.push(tl('p_restock_bought', { title: I.phrase(best(find.result).title, L), total: usdL(p.plan.breakdown.total), skip: skipped.length ? tl('p_restock_skip', { n: skipped.length, ing: I.phrase(skipped[0].ingredient, L), because: skipped[0].because }) : '' }));
         k += 3; i++;
       }
-      return say(lines.join(' ') + (dot && /should I buy/.test(lines.join(' ')) ? ' Say yes to confirm.' : ''));
+      return say(lines.join(' ') + (dot && asking ? YES : ''));
     }
 
     case 'plans_change': {
@@ -270,15 +291,19 @@ export function decide({ utterance, session = {}, steps = [] }) {
       }
       // what simply moved first, then what was declined (with its replacement)
       const told = steps.slice(1, changes.length + 1).sort((a, b) => (sc(a.result).alternatives ? 1 : 0) - (sc(b.result).alternatives ? 1 : 0)).map((s) => said(s.result)).join(' ');
-      return say(`${told}${declined ? ` ${dot ? 'Say yes to confirm.' : ''}` : ''}`);
+      return say(`${told}${declined ? `${dot ? YES : ''}` : ''}`);
     }
 
     case 'settle': {
       // status -> capture every held order (with the final bill if one is given) -> refund if asked
       const finals = [...u.matchAll(/([A-Z][\w&' ]+?)\s+(?:billed|charged|final bill (?:is|was))\s+\$\s?(\d+(?:\.\d+)?)/g)].map((m) => ({ who: m[1].trim().toLowerCase(), amount: Number(m[2]) }));
       const refund = /refund\s+(?:the\s+)?\$\s?(\d+(?:\.\d+)?)\s*(?:for\s+the\s+)?(\w+)?/i.exec(u) || /refund.*?\$\s?(\d+(?:\.\d+)?)\s+(\w+)/i.exec(u);
-      if (n === 0) return tool('get_household_status', { section: 'orders' });
-      const open = sc(steps[0].result).open_orders || [];
+      if (n === 0) return tool('get_household_status', {});
+      // settle the event's orders (its own one-time budget), not the weekly restocks that are still on their way
+      const status = sc(steps[0].result);
+      const events = (status.mandates || []).filter((m) => m.period === 'once' && m.status === 'active').map((m) => m.id);
+      const all = status.open_orders || [];
+      const open = all.some((o) => events.includes(o.mandate_id)) ? all.filter((o) => events.includes(o.mandate_id)) : all;
       // close tokens come from receipts; the host keeps them in the session (orders map)
       const tokens = session.closeTokens || {};
       if (n <= open.length) {
@@ -294,24 +319,24 @@ export function decide({ utterance, session = {}, steps = [] }) {
       // one short summary instead of one sentence per order
       const done = steps.slice(1);
       const caps = done.filter((x) => x.args.action === 'capture' && !failed(x.result));
-      const partial = caps.map((x) => said(x.result)).find((t) => /less than held/.test(t));
+      const partial = caps.map((x) => said(x.result)).find((t) => I.PARTIAL_RE[lang].test(t));
       const ref = done.find((x) => x.args.action === 'refund' && !failed(x.result));
       const env = sc(done[done.length - 1]?.result).receipt?.envelope;
-      const parts = [`Paid ${caps.length} ${caps.length === 1 ? 'order' : 'orders'}.`];
-      if (partial) parts.push(partial.replace(/ \$[\d.,]+ left in .*$/, ''));
-      if (ref) parts.push(said(ref.result).replace(/ \$[\d.,]+ left in .*$/, ''));
-      if (env) parts.push(`$${env.remaining} left in ${env.purpose}.`);
+      const parts = [tl('p_paid', { n: caps.length })];
+      if (partial) parts.push(partial.replace(I.LEFT_IN_RE[lang], ''));
+      if (ref) parts.push(said(ref.result).replace(I.LEFT_IN_RE[lang], ''));
+      if (env) parts.push(tl('left_in', { left: usdL(env.remaining), purpose: env.purpose }));
       return say(parts.join(' '));
     }
 
     case 'one_service': {
       const w = wishes(u)[0];
-      if (!w) return say('I can book cleaning, catering, plumbing and handyman services. Which one?');
+      if (!w) return say(tl('p_one_service'));
       if (n === 0) return tool('find_home_services', { need: w.need, category: w.category, when: w.when });
-      return say(said(last.result) + (dot ? ' Want me to book the first one?' : ''));
+      return say(said(last.result) + (dot ? ' ' + tl('p_book_first') : ''));
     }
     default:
-      return say('I can set a household budget, find home services and products, book them inside your budget, and change or cancel orders. What do you need?');
+      return say(tl('p_default'));
   }
 }
 

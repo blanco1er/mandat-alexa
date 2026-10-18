@@ -25,13 +25,18 @@ export const PRODUCTS = [
   { id: 'p_coffee_decaf', shop: 'shop_beanpost', title: 'Swiss-water decaf, whole bean, 2 lb', price: 27, tags: ['coffee', 'decaf', 'beans'], contains: ['coffee'], brand: 'Bean Post' },
 ];
 
-const words = (s) => String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
-// A few words people say that should match a tag.
-const ALIAS = { sheets: 'bedding', bedding: 'bedding', linen: 'bedding', linens: 'bedding', pillow: 'bedding', pillows: 'bedding', kibble: 'dog', dog: 'dog', puppy: 'dog', coffee: 'coffee', espresso: 'coffee', beans: 'coffee', towels: 'towels', duvet: 'duvet' };
+// Accent-insensitive, so "café", "sábanas" or "linge de lit" (an assistant may search in the user's language) match.
+const words = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+// A few words people say that should match a tag (English, French, Spanish).
+const ALIAS = {
+  sheets: 'bedding', bedding: 'bedding', linen: 'bedding', linens: 'bedding', pillow: 'bedding', pillows: 'bedding', kibble: 'dog', dog: 'dog', puppy: 'dog', coffee: 'coffee', espresso: 'coffee', beans: 'coffee', towels: 'towels', duvet: 'duvet',
+  draps: ['sheets', 'bedding'], linge: ['linen', 'bedding'], literie: 'bedding', parure: ['sheets', 'bedding'], taies: 'bedding', oreiller: 'bedding', croquettes: 'dog', chien: 'dog', cafe: 'coffee', grains: 'coffee', serviettes: 'towels', couette: 'duvet',
+  sabanas: ['sheets', 'bedding'], ropa: ['linen', 'bedding'], cama: 'bedding', fundas: 'bedding', almohada: 'bedding', pienso: 'dog', perro: 'dog', grano: 'coffee', toallas: 'towels', edredon: 'duvet', nordico: 'duvet',
+};
 
 export function searchCatalog({ query, maxPrice }) {
   const q = words(query);
-  const keys = new Set(q.map((w) => ALIAS[w] || w));
+  const keys = new Set(q.flatMap((w) => [].concat(ALIAS[w] || w)));
   const scored = PRODUCTS.map((p) => {
     const hay = new Set([...words(p.title), ...p.tags.flatMap(words), ...(p.brand ? words(p.brand) : [])]);
     let score = 0;

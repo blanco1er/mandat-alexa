@@ -79,6 +79,7 @@ test('scenario 3 "Plans change": cleaner moves, caterer declines -> void + repla
   const bedding = results.filter((o) => /Linen/.test(o.merchant)).pop();
   assert.deepEqual(bedding.timeline.map((t) => t.state), ['held', 'captured', 'refunded']);
   assert.match(settle.speech, /\$30 less than held.*released the rest.*Refund of \$28/);
+  assert.match(settle.speech, /^Paid 3 orders\./, 'only the event\'s orders, not the weekly restocks');
   const status = await say('How much is left?');
   assert.match(status.speech, /In-laws visit: \$71 left of \$400/);
 });

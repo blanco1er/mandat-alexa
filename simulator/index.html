@@ -28,22 +28,23 @@
   <header class="ui-toolbar sim-bar">
     <div class="sim-id">
       <b>Mandat</b>
-      <span>Alexa+ add-on simulator</span>
+      <span data-i18n="Alexa+ add-on simulator">Alexa+ add-on simulator</span>
     </div>
-    <fieldset class="ui-segmented sim-devices" aria-label="Device">
+    <fieldset class="ui-segmented sim-devices" aria-label="Device" data-i18n-aria="Device">
       <label><input type="radio" name="device" value="show15" checked>Echo Show 15</label>
       <label><input type="radio" name="device" value="show8">Echo Show 8</label>
       <label><input type="radio" name="device" value="dot">Echo Dot</label>
     </fieldset>
     <div class="sim-tools ui-toolbar__group ui-glass">
-      <button class="ui-icon-button" id="theme" type="button" aria-label="Dark appearance" aria-pressed="false" title="Light or dark appearance"><svg class="ui-icon"><use href="#i-moon"/></svg></button>
-      <button class="ui-icon-button" id="newHousehold" type="button" aria-label="New household" title="Start a fresh household"><svg class="ui-icon"><use href="#i-house"/></svg></button>
-      <button class="ui-button sim-dev" id="devToggle" type="button" aria-expanded="false" aria-controls="drawer" title="MCP traffic (D)"><svg class="ui-icon"><use href="#i-braces"/></svg><span class="lbl">MCP traffic</span><kbd>D</kbd></button>
+      <label class="sim-lang" data-i18n-title="Language" title="Language"><select id="lang" aria-label="Language" data-i18n-aria="Language"><option value="en-US">EN</option><option value="fr-FR">FR</option><option value="es-ES">ES</option></select></label>
+      <button class="ui-icon-button" id="theme" type="button" aria-label="Dark appearance" aria-pressed="false" title="Light or dark appearance" data-i18n-title="Light or dark appearance"><svg class="ui-icon"><use href="#i-moon"/></svg></button>
+      <button class="ui-icon-button" id="newHousehold" type="button" aria-label="New household" data-i18n-aria="New household" title="Start a fresh household" data-i18n-title="Start a fresh household"><svg class="ui-icon"><use href="#i-house"/></svg></button>
+      <button class="ui-button sim-dev" id="devToggle" type="button" aria-expanded="false" aria-controls="drawer" title="MCP traffic (D)" data-i18n-title="MCP traffic (D)"><svg class="ui-icon"><use href="#i-braces"/></svg><span class="lbl" data-i18n="MCP traffic">MCP traffic</span><kbd>D</kbd></button>
     </div>
   </header>
 
   <main class="stage">
-    <section class="room" id="room" aria-label="Simulated device">
+    <section class="room" id="room" aria-label="Simulated device" data-i18n-aria="Simulated device">
       <!-- Echo Show: the screen is laid out at the device's own resolution, then scaled to fit the page -->
       <div class="show" id="show">
         <div class="bezel" id="bezel">
@@ -68,18 +69,18 @@
               <div class="home-widget" id="homeMemory" hidden></div>
               <div class="home-widget" id="homeWidget" aria-live="polite">
                 <p class="hw-context">Mandat</p>
-                <p class="hw-title">Checking your household…</p>
+                <p class="hw-title" data-i18n="Checking your household…">Checking your household…</p>
               </div>
               </div>
               <p class="home-hint" id="homeHint">Try “Alexa, my in-laws land Saturday…”</p>
             </div>
 
             <div class="card-slot" id="cardSlot"></div>
-            <div class="live" id="live" hidden><p class="live-title" id="liveTitle">Working on it</p><ol class="live-list" id="liveList" aria-live="polite" aria-label="What Alexa is doing"></ol></div>
+            <div class="live" id="live" hidden><p class="live-title" id="liveTitle">Working on it</p><ol class="live-list" id="liveList" aria-live="polite" aria-label="What Alexa is doing" data-i18n-aria="What Alexa is doing"></ol></div>
 
             <div class="s-bottom">
               <div class="s-row">
-                <ol class="trail" id="trail" aria-label="What Alexa did"></ol>
+                <ol class="trail" id="trail" aria-label="What Alexa did" data-i18n-aria="What Alexa did"></ol>
                 <div class="ask" id="ask" hidden><svg aria-hidden="true"><use href="#i-mic"/></svg><span id="askText">Say “yes” to confirm</span></div>
               </div>
               <p class="reply" id="reply" aria-live="polite"></p>
@@ -96,14 +97,14 @@
         <div class="sphere" aria-hidden="true"><div class="ring"></div></div>
         <div class="dot-shadow" aria-hidden="true"></div>
         <figure class="dot-cc">
-          <figcaption>Captions for this demo. The Echo Dot has no screen.</figcaption>
+          <figcaption data-i18n="Captions for this demo. The Echo Dot has no screen.">Captions for this demo. The Echo Dot has no screen.</figcaption>
           <p class="cc-you" id="dotYou"></p>
           <p class="cc-alexa" id="dotSub" aria-live="polite"></p>
         </figure>
       </div>
     </section>
 
-    <aside class="talk" aria-label="Talk to Alexa">
+    <aside class="talk" aria-label="Talk to Alexa" data-i18n-aria="Talk to Alexa">
       <div class="ui-voice talk-voice" id="voice" data-state="idle">
         <button class="mic" id="mic" type="button" aria-label="Talk to Alexa"><svg class="ui-icon"><use href="#i-mic"/></svg></button>
         <div class="talk-voice__body">
@@ -116,14 +117,14 @@
       </div>
 
       <form id="typeForm" class="type" autocomplete="off">
-        <label class="ui-field__label" for="typeInput">Or type what you would say</label>
+        <label class="ui-field__label" for="typeInput" data-i18n="Or type what you would say">Or type what you would say</label>
         <div class="type-row">
-          <input class="ui-input" id="typeInput" enterkeyhint="send" placeholder="Alexa, how much is left?">
+          <input class="ui-input" id="typeInput" enterkeyhint="send" placeholder="Alexa, how much is left?" data-i18n-ph="Alexa, how much is left?">
           <button class="send" id="send" type="submit" aria-label="Send" disabled><svg class="ui-icon"><use href="#i-up"/></svg></button>
         </div>
       </form>
 
-      <nav class="script" id="script" aria-label="Demo script"></nav>
+      <nav class="script" id="script" aria-label="Demo script" data-i18n-aria="Demo script"></nav>
       <p class="fine" id="fine">Unofficial Alexa+ simulator. No real money.</p>
     </aside>
   </main>

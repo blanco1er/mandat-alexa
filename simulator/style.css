@@ -28,6 +28,11 @@ kbd { font: var(--weight-medium) 11px/1 var(--font-sans); padding: 3px 5px; bord
 .sim-tools .ui-icon-button, .sim-tools .ui-button { --_s: 36px; --_h: 36px; background: transparent; }
 .sim-tools .ui-icon-button:hover, .sim-tools .ui-button:hover { background: var(--fill-quaternary); }
 .sim-tools .ui-icon-button[aria-pressed="true"] { color: var(--label); background: transparent; }
+/* language: a compact pill (EN · FR · ES), the native picker on touch */
+.sim-lang { position: relative; display: inline-flex; align-items: center; }
+.sim-lang select { appearance: none; -webkit-appearance: none; height: 36px; padding: 0 12px; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--label); font: var(--weight-semibold) var(--text-subhead)/1 var(--font-sans); cursor: pointer; letter-spacing: .01em; }
+.sim-lang select:hover { background: var(--fill-quaternary); }
+.sim-lang select:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 1px; }
 .sim-dev { gap: 8px; padding: 0 10px 0 12px; font-weight: var(--weight-semibold); }
 .sim-dev[aria-expanded="true"] { background: var(--accent-tint) !important; color: var(--accent-text); }
 
@@ -326,6 +331,7 @@ body[data-state="listening"] .mic { background: color-mix(in srgb, var(--accent)
 @media (pointer: coarse), (max-width: 1100px) {
   .sim-devices label { height: 44px; }
   .sim-tools .ui-icon-button, .sim-tools .ui-button { --_s: 44px; --_h: 44px; min-height: 44px; }
+  .sim-lang select { height: 44px; min-width: 44px; }
   .drawer .ui-button, .drawer .ui-icon-button { --_h: 44px; --_s: 44px; min-height: 44px; }
   .line { min-height: 48px; }
 }

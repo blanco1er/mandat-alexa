@@ -5,6 +5,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { absorb, absorbTokens, decide } from './policy.mjs';
+import { tr } from '../core/i18n.mjs';
 
 export const UI_CLIENT_CAPABILITIES = { extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } };
 
@@ -32,7 +33,7 @@ export class SimulatedBrain {
         steps.push({ name: action.name, args: action.args, result });
         s = absorbTokens(absorb(s, action.name, result), result);
       }
-      return { speech: 'That took too many steps; please try again with one request at a time.', steps, session: s, protocolVersion: transport.protocolVersion };
+      return { speech: tr(locale, 'p_too_many'), steps, session: s, protocolVersion: transport.protocolVersion };
     } finally {
       await client.close().catch(() => {});
     }

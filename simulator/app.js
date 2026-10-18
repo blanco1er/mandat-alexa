@@ -6,6 +6,7 @@ import { McpHttpClient } from './mcp-client.js';
 import { AppsHost } from './apps-host.js';
 import UI from './design-system/motion.js';
 import { createWallpaper } from './wallpaper.js';
+import { FIRST_LINE, lang, pickLocale, SCRIPTS, setLang, t } from './i18n.js';
 
 const $ = (s) => document.querySelector(s);
 const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
@@ -16,34 +17,18 @@ let device = params.get('device') || store.get('mandat.device', 'show15');
 if (!['show15', 'show8', 'dot'].includes(device)) device = 'show15';
 const resourceCache = new Map();
 const wallpaper = createWallpaper(document.querySelector('#wall'), { start: params.get('wall') });
-const usd = (n) => '$' + (Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(Math.round(n * 100) / 100) ? 0 : 2, maximumFractionDigits: 2 });
+// The user's language: ?lang=, then the saved choice, then the browser's languages (English by default).
+let locale = pickLocale(params.get('lang') || store.get('mandat.lang', null), navigator.languages || [navigator.language]);
+setLang(locale);
+document.documentElement.lang = locale.slice(0, 2);
+const usd = (n) => { const r = Math.round(n * 100) / 100; return new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: Number.isInteger(r) ? 0 : 2, maximumFractionDigits: 2 }).format(r).replace(/\u202f|\u00a0/g, ' '); };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 10 17 19 7"/></svg>';
 
-// ---------- the demo script (the three stories of the video) ----------
-const SCRIPT = [
-  { act: 'Before the stories', title: 'Set up the household', lines: [
-    'Set a weekly household budget of $150, and buy on your own under $40.',
-    'Remember that Max, our dog, is allergic to chicken.',
-    'Remember we drink Northbeam medium roast.'] },
-  { act: 'Story 1', title: 'The in-laws are coming', lines: [
-    'Alexa, my in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400.',
-    'Show me the bed linen.',
-    'Other options?',
-    'Take the sateen set instead.',
-    'Compare the two caterers.',
-    'Yes, book it.'] },
-  { act: 'Story 2', title: 'Four days later', lines: [
-    "We're almost out of dog food and coffee.",
-    'Yes.'] },
-  { act: 'Story 3', title: 'Plans change', lines: [
-    'Their flight moved to Sunday.',
-    'Yes, go ahead.',
-    'Everything went well. Settle up: Olive billed $180, and refund the $28 pillowcases.'] },
-  { act: 'Anytime', title: 'Questions and one-offs', lines: ['How much is left?', 'My kitchen sink is leaking, find a plumber for Monday morning.'] },
-];
-let played = new Set(store.get(`mandat.played.${household}`, []));
-// The next line is the first one not said yet after the last line said (stories can be played out of order).
+// ---------- the demo script (the three stories of the video), in the user's language ----------
+let SCRIPT = SCRIPTS[lang()];
+const playedKey = () => `mandat.played.${household}${lang() === 'en' ? '' : '.' + lang()}`;
+let played = new Set(store.get(playedKey(), []));// The next line is the first one not said yet after the last line said (stories can be played out of order).
 function nextLine() {
   const all = SCRIPT.flatMap((a) => a.lines);
   let last = -1;
@@ -66,7 +51,7 @@ function renderScript() {
       b.innerHTML = `<span class="n">${done ? CHECK_SVG : `<span>${++n}</span>`}</span><span class="t"></span>`;
       if (done) n++;
       b.querySelector('.t').textContent = l;
-      b.setAttribute('aria-label', `${done ? 'Said: ' : l === next ? 'Next: ' : ''}${l}`);
+      b.setAttribute('aria-label', `${done ? t('Said: ') : l === next ? t('Next: ') : ''}${l}`);
       b.onclick = () => turn(l);
       g.append(b);
     }
@@ -96,7 +81,7 @@ const showSession = () => {
 };
 
 // The language the user speaks (en-US by default; the language selector sets it).
-const speechLocale = () => document.documentElement.lang === 'en' ? 'en-US' : document.documentElement.lang;
+const speechLocale = () => locale;
 
 // ---------- appearance: follows the system until the person picks one ----------
 const darkQuery = matchMedia('(prefers-color-scheme: dark)');
@@ -105,7 +90,7 @@ function syncThemeButton() {
   const dark = screenTheme() === 'dark';
   const b = $('#theme');
   b.setAttribute('aria-pressed', String(dark));
-  b.setAttribute('aria-label', dark ? 'Light appearance' : 'Dark appearance');
+  b.setAttribute('aria-label', t(dark ? 'Light appearance' : 'Dark appearance'));
   b.querySelector('use').setAttribute('href', dark ? '#i-sun' : '#i-moon');
 }
 
@@ -136,7 +121,7 @@ function slotSize() {
 // ---------- MCP Apps host ----------
 const host = new AppsHost({
   container: $('#cardSlot'), mcp,
-  hostContext: { theme: screenTheme(), displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], locale: 'en-US', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, platform: 'web', userAgent: 'alexa-plus-web-simulator', deviceCapabilities: { touch: true, hover: false, deviceClass: device }, containerDimensions: {} },
+  hostContext: { theme: screenTheme(), displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], locale, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, platform: 'web', userAgent: 'alexa-plus-web-simulator', deviceCapabilities: { touch: true, hover: false, deviceClass: device }, containerDimensions: {} },
   onLog: (dir, msg) => log('view', dir, msg),
   onMessage: (text) => turn(text),
   onModelContext: (p) => { session = { ...session, modelContext: p.structuredContent || null }; },
@@ -147,8 +132,8 @@ const host = new AppsHost({
       // a tap on Approve is the user's yes: Alexa confirms out loud, like after a spoken yes
       setAsk(null);
       const yes = nextLine();
-      if (yes && /^yes/i.test(yes)) { played.add(yes); store.set(`mandat.played.${household}`, [...played]); renderScript(); }
-      const said = result.content?.[0]?.text || 'Booked.';
+      if (yes && /^yes/i.test(yes)) { played.add(yes); store.set(playedKey(), [...played]); renderScript(); }
+      const said = result.content?.[0]?.text || t('Done');
       showTrail([{ name, result }]); setReply(said); speak(said);
     }
   },
@@ -184,7 +169,7 @@ function updateGauge(result) {
   $('#gauge').hidden = false;
   $('#ringSpent').setAttribute('stroke-dasharray', `${frac(env.spent) * C} ${C}`);
   $('#ringHeld').setAttribute('stroke-dasharray', `${frac(env.spent + env.held) * C} ${C}`);
-  $('#gaugeText').innerHTML = `<b>${usd(env.remaining)} left</b> of ${usd(env.budget)} · ${esc(env.purpose)}`;
+  $('#gaugeText').innerHTML = `<b>${esc(t('{amt} left', { amt: usd(env.remaining) }))}</b> · ${usd(env.budget)} · ${esc(env.purpose)}`;
 }
 
 // The ambient home screen shows the household's real state (from get_household_status), not a slogan.
@@ -196,23 +181,24 @@ function renderHome(status) {
   const pending = (d.pending_decisions || []).length;
   const open = (d.open_orders || []).length;
   if (!e) {
-    w.innerHTML = '<p class="hw-context"><span>Mandat</span><span>No budget yet</span></p><p class="hw-title">Give Alexa a weekly budget and a rule for small buys.</p>';
-    $('#homeHint').textContent = 'Try “Alexa, set a weekly household budget of $150, and buy on your own under $40.”';
+    w.innerHTML = `<p class="hw-context"><span>Mandat</span><span>${esc(t('No budget yet'))}</span></p><p class="hw-title">${esc(t('Give Alexa a weekly budget and a rule for small buys.'))}</p>`;
+    $('#homeHint').textContent = t('Try “{x}”', { x: FIRST_LINE[lang()] });
     return;
   }
   const pct = (x) => Math.max(0, Math.min(100, (x / e.budget) * 100));
-  const per = e.period === 'once' ? '' : ` this ${e.period === 'weekly' ? 'week' : e.period === 'monthly' ? 'month' : e.period}`;
-  const note = pending ? `<b>${pending} plan${pending === 1 ? '' : 's'}</b> waiting for your yes` : open ? `<b>${open}</b> payment${open === 1 ? '' : 's'} on hold` : e.auto_approve_under ? `Buys on its own under <b>${usd(e.auto_approve_under)}</b>` : 'Always asks before paying';
+  const per = e.period === 'once' ? '' : ' ' + t(e.period === 'monthly' ? 'this month' : 'this week');
+  const bold = (n) => `<b>${n}</b>`;
+  const note = pending ? t(pending === 1 ? '{n} plan waiting for your yes' : '{n} plans waiting for your yes', { n: bold(pending) }) : open ? t(open === 1 ? '{n} payment on hold' : '{n} payments on hold', { n: bold(open) }) : e.auto_approve_under ? t('Buys on its own under {amt}', { amt: bold(usd(e.auto_approve_under)) }) : esc(t('Always asks before paying'));
   w.innerHTML = `<p class="hw-context"><span>Mandat · ${esc(e.purpose)}</span><span>${usd(e.budget)}${per}</span></p>
-    <p class="hw-num">${usd(e.remaining)}<small>left</small></p>
+    <p class="hw-num">${usd(e.remaining)}<small>${esc(t('left'))}</small></p>
     <div class="hw-bar" aria-hidden="true"><span class="spent" style="width:${pct(e.spent)}%"></span><span class="held" style="width:${pct(e.held)}%"></span></div>
     <p class="hw-line">${note}</p>`;
   const prefs = (d.preferences || []).slice(-2).reverse();
   const mem = $('#homeMemory');
   mem.hidden = !prefs.length;
-  if (prefs.length) mem.innerHTML = `<p class="hw-context"><span>Household memory</span><span>${(d.preferences || []).length} ${(d.preferences || []).length === 1 ? 'fact' : 'facts'}</span></p>
+  if (prefs.length) mem.innerHTML = `<p class="hw-context"><span>${esc({ en: 'Household memory', fr: 'Mémoire de la maison', es: 'Memoria de la casa' }[lang()])}</span><span>${(d.preferences || []).length}</span></p>
     <ul class="hw-list">${prefs.map((p) => `<li><b>${esc(p.subject)}</b><span>${esc(p.fact)}</span></li>`).join('')}</ul>`;
-  $('#homeHint').textContent = played.size ? 'Try “Alexa, how much is left?”' : 'Try “Alexa, my in-laws land Saturday…”';
+  $('#homeHint').textContent = t(played.size ? 'Try “Alexa, how much is left?”' : 'Try “Alexa, my in-laws land Saturday…”');
 }
 
 // One card per turn: when several calls of this turn ended on a receipt (settling five orders, say), the host shows
@@ -238,26 +224,26 @@ function mergeReceipts(shown, steps) {
 // What Alexa did this turn, in a few words (shown under the card, from the real tool results).
 function trailLabel(s) {
   const d = s.result?.structuredContent || {};
-  if (s.result?.isError) return 'Stopped: needs a change';
+  if (s.result?.isError) return t('Stopped: needs a change');
   switch (s.name) {
-    case 'set_spending_mandate': return `Budget ${usd(d.mandate?.budget || 0)}`;
-    case 'remember_preference': return 'Saved to memory';
-    case 'get_household_status': return 'Checked the budget';
-    case 'find_home_services': return `${d.asked || ''} ${(d.asked === 1 ? { cleaning: 'cleaner', catering: 'caterer', plumbing: 'plumber', handyman: 'handyman' } : { cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' })[d.category] || 'pros'} asked`.trim();
-    case 'find_products': return d.skipped?.length ? `Products · ${d.skipped.length} skipped` : 'Products checked';
-    case 'negotiate_offer': return 'Negotiated';
-    case 'get_offer_details': return d.offer ? `Opened ${d.offer.kind === 'service' ? d.offer.merchant : d.offer.title.split(':')[0]}` : 'Details';
-    case 'list_alternatives': return `${Math.max(0, (d.offers?.length || 1) - 1)} other options`;
-    case 'compare_offers': return `Compared ${d.offers?.length || 2}`;
-    case 'revise_plan': return d.plan ? `Plan now ${usd(d.plan.breakdown.total)}` : 'Plan updated';
-    case 'review_plan': return 'Plan';
-    case 'propose_plan': return d.plan ? `Plan ${usd(d.plan.breakdown.total)}${d.auto_approved ? ' · auto' : ''}` : 'Plan';
-    case 'confirm_plan': { const n = d.receipt?.orders?.length || 0; return `${n} payment hold${n === 1 ? '' : 's'}`; }
-    case 'change_order': { const o = d.receipt?.orders?.[0]; return o?.state === 'released' ? `${o.merchant} declined · hold voided` : `${o?.merchant || 'Merchant'} moved`; }
+    case 'set_spending_mandate': return t('Budget {amt}', { amt: usd(d.mandate?.budget || 0) });
+    case 'remember_preference': return t('Saved to memory');
+    case 'get_household_status': return t('Checked the budget');
+    case 'find_home_services': return t('{n} {noun} asked', { n: d.asked || '', noun: t((d.asked === 1 ? { cleaning: 'cleaner', catering: 'caterer', plumbing: 'plumber', handyman: 'handyman' } : { cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' })[d.category] || 'pros') }).trim();
+    case 'find_products': return d.skipped?.length ? t('Products · {n} skipped', { n: d.skipped.length }) : t('Products checked');
+    case 'negotiate_offer': return t('Negotiated');
+    case 'get_offer_details': return d.offer ? t('Opened {name}', { name: d.offer.kind === 'service' || lang() !== 'en' ? d.offer.merchant : String(d.offer.title).split(':')[0] }) : t('Done');
+    case 'list_alternatives': return t('{n} other options', { n: Math.max(0, (d.offers?.length || 1) - 1) });
+    case 'compare_offers': return t('Compared {n}', { n: d.offers?.length || 2 });
+    case 'revise_plan': return d.plan ? t('Plan now {amt}', { amt: usd(d.plan.breakdown.total) }) : t('Plan');
+    case 'review_plan': return t('Plan');
+    case 'propose_plan': return d.plan ? t('Plan {amt}', { amt: usd(d.plan.breakdown.total) }) + (d.auto_approved ? t(' · auto') : '') : t('Plan');
+    case 'confirm_plan': { const n = d.receipt?.orders?.length || 0; return t(n === 1 ? '{n} payment hold' : '{n} payment holds', { n }); }
+    case 'change_order': { const o = d.receipt?.orders?.[0]; return o?.state === 'released' ? t('{m} declined · hold voided', { m: o.merchant }) : t('{m} moved', { m: o?.merchant || 'Merchant' }); }
     case 'close_order': {
       const o = d.receipt?.orders?.[0];
-      const t = ['refunded', 'captured', 'released'].map((st) => [...(o?.timeline || [])].reverse().find((x) => x.state === st)).find(Boolean);
-      return t ? `${{ refunded: 'Refunded', captured: 'Paid', released: 'Released' }[t.state]} ${usd(t.amount ?? o.amount)}` : 'Payment updated';
+      const tl = ['refunded', 'captured', 'released'].map((st) => [...(o?.timeline || [])].reverse().find((x) => x.state === st)).find(Boolean);
+      return tl ? `${t({ refunded: 'Refunded', captured: 'Paid', released: 'Released' }[tl.state])} ${usd(tl.amount ?? o.amount)}` : t('Payment updated');
     }
     default: return s.result?._meta?.ui?.invoked || s.name;
   }
@@ -312,7 +298,7 @@ function startLive(turnId) {
   liveShown.clear();
   $('#liveList').replaceChildren();
   $('#live').removeAttribute('data-done');
-  $('#liveTitle').textContent = 'Working on it';
+  $('#liveTitle').textContent = t('Working on it');
   if (device === 'dot') return () => {};
   $('#live').hidden = false;
   document.body.dataset.live = 'on';
@@ -338,7 +324,7 @@ async function finishLive(turnId) {
   if (fresh.length > 1 && !quick) for (const e of events) { renderLive([e]); if (fresh.includes(e)) await new Promise((r) => setTimeout(r, 170)); }
   else renderLive(events);
   $('#live').dataset.done = '';
-  $('#liveTitle').textContent = 'Done';
+  $('#liveTitle').textContent = t('Done');
   if (events.length) await new Promise((r) => setTimeout(r, quick ? 200 : 650));
 }
 function endLive() { $('#live').hidden = true; delete document.body.dataset.live; }
@@ -401,7 +387,7 @@ async function speak(text) {
   const words = text.split(/\s+/).length;
   try {
     if (ttsServer) {
-      const r = await fetch('/tts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+      const r = await fetch('/tts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, locale }) });
       if (r.ok) {
         const a = new Audio(URL.createObjectURL(await r.blob()));
         a.ontimeupdate = () => { if (a.duration) { markSaid((a.currentTime / a.duration) * text.length); target = 0.8; } };
@@ -414,8 +400,9 @@ async function speak(text) {
     if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
       await new Promise((res) => {
         const u = new SpeechSynthesisUtterance(text);
-        u.lang = 'en-US'; u.rate = 1.04;
-        const v = speechSynthesis.getVoices().find((x) => /en-US/.test(x.lang) && /Samantha|Ava|Google US English|Jenny|Aria/.test(x.name));
+        u.lang = locale; u.rate = 1.04;
+        const vs = speechSynthesis.getVoices();
+        const v = vs.find((x) => x.lang === locale && /Samantha|Ava|Google|Jenny|Aria|Amélie|Thomas|Mónica|Paulina|Audrey|Marie/.test(x.name)) || vs.find((x) => x.lang === locale) || vs.find((x) => x.lang.slice(0, 2) === locale.slice(0, 2));
         if (v) u.voice = v;
         u.onboundary = (e) => { markSaid(e.charIndex); target = 0.65 + Math.random() * 0.35; };
         u.onend = res; u.onerror = res;
@@ -433,17 +420,17 @@ async function speak(text) {
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null;
 function listen() {
-  if (!SR) { $('#typeInput').focus(); const h = $('#micHint'); h.textContent = 'This browser cannot hear you. Type instead, or open the page in Chrome.'; h.classList.add('err'); return; }
+  if (!SR) { $('#typeInput').focus(); const h = $('#micHint'); h.textContent = t('This browser cannot hear you. Type instead, or open the page in Chrome.'); h.classList.add('err'); return; }
   if (rec) { rec.stop(); return; }
   speechSynthesis?.cancel?.();
   rec = new SR();
-  rec.lang = 'en-US'; rec.interimResults = true; rec.maxAlternatives = 1;
+  rec.lang = locale; rec.interimResults = true; rec.maxAlternatives = 1;
   let final = '';
   rec.onresult = (e) => { final = [...e.results].map((r) => r[0].transcript).join(' '); showHeard(final); };
   rec.onend = () => { rec = null; closeMicLevel(); setState(session.pending ? 'confirming' : 'idle'); if (final.trim()) turn(final.trim()); };
   rec.onerror = (e) => {
     rec = null; closeMicLevel(); setState('idle');
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { const h = $('#micHint'); h.textContent = 'Microphone blocked. Allow it in the address bar, or type below.'; h.classList.add('err'); }
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { const h = $('#micHint'); h.textContent = t('Microphone blocked. Allow it in the address bar, or type below.'); h.classList.add('err'); }
   };
   setState('listening');
   openMicLevel().then(kickLevel);
@@ -452,11 +439,12 @@ function listen() {
 
 // ---------- one turn ----------
 const LABELS = { idle: 'Tap to talk', listening: 'Listening…', thinking: 'Thinking…', speaking: 'Alexa is speaking', confirming: 'Waiting for your yes' };
+const label = (s) => t(LABELS[s]);
 function setState(s) {
   document.body.dataset.state = s;
   $('#voice').dataset.state = s;
-  $('#micLabel').textContent = LABELS[s];
-  $('#mic').setAttribute('aria-label', s === 'listening' ? 'Stop listening' : 'Talk to Alexa');
+  $('#micLabel').textContent = label(s);
+  $('#mic').setAttribute('aria-label', t(s === 'listening' ? 'Stop listening' : 'Talk to Alexa'));
 }
 function showHeard(text) {
   const el = $('#caption');
@@ -466,21 +454,21 @@ function showHeard(text) {
 }
 function setAsk(pending) {
   $('#ask').hidden = !pending;
-  if (pending) $('#askText').textContent = `Say “yes” to confirm ${usd(pending.total)}`;
+  if (pending) $('#askText').textContent = t('Say “yes” to confirm {amt}', { amt: usd(pending.total) });
 }
 let busy = false;
 function setBusy(on) {
   busy = on;
   const b = $('#send');
-  if (on) { b.disabled = true; b.setAttribute('aria-busy', 'true'); b.setAttribute('aria-label', 'Sending'); b.innerHTML = '<span class="spin" aria-hidden="true"></span>'; }
-  else { b.removeAttribute('aria-busy'); b.setAttribute('aria-label', 'Send'); b.innerHTML = '<svg class="ui-icon"><use href="#i-up"/></svg>'; b.disabled = !$('#typeInput').value.trim(); }
+  if (on) { b.disabled = true; b.setAttribute('aria-busy', 'true'); b.setAttribute('aria-label', t('Sending')); b.innerHTML = '<span class="spin" aria-hidden="true"></span>'; }
+  else { b.removeAttribute('aria-busy'); b.setAttribute('aria-label', t('Send')); b.innerHTML = '<svg class="ui-icon"><use href="#i-up"/></svg>'; b.disabled = !$('#typeInput').value.trim(); }
   for (const l of document.querySelectorAll('.line')) l.toggleAttribute('aria-disabled', on);
 }
 async function turn(text) {
   if (busy) return;
   setBusy(true);
   speechSynthesis?.cancel?.();
-  played.add(text); store.set(`mandat.played.${household}`, [...played]); renderScript();
+  played.add(text); store.set(playedKey(), [...played]); renderScript();
   showHeard(text);
   $('#reply').textContent = '';
   $('#dotSub').textContent = '';
@@ -513,14 +501,41 @@ async function turn(text) {
   } catch (e) {
     // Honest error: what happened, what did not, and the way out.
     stopLive(); endLive();
-    played.delete(text); store.set(`mandat.played.${household}`, [...played]); renderScript();
+    played.delete(text); store.set(playedKey(), [...played]); renderScript();
     if (document.body.dataset.screen === 'home') document.body.dataset.screen = 'card';
-    setReply(e.spoken || 'I could not reach Mandat, so nothing was booked or charged. Try again in a moment.', { error: true });
+    setReply(e.spoken || t('I could not reach Mandat, so nothing was booked or charged. Try again in a moment.'), { error: true });
     markAll();
     setState('idle');
     log('orch', 'page ✕ /turn', { method: 'error', error: { message: String(e.message || e) } });
   } finally { if (busy) setBusy(false); }
 }
+
+// ---------- language: static texts, the script, the voice, the cards (hostContext.locale) ----------
+let fineText = () => t('Unofficial Alexa+ simulator. No real money.');
+let lastStatus = null;
+function applyLanguage() {
+  document.documentElement.lang = locale.slice(0, 2);
+  for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+  for (const el of document.querySelectorAll('[data-i18n-aria]')) el.setAttribute('aria-label', t(el.dataset.i18nAria));
+  for (const el of document.querySelectorAll('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle);
+  for (const el of document.querySelectorAll('[data-i18n-ph]')) el.placeholder = t(el.dataset.i18nPh);
+  $('#micHint').innerHTML = esc(t('Or press {kbd}. Voice works in Chrome; typing works everywhere.', { kbd: '\u0001' })).replace('\u0001', '<kbd>Space</kbd>');
+  $('#askText').textContent = session.pending ? t('Say “yes” to confirm {amt}', { amt: usd(session.pending.total) }) : t('Say “yes” to confirm');
+  $('#micLabel').textContent = label(document.body.dataset.state || 'idle');
+  $('#fine').textContent = fineText();
+  $('#lang').value = locale;
+  syncThemeButton();
+  SCRIPT = SCRIPTS[lang()];
+  played = new Set(store.get(playedKey(), []));
+  renderScript();
+  if (lastStatus) renderHome(lastStatus);
+  host.setContext({ locale });
+}
+$('#lang').addEventListener('change', (e) => {
+  locale = pickLocale(e.target.value); setLang(locale); store.set('mandat.lang', locale);
+  speechSynthesis?.cancel?.();
+  applyLanguage();
+});
 
 // ---------- device, theme, boot ----------
 function setDevice(d) {
@@ -569,6 +584,7 @@ const savedTheme = store.get('mandat.theme', null); if (savedTheme) document.doc
 if (params.get('theme')) document.documentElement.dataset.theme = params.get('theme');
 UI.init();
 syncThemeButton();
+applyLanguage();
 host.setContext({ theme: screenTheme() });
 renderScript();
 setDevice(device);
@@ -582,9 +598,12 @@ new ResizeObserver(() => { cancelAnimationFrame(slotRaf); slotRaf = requestAnima
     const health = await fetch('/healthz').then((r) => r.json()).catch(() => ({}));
     ttsServer = health.tts === 'polly';
     // Say honestly what runs behind this page: real model or not, sandbox payments or simulated ones.
-    const brain = /nova-2-lite/.test(health.brain || '') ? 'Amazon Nova 2 Lite on Bedrock' : /bedrock/.test(health.brain || '') ? 'Amazon Bedrock' : 'a scripted demo brain';
-    const pay = health.paypal === 'offline' ? 'payments are simulated (PayPal sandbox not connected)' : 'PayPal sandbox';
-    if (health.ok) $('#fine').textContent = `Unofficial Alexa+ simulator. Brain: ${brain}; ${pay}. No real money.`;
+    fineText = () => {
+      const brain = /nova-2-lite/.test(health.brain || '') ? t('Amazon Nova 2 Lite on Bedrock') : /bedrock/.test(health.brain || '') ? 'Amazon Bedrock' : t('a scripted demo brain');
+      const pay = health.paypal === 'offline' ? t('payments are simulated (PayPal sandbox not connected)') : t('PayPal sandbox (test money)');
+      return t('Unofficial Alexa+ simulator. Brain: {brain}; {pay}. No real money.', { brain, pay });
+    };
+    if (health.ok) $('#fine').textContent = fineText();
     await mcp.initialize();
     showSession();
     const { tools } = await mcp.listTools();
@@ -592,11 +611,12 @@ new ResizeObserver(() => { cancelAnimationFrame(slotRaf); slotRaf = requestAnima
     log('orch', 'page', { method: 'ready', params: { tools: tools.map((t) => t.name), resources: resources.map((r) => r.uri) } });
     // The page's own tools/call: the household at boot (envelope gauge + the ambient home widget).
     const status = await mcp.callTool('get_household_status', {});
+    lastStatus = status;
     updateGauge(status);
     renderHome(status);
     if (session.pending) { setAsk(session.pending); setState('confirming'); }
   } catch (e) {
-    $('#homeWidget').innerHTML = '<p class="hw-context"><span>Mandat</span><span>Offline</span></p><p class="hw-title">Cannot reach the Mandat MCP server.</p>';
-    $('#homeHint').textContent = 'Start it with “npm run demo”, then reload this page.';
+    $('#homeWidget').innerHTML = `<p class="hw-context"><span>Mandat</span><span>${esc(t('Offline'))}</span></p><p class="hw-title">${esc(t('Cannot reach the Mandat MCP server.'))}</p>`;
+    $('#homeHint').textContent = t('Start it with “npm run demo”, then reload this page.');
   }
 })();

@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CARD_STRINGS, PHRASES } from '../core/i18n.mjs';
 
 export const MCP_APP_MIME = 'text/html;profile=mcp-app';
 export const UI_EXTENSION = 'io.modelcontextprotocol/ui';
@@ -17,7 +18,9 @@ let cache = null;
 export function cards() {
   if (cache) return cache;
   const css = fs.readFileSync(path.join(DIR, 'shared.css'), 'utf8');
-  const js = fs.readFileSync(path.join(DIR, 'bridge.js'), 'utf8');
+  // the card strings and the catalogue phrasebook travel inside each card (no network, empty connectDomains)
+  const i18n = `const I18N = ${JSON.stringify({ cards: CARD_STRINGS, phrases: PHRASES })};\n`;
+  const js = i18n + fs.readFileSync(path.join(DIR, 'bridge.js'), 'utf8');
   cache = {};
   for (const name of CARD_NAMES) {
     const html = fs.readFileSync(path.join(DIR, `${name}.html`), 'utf8').replace('/*SHARED_CSS*/', () => css).replace('/*BRIDGE_JS*/', () => js);

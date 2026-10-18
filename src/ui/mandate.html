@@ -17,18 +17,18 @@ function render(result) {
   const sc = result.structuredContent || {};
   const m = sc.mandate; if (!m) return;
   ready();
-  const period = m.period === 'once' ? 'One-time budget' : `${cap(m.period)} budget`;
+  const period = tx(m.period === 'once' ? 'One-time budget' : m.period === 'monthly' ? 'Monthly budget' : 'Weekly budget');
   const sim = m.paypal && m.paypal.mode === 'offline';
   $('#app').innerHTML = `
-    <div class="head"><p class="context">${esc(period)}</p>${m.status === 'active' ? status('ok', 'Active') : status('wait', 'Approve once with PayPal')}</div>
+    <div class="head"><p class="context">${esc(period)}</p>${m.status === 'active' ? status('ok', tx('Active')) : status('wait', tx('Approve once with PayPal'))}</div>
     <div class="hero"><h1>${esc(m.purpose)}</h1><span class="num">${usd(m.budget, m.currency)}</span></div>
     <dl class="rules">
-      <div><dt>Buys on its own</dt><dd>${m.auto_approve_under > 0 ? 'Under ' + usd(m.auto_approve_under, m.currency) : 'Never'}</dd></div>
-      <div><dt>Above that</dt><dd>Asks for your yes</dd></div>
-      <div><dt>Pays with</dt><dd>${sim ? 'Simulated payments' : 'PayPal sandbox'}</dd></div>
+      <div><dt>${tx('Buys on its own')}</dt><dd>${m.auto_approve_under > 0 ? tx('Under {amt}', { amt: usd(m.auto_approve_under, m.currency) }) : tx('Never')}</dd></div>
+      <div><dt>${tx('Above that')}</dt><dd>${tx('Asks for your yes')}</dd></div>
+      <div><dt>${tx('Pays with')}</dt><dd>${tx(sim ? 'Simulated payments' : 'PayPal sandbox')}</dd></div>
     </dl>
     ${sc.envelope ? gauge(sc.envelope) : ''}
-    ${sc.approval_url ? '<div class="actions"><button class="btn primary" id="go">Approve with PayPal</button></div>' : ''}`;
+    ${sc.approval_url ? `<div class="actions"><button class="btn primary" id="go">${tx('Approve with PayPal')}</button></div>` : ''}`;
   const b = $('#go'); if (b) b.onclick = () => mcpApp.openLink(sc.approval_url).catch(() => {});
 }
 mcpApp.on('result', render);

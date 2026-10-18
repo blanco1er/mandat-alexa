@@ -27,24 +27,24 @@ function render(result) {
   if (sc.saved) {
     const others = prefs.filter((p) => p.id !== sc.saved.id);
     $('#app').innerHTML = `
-      <div class="head"><p class="context">Household memory · ${prefs.length} ${prefs.length === 1 ? 'fact' : 'facts'}</p>${status('ok', 'Remembered')}</div>
+      <div class="head"><p class="context">${tx(prefs.length === 1 ? 'Household memory · {n} fact' : 'Household memory · {n} facts', { n: prefs.length })}</p>${status('ok', tx('Remembered'))}</div>
       <p class="fact"><span class="who-is">${esc(sc.saved.subject)}</span>${esc(cap(sc.saved.fact))}</p>
-      <p class="note">Used in every search and every session from now on.</p>
+      <p class="note">${tx('Used in every search and every session from now on.')}</p>
       ${memoryList(others, null, 3)}`;
     return;
   }
   const pending = (sc.pending_decisions || []).length;
-  const st = pending ? status('wait', `${pending} waiting for your yes`) : open.length ? status('info', `${open.length} on hold`) : status('ok', 'All settled');
+  const st = pending ? status('wait', tx('{n} waiting for your yes', { n: pending })) : open.length ? status('info', tx('{n} on hold', { n: open.length })) : status('ok', tx('All settled'));
   if (!main) {
-    $('#app').innerHTML = `<div class="head"><p class="context">Household</p>${st}</div>
-      <h1>No budget yet</h1><p class="lead">Say “Set a weekly household budget of $150, and buy on your own under $40.”</p>${memoryList(prefs, null, 3)}`;
+    $('#app').innerHTML = `<div class="head"><p class="context">${tx('Household')}</p>${st}</div>
+      <h1>${tx('No budget yet')}</h1><p class="lead">${esc(tx('Say “Set a weekly household budget of $150, and buy on your own under $40.”'))}</p>${memoryList(prefs, null, 3)}`;
     return;
   }
   $('#app').innerHTML = `
-    <div class="head"><p class="context">Household · ${envs.length} ${envs.length === 1 ? 'budget' : 'budgets'}</p>${st}</div>
-    <div class="hero"><h1>${esc(main.purpose)}</h1><span class="num">${usd(main.remaining)}<small>left</small></span></div>
-    <div class="envs">${envs.slice(0, 2).map((e, i) => (i ? `<div class="env-head">${esc(e.purpose)}<span>${usd(e.remaining)} left</span></div>` : '') + gauge(e)).join('')}</div>
-    ${open.length ? `<ul class="rows">${open.slice(0, 3).map((o) => `<li>${kindIcon(o)}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.slotLabel || o.label || '')}</span></span><span class="amt">${usd(o.amount)}</span></li>`).join('')}</ul>` : memoryList(prefs, null, 2)}`;
+    <div class="head"><p class="context">${tx(envs.length === 1 ? 'Household · {n} budget' : 'Household · {n} budgets', { n: envs.length })}</p>${st}</div>
+    <div class="hero"><h1>${esc(main.purpose)}</h1><span class="num">${usd(main.remaining)}<small>${tx('left')}</small></span></div>
+    <div class="envs">${envs.slice(0, 2).map((e, i) => (i ? `<div class="env-head">${esc(e.purpose)}<span>${tx('{amt} left', { amt: usd(e.remaining) })}</span></div>` : '') + gauge(e)).join('')}</div>
+    ${open.length ? `<ul class="rows">${open.slice(0, 3).map((o) => `<li>${thumb(o, 'sm')}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.slotLabel ? slotL(o.slotLabel) : P(o.label) || '')}</span></span><span class="amt">${usd(o.amount)}</span></li>`).join('')}</ul>` : memoryList(prefs, null, 2)}`;
 }
 mcpApp.on('result', render);
 mcpApp.connect('mandat-status');

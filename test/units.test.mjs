@@ -34,8 +34,10 @@ test('Bedrock: Converse input for a merchant agent carries its private terms and
   assert.equal(BEDROCK_MODELS.brain, 'us.amazon.nova-2-lite-v1:0', 'Amazon Nova by default (Claude is optional)');
 });
 
-test('Polly: neural mp3 request', () => {
+test('Polly: neural mp3 request, one neural voice per language', async () => {
   assert.deepEqual(pollyInput('Hello'), { Engine: 'neural', OutputFormat: 'mp3', VoiceId: 'Danielle', Text: 'Hello', TextType: 'text' });
+  const { voiceFor } = await import('../src/providers/tts.mjs');
+  assert.deepEqual(['en-US', 'fr-FR', 'fr', 'es-ES', 'es-US', 'es'].map(voiceFor), ['Danielle', 'Lea', 'Lea', 'Lucia', 'Lupe', 'Lucia']);
 });
 
 test('Lambda Function URL handler answers MCP initialize with 2025-11-25', async () => {

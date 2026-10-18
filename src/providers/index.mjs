@@ -6,13 +6,15 @@
 import { SimulatedProvider } from './simulated.mjs';
 import { BedrockProvider } from './bedrock.mjs';
 import { usTime } from '../core/merchants.mjs';
+import { current } from '../core/context.mjs';
+import { langOf } from '../core/i18n.mjs';
 
 // Merchants keep 24-hour slots internally ("19:30"); whatever a merchant agent says reaches a US household as
 // "7:30 PM" (Alexa+ en-US voice and cards), whichever provider produced it.
 export function withUsTimes(p) {
   const fix = (r) => {
     if (!r) return r;
-    if (typeof r.reply === 'string') r.reply = usTime(r.reply);
+    if (typeof r.reply === 'string' && langOf(current().locale) === 'en') r.reply = usTime(r.reply); // fr/es keep 24-hour times
     if (typeof r.slotLabel === 'string') r.slotLabel = usTime(r.slotLabel);
     if (r.quote && typeof r.quote.slotLabel === 'string') r.quote.slotLabel = usTime(r.quote.slotLabel);
     return r;

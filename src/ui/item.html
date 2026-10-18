@@ -34,7 +34,7 @@
 .cmp { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--gap); }
 .col { display: grid; align-content: start; gap: .45em; padding: .6em .7em .8em; border-radius: var(--radius-in); background: var(--surface-2); position: relative; min-width: 0; }
 .col.win { box-shadow: inset 0 0 0 max(2px, .16vw) var(--ok); }
-.col .ph { aspect-ratio: 16 / 10; border-radius: calc(var(--radius-in) * .72); overflow: hidden; background: var(--fill); margin: -.1em -.2em .2em; position: relative; }
+.col .ph { aspect-ratio: 2 / 1; border-radius: calc(var(--radius-in) * .72); overflow: hidden; background: var(--fill); margin: -.1em -.2em .2em; position: relative; }
 .col .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .col b.name { font-weight: 590; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .col .num { font-size: calc(var(--t-num) * .72); }
@@ -48,7 +48,7 @@
 <script>/*BRIDGE_JS*/
 showLoading('Opening the details…');
 const NOUN = { cleaning: 'Cleaning', catering: 'Catering', plumbing: 'Plumbing', handyman: 'Handyman' };
-const name = (o) => (o.kind === 'service' ? o.merchant : o.title.split(':')[0]);
+const name = (o) => (o.kind === 'service' ? o.merchant : P(o.title).split(/[:,(]/)[0].trim());
 const ARROW = (d) => `<svg viewBox="0 0 24 24"><path d="${d === 'prev' ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'}"/></svg>`;
 let busy = false;
 // Every action is a sentence to Alexa (ui/message), exactly what the user could say: the same guardrails apply.
@@ -60,9 +60,9 @@ function act(btn, text) {
 }
 function gallery(images) {
   if (!images.length) return '';
-  return `<div class="gallery" role="group" aria-roledescription="carousel" aria-label="Photos, ${images.length}">
+  return `<div class="gallery" role="group" aria-roledescription="carousel" aria-label="${tx('Photos, {n}', { n: images.length })}">
     <div class="track" id="track" tabindex="0">${images.map((im, i) => `<img src="${esc(im.url)}" alt="${esc(im.alt)}" ${i ? 'loading="lazy"' : ''} decoding="async">`).join('')}</div>
-    ${images.length > 1 ? `<button class="nav prev" id="prev" aria-label="Previous photo" disabled>${ARROW('prev')}</button><button class="nav next" id="next" aria-label="Next photo">${ARROW('next')}</button>
+    ${images.length > 1 ? `<button class="nav prev" id="prev" aria-label="${tx('Previous photo')}" disabled>${ARROW('prev')}</button><button class="nav next" id="next" aria-label="${tx('Next photo')}">${ARROW('next')}</button>
     <div class="dots" aria-hidden="true">${images.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}
   </div>`;
 }
@@ -87,61 +87,61 @@ function detail(sc) {
   const o = sc.offer;
   const svc = o.kind === 'service';
   const rule = sc.rule;
-  const st = sc.in_plan ? status('ok', 'In your plan') : rule ? status(rule.buys_on_its_own ? 'ok' : 'wait', rule.buys_on_its_own ? 'Buys on its own' : 'Needs your yes') : '';
+  const st = sc.in_plan ? status('ok', tx('In your plan')) : rule ? status(rule.buys_on_its_own ? 'ok' : 'wait', tx(rule.buys_on_its_own ? 'Buys on its own' : 'Needs your yes')) : '';
   const h = (o.history || []).filter((x) => x.from === 'merchant' && x.list);
   const nego = h.length && h[h.length - 1].list > h[h.length - 1].total ? `${usd(h[h.length - 1].list)} → ${usd(h[h.length - 1].total)}` : '';
   const specs = (sc.specs || []).filter((x) => x.k !== 'What').slice(0, 4); // the title already says what it is
-  if (nego) specs.splice(1, 0, { k: 'Negotiated', v: nego });
+  if (nego) specs.splice(1, 0, { k: tx('Negotiated'), v: nego });
   $('#app').innerHTML = `
-    <div class="head"><p class="context">${esc(svc ? `${NOUN[o.category] || 'Service'} · ${o.card_verified ? 'agent verified' : 'agent not verified'}` : `${o.merchant}${o.matches_preference ? ' · your usual' : ''}`)}</p>${st}</div>
+    <div class="head"><p class="context">${esc(svc ? `${tx(NOUN[o.category] || 'Service')} · ${tx(o.card_verified ? 'agent verified' : 'agent not verified')}` : `${o.merchant}${o.matches_preference ? tx(' · your usual') : ''}`)}</p>${st}</div>
     <div class="detail">
       ${gallery(sc.images || [])}
       <div class="info">
-        <div class="stack"><h1>${esc(svc ? o.merchant : o.title)}</h1><span class="meta">${esc(svc ? `${o.title} · ${o.slot_label}` : `${o.merchant} · ${o.slot_label}`)}</span></div>
+        <div class="stack"><h1>${esc(svc ? o.merchant : P(o.title))}</h1><span class="meta">${esc(svc ? `${P(o.title)} · ${slotL(o.slot_label)}` : `${o.merchant} · ${slotL(o.slot_label)}`)}</span></div>
         <div class="price"><span class="num">${usd(o.total)}</span>${o.discount ? `<s>${usd(o.base + (o.fees || 0))}</s>` : ''}</div>
         <ul class="facts">${specs.map((x) => `<li><span>${esc(x.k)}</span><b>${esc(x.v)}</b></li>`).join('')}</ul>
-        ${(sc.why || []).length ? `<ul class="why" aria-label="Why Mandat picked it">${sc.why.slice(0, 3).map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+        ${(sc.why || []).length ? `<ul class="why" aria-label="${tx('Why Mandat picked it')}">${sc.why.slice(0, 3).map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
         ${rule ? `<p class="rule">${status(rule.buys_on_its_own ? 'ok' : 'wait', rule.text)}</p>` : ''}
         <div class="actions">
-          ${sc.in_plan ? '' : `<button class="btn primary" id="choose" data-label="Choose">Choose</button>`}
-          ${sc.alternatives ? `<button class="btn" id="others" data-label="Other options">Other options</button>` : ''}
-          ${sc.in_plan ? `<button class="btn" id="remove" data-label="Remove">Remove</button>` : ''}
-          ${sc.plan_id ? `<button class="btn" id="back" data-label="Back">Back</button>` : ''}
+          ${sc.in_plan ? '' : `<button class="btn primary" id="choose" data-label="${tx('Choose')}">${tx('Choose')}</button>`}
+          ${sc.alternatives ? `<button class="btn" id="others" data-label="${tx('Other options')}">${tx('Other options')}</button>` : ''}
+          ${sc.in_plan ? `<button class="btn" id="remove" data-label="${tx('Remove')}">${tx('Remove')}</button>` : ''}
+          ${sc.plan_id ? `<button class="btn" id="back" data-label="${tx('Back')}">${tx('Back')}</button>` : ''}
         </div>
       </div>
     </div>`;
   wireGallery();
   const b = (id, text) => { const e = $('#' + id); if (e) e.onclick = () => act(e, text); };
-  b('choose', sc.plan_id ? `Take ${name(o)} instead.` : `Plan ${name(o)} for me.`);
-  b('others', `Other options than ${name(o)}?`);
-  b('remove', `Remove ${name(o)} from the plan.`);
-  b('back', 'Show me the plan.');
+  b('choose', tx(sc.plan_id ? 'Take {name} instead.' : 'Plan {name} for me.', { name: name(o) }));
+  b('others', tx('Other options than {name}?', { name: name(o) }));
+  b('remove', tx('Remove {name} from the plan.', { name: name(o) }));
+  b('back', tx('Show me the plan.'));
 }
 function compare(sc) {
   const offers = sc.offers || [];
   const cheapest = offers.find((x) => x.id === sc.cheapest_id);
   $('#app').innerHTML = `
-    <div class="head"><p class="context">${offers.length} options side by side</p>${sc.difference ? status('info', `${usd(sc.difference)} apart`) : ''}</div>
+    <div class="head"><p class="context">${tx('{n} options side by side', { n: offers.length })}</p>${sc.difference ? status('info', tx('{amt} apart', { amt: usd(sc.difference) })) : ''}</div>
     <div class="cmp">${offers.map((o) => {
       const im = (o.images || [])[0];
-      const badge = o.id === sc.cheapest_id ? 'Cheapest' : o.id === sc.best_rated_id && o.rating ? 'Best rated' : '';
+      const badge = o.id === sc.cheapest_id ? tx('Cheapest') : o.id === sc.best_rated_id && o.rating ? tx('Best rated') : '';
       return `<section class="col${o.id === sc.cheapest_id ? ' win' : ''}" aria-label="${esc(name(o))}">
         ${im ? `<span class="ph"><img src="${esc(im.url)}" alt="${esc(im.alt)}" decoding="async"></span>` : ''}
         <b class="name">${esc(name(o))}</b>
         <span class="num">${usd(o.total)}</span>
         <dl>
-          <dt>When</dt><dd>${esc(o.slot_label || '')}</dd>
-          ${o.kind === 'service' ? `<dt>Rating</dt><dd>${esc(o.rating)}</dd>` : ''}
-          <dt>Saved</dt><dd>${o.discount ? usd(o.discount) : '—'}</dd>
+          <dt>${tx('When')}</dt><dd>${esc(slotL(o.slot_label))}</dd>
+          ${o.kind === 'service' ? `<dt>${tx('Rating')}</dt><dd>${esc(o.rating)}</dd>` : ''}
+          <dt>${tx('Saved')}</dt><dd>${o.discount ? usd(o.discount) : '—'}</dd>
         </dl>
         ${badge ? status(o.id === sc.cheapest_id ? 'ok' : 'info', badge) : ''}
-        ${o.in_plan ? status('ok', 'In your plan') : `<button class="btn${o.id === sc.cheapest_id ? ' primary' : ''}" data-id="${esc(o.id)}" data-label="Choose">Choose</button>`}
+        ${o.in_plan ? status('ok', tx('In your plan')) : `<button class="btn${o.id === sc.cheapest_id ? ' primary' : ''}" data-id="${esc(o.id)}" data-label="${tx('Choose')}">${tx('Choose')}</button>`}
       </section>`;
     }).join('')}</div>
-    ${cheapest && sc.difference ? `<p class="verdict">${esc(name(cheapest))} is ${usd(sc.difference)} cheaper.</p>` : ''}`;
+    ${cheapest && sc.difference ? `<p class="verdict">${esc(tx('{name} is {amt} cheaper.', { name: name(cheapest), amt: usd(sc.difference) }))}</p>` : ''}`;
   for (const btn of document.querySelectorAll('.col .btn')) {
     const o = offers.find((x) => x.id === btn.dataset.id);
-    btn.onclick = () => act(btn, sc.plan_id ? `Take ${name(o)} instead.` : `Plan ${name(o)} for me.`);
+    btn.onclick = () => act(btn, tx(sc.plan_id ? 'Take {name} instead.' : 'Plan {name} for me.', { name: name(o) }));
   }
 }
 function render(result) {

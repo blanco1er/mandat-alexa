@@ -14,8 +14,11 @@ import { searchProducts, shopEnabled } from './core/shop.mjs';
 import { searchCatalog } from './core/catalog.mjs';
 import { galleryFor, mediaFor } from './core/media.mjs';
 import { note } from './core/activity.mjs';
+import { current } from './core/context.mjs';
+import * as I from './core/i18n.mjs';
 import { DAY_NAMES, guardQuote, identityCard, merchant as merchantById, MERCHANTS, normalizeCategory, parseGuests, parseWhen, search, usTime, verifyCard } from './core/merchants.mjs';
 import { pkOf } from './store/index.mjs';
+import { merchantSay } from './providers/simulated.mjs';
 
 export class ToolError extends Error {
   constructor(message, next) { super(message); this.next = next; }
@@ -25,16 +28,27 @@ const OFFER_TTL = 30 * 60 * 1000;
 const PLAN_TTL = 15 * 60 * 1000;
 const MAX_BUDGET = 5000; // sandbox demo cap
 const round = (x) => Math.round(Number(x) * 100) / 100;
-const usd = (n, currency = 'USD') => new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: Number.isInteger(round(n)) ? 0 : 2 }).format(round(n));
+// What is said follows the user's locale (X-Mandat-Locale, see src/core/i18n.mjs); data stays canonical.
+const loc = () => current().locale || 'en-US';
+const T = (key, v) => I.tr(loc(), key, v);
+const P = (text) => I.phrase(text, loc());
+const usd = (n, currency = 'USD') => I.money(round(n), loc(), currency);
 const id = (p) => `${p}_${crypto.randomBytes(5).toString('hex')}`;
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const sameHash = (a, b) => typeof a === 'string' && typeof b === 'string' && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-const spokenSlot = (slot) => String(slot || '').replace(/^(\w+day) (\d)/, '$1 at $2');
+const spokenSlot = (slot) => I.spokenSlot(slot, loc());
 const firstSentence = (t) => String(t || '').split(/(?<=[.!?])\s/)[0].slice(0, 90);
-const listWords = (xs) => (xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);
+const listWords = (xs) => I.list(xs, loc());
+const nounOf = (cat, n) => I.noun(cat, n, loc());
 // An explicit yes: what the user said, or the Approve tap of the plan card.
-const AFFIRMATIVE = /^(\s*(yes|yeah|yep|yup|sure|ok|okay|confirm(ed)?|approve(d)?|go ahead|do it|book it|buy it|pay|sounds good|tap:approve)\b)/i;
-export const isExplicitYes = (s) => typeof s === 'string' && AFFIRMATIVE.test(s.trim()) && !/\b(no|not|don't|cancel|wait|stop)\b/i.test(s);
+// Same rule in every language: the sentence must START with a yes word of English, French or Spanish, and contain
+// no "no" word of any of them ("oui mais attends" is not a yes). Never looser than English.
+const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const ALL_YES = [...new Set([...Object.values(I.YES_WORDS).flat(), 'tap:approve'])].sort((a, b) => b.length - a.length).map(esc).join('|');
+const ALL_NO = [...new Set(Object.values(I.NO_WORDS).flat())].map(esc).join('|');
+const AFFIRMATIVE = new RegExp(`^[\\s¡¿"“«]*(${ALL_YES})(?![\\p{L}])`, 'iu');
+const NEGATIVE = new RegExp(`(?<![\\p{L}])(${ALL_NO})(?![\\p{L}])`, 'iu');
+export const isExplicitYes = (s) => typeof s === 'string' && AFFIRMATIVE.test(s.trim()) && !NEGATIVE.test(s);
 
 function periodKey(period, now) {
   if (period === 'once') return 'once';
@@ -83,7 +97,7 @@ export class Mandat {
     const recurring = all.filter((m) => m.period !== 'once').sort((a, b) => b.created.localeCompare(a.created))[0];
     const latest = [...all].sort((a, b) => b.created.localeCompare(a.created))[0];
     const m = recurring || latest;
-    if (!m) throw new ToolError('There is no spending budget yet, so I cannot pay for anything.', 'Ask the user for a budget and call set_spending_mandate.');
+    if (!m) throw new ToolError(T('e_no_budget'), 'Ask the user for a budget and call set_spending_mandate.');
     return m;
   }
   envKey(m) { return `ENVELOPE#${m.id}#${periodKey(m.period, this.now())}`; }
@@ -122,12 +136,12 @@ export class Mandat {
     };
     const parts = [];
     if (!section || section === 'budget') {
-      if (!envelopes.length) parts.push('You have no spending budget set yet.');
-      for (const e of envelopes.slice(0, 2)) parts.push(`${e.purpose || 'Your budget'}: ${usd(e.remaining, e.currency)} left of ${usd(e.budget, e.currency)}${e.period === 'once' ? '' : ' this ' + e.period.replace('ly', '')}${e.held ? `, ${usd(e.held, e.currency)} on hold` : ''}.`);
+      if (!envelopes.length) parts.push(T('st_none'));
+      for (const e of envelopes.slice(0, 2)) parts.push(T('st_env', { purpose: e.purpose, left: usd(e.remaining, e.currency), budget: usd(e.budget, e.currency), period: e.period, held: e.held ? usd(e.held, e.currency) : '' }));
     }
-    if (!section || section === 'orders') parts.push(open.length ? `${open.length} ${open.length === 1 ? 'order is' : 'orders are'} open: ${listWords(open.slice(0, 3).map((o) => o.merchant))}.` : 'No open orders.');
-    if (section === 'preferences') parts.push(preferences.length ? `I remember: ${listWords(preferences.slice(0, 5).map((p) => `${p.subject}, ${p.fact}`))}.` : 'I have no household preferences saved yet.');
-    if (pending.length) parts.push(`${pending.length === 1 ? 'One plan is' : pending.length + ' plans are'} waiting for your yes.`);
+    if (!section || section === 'orders') parts.push(open.length ? T('st_open', { n: open.length, names: listWords(open.slice(0, 3).map((o) => o.merchant)) }) : T('st_noopen'));
+    if (section === 'preferences') parts.push(preferences.length ? T('st_prefs', { list: listWords(preferences.slice(0, 5).map((p) => `${p.subject}, ${p.fact}`)) }) : T('st_noprefs'));
+    if (pending.length) parts.push(T('st_pending', { n: pending.length }));
     return { speech: parts.join(' '), data, card: 'status' };
   }
 
@@ -158,11 +172,11 @@ export class Mandat {
       await this.store.put(pkOf(hid), `MANDATE#${mid}`, m);
       await this.event(hid, 'mandate.set', { mandate_id: mid, budget, period, auto_approve_under });
       const env = m.status === 'active' ? this.envelopeView(m, await this.envelopeOf(hid, m)) : null;
-      const rule = auto_approve_under > 0 ? `I will buy on my own under ${usd(auto_approve_under, currency)} and ask you above that.` : 'I will ask you before every payment.';
-      const when = period === 'once' ? '' : ` per ${period.replace('ly', '')}`;
+      const rule = auto_approve_under > 0 ? T('md_rule_auto', { amt: usd(auto_approve_under, currency) }) : T('md_rule_ask');
+      const when = T('md_per', { period });
       const speech = m.status === 'active'
-        ? `Done. ${purpose}: ${usd(budget, currency)}${when}. ${rule}`
-        : `I set ${usd(budget, currency)}${when} for ${purpose}. To finish, approve it once with PayPal from the link on the screen or in your Alexa app. ${rule}`;
+        ? T('md_done', { purpose, budget: usd(budget, currency), per: when, rule })
+        : T('md_pending', { purpose, budget: usd(budget, currency), per: when, rule });
       return { speech, data: { mandate: { ...m, paypal: { mode: setup.mode } }, approval_url: setup.mode === 'offline' ? null : setup.approveUrl, envelope: env }, card: 'mandate' };
     });
   }
@@ -197,7 +211,7 @@ export class Mandat {
       }
       // "We drink Northbeam" reads mid-sentence as "we drink Northbeam"; proper nouns ("Max is…") keep their capital.
       const said = /^(We|Our|They|Their|He|She|His|Her|It|Its|My)\b/.test(fact) ? fact[0].toLowerCase() + fact.slice(1) : fact;
-      return { speech: `Got it. ${subject}: ${said.replace(/[.!]+$/, '')}. I will remember that.`, data: { saved: p, preferences: prefs }, card: 'status' };
+      return { speech: T('rem_ok', { subject, fact: said.replace(/[.!]+$/, '') }), data: { saved: p, preferences: prefs }, card: 'status' };
     });
   }
 
@@ -207,17 +221,17 @@ export class Mandat {
     if (!cat) throw new ToolError(`I can book cleaning, catering, plumbing and handyman services.`, 'Ask the user which of these they need.');
     guests = guests || parseGuests(need) || null;
     // Caterers price per guest: never quote a dinner for "one" because the number was lost on the way.
-    if (cat === 'catering' && !guests) throw new ToolError('How many guests should the caterer plan for?', 'Ask the user, or reuse the guest count of the booking being replaced, then search again with guests.');
+    if (cat === 'catering' && !guests) throw new ToolError(T('e_guests'), 'Ask the user, or reuse the guest count of the booking being replaced, then search again with guests.');
     const merchants = search({ category: cat, area }).map((p) => merchantById(p.id));
     const sid = id('srch');
     // Each merchant agent answers on its own: the screen shows every answer the moment it lands.
     const answers = await Promise.all(merchants.map(async (m) => {
-      await this.live({ step: `q-${sid}-${m.id}`, state: 'running', text: `Asking ${m.name}…`, image_url: mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl).image_url });
+      await this.live({ step: `q-${sid}-${m.id}`, state: 'running', text: T('l_asking', { m: m.name }), image_url: mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl).image_url });
       const r = await this.provider.merchantAgent({ merchant: m, when, ask: need, guests });
       const quote = guardQuote(m, r.quote, guests);
       const verified = verifyCard(identityCard(m));
       await this.live(quote
-        ? { step: `q-${sid}-${m.id}`, state: 'done', text: m.name, detail: `${quote.slotLabel ? usTime(quote.slotLabel) : ''}${verified ? ' · verified agent' : ''}`, from: quote.discount ? round(quote.base) : null, to: round(quote.total), image_url: mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl).image_url }
+        ? { step: `q-${sid}-${m.id}`, state: 'done', text: m.name, detail: `${quote.slotLabel ? I.slot(usTime(quote.slotLabel), loc()) : ''}${verified ? ' · ' + T('l_verified') : ''}`, from: quote.discount ? round(quote.base) : null, to: round(quote.total), image_url: mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl).image_url }
         : { step: `q-${sid}-${m.id}`, state: 'failed', text: m.name, detail: firstSentence(r.reply), image_url: mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl).image_url });
       return { m, r, quote };
     }));
@@ -243,15 +257,13 @@ export class Mandat {
     const top = offers.filter((o) => o.card_verified).slice(0, 5);
     if (!top.length) {
       const d = parseWhen(when).day;
-      throw new ToolError(`No ${cat} service can do ${d ? DAY_NAMES[d] : 'that'}${max_price ? ` under ${usd(max_price)}` : ''}.`, 'Suggest another day or a higher limit to the user.');
+      throw new ToolError(T('e_no_service', { noun: nounOf(cat, 1), day: d ? I.dayName(DAY_NAMES[d], loc()) : '', max: max_price ? usd(max_price) : '' }), 'Suggest another day or a higher limit to the user.');
     }
     for (const o of top) await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
     await this.store.put(pkOf(hid), `SEARCH#${sid}`, { id: sid, kind: 'service', category: cat, when: when || '', guests: guests || null, asked: answers.length, offer_ids: top.map((o) => o.id), declined: declined.length, at: new Date(now).toISOString() });
-    const label = { cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' }[cat];
-    const one = { cleaning: 'cleaner', catering: 'caterer', plumbing: 'plumber', handyman: 'handyman' }[cat];
-    const spoken = top.slice(0, 3).map((o, i) => `${top.length === 1 ? '' : i === 0 ? 'Best: ' : 'Then: '}${o.merchant}, ${usd(o.total)} ${spokenSlot(o.slot_label)}${o.discount ? `, down from ${usd(o.base)}` : ''}`);
+    const spoken = top.slice(0, 3).map((o, i) => T('svc_line', { n: top.length, i, merchant: o.merchant, total: usd(o.total), slot: spokenSlot(o.slot_label), base: o.discount ? usd(o.base) : '' }));
     return {
-      speech: `${answers.length === 1 ? `I asked the one ${one} available.` : `I asked ${answers.length} ${label}.`} ${spoken.join('. ')}.`,
+      speech: `${answers.length === 1 ? T('svc_one', { one: nounOf(cat, 1) }) : T('svc_many', { n: answers.length, label: nounOf(cat, answers.length) })} ${spoken.join('. ')}.`,
       data: { category: cat, asked: answers.length, offers: top, declined },
       card: 'offers',
     };
@@ -263,10 +275,10 @@ export class Mandat {
     const prefs = (await this.store.query(pkOf(hid), 'PREF#')).map((r) => r.value);
     const banned = new Map(); // ingredient -> reason
     for (const p of prefs) {
-      const m = /allerg\w*\s+(?:to\s+)?([a-z ,&-]+)/i.exec(p.fact) || /\b(?:no|avoid|never)\s+([a-z ,&-]+)/i.exec(p.fact);
+      // the fact may be in English, French or Spanish ("allergic to chicken", "allergique au poulet", "alérgico al pollo")
       const who = p.subject.replace(/\s*\(.*\)\s*/, '');
-      const reason = `${who} ${/^(is|are)\b/i.test(p.fact) ? '' : 'is '}${p.fact.replace(/\.$/, '')}`.replace(/\s+/g, ' ');
-      if (m) for (const w of m[1].split(/,|\band\b|&/)) if (w.trim()) banned.set(w.trim().toLowerCase(), reason);
+      const reason = T('because', { who, fact: p.fact.replace(/\.$/, '') }).replace(/\s+/g, ' ');
+      for (const w of I.allergensOf(p.fact)) banned.set(w.toLowerCase(), reason);
     }
     let found;
     if (shopEnabled()) {
@@ -282,7 +294,7 @@ export class Mandat {
     // Household brand/product preferences go first.
     const liked = (p) => prefs.some((x) => (p.brand && x.fact.toLowerCase().includes(p.brand.toLowerCase())));
     ok.sort((a, b) => Number(liked(b)) - Number(liked(a)));
-    if (!ok.length) throw new ToolError(`I found nothing for ${query}${skipped.length ? ' that fits your household preferences' : ''}.`, 'Ask the user for another product or a higher price limit.');
+    if (!ok.length) throw new ToolError(T('e_nothing', { q: query, prefs: skipped.length > 0 }), 'Ask the user for another product or a higher price limit.');
     const now = this.now();
     const sid = id('srch');
     const offers = ok.slice(0, 5).map((p) => ({
@@ -295,9 +307,9 @@ export class Mandat {
     for (const o of offers) await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
     await this.store.put(pkOf(hid), `SEARCH#${sid}`, { id: sid, kind: 'product', query, asked: found.length, offer_ids: offers.map((o) => o.id), skipped, at: new Date(now).toISOString() });
     const best = offers[0];
-    const skip = skipped.length ? ` I skipped ${skipped.length} with ${[...new Set(skipped.map((x) => x.ingredient))].join(', ')}, because ${skipped[0].because}.` : '';
+    const skip = skipped.length ? T('prod_skip', { n: skipped.length, ingredients: listWords([...new Set(skipped.map((x) => P(x.ingredient)))]), because: skipped[0].because }) : '';
     return {
-      speech: `${best.matches_preference ? 'Your usual' : 'Best match'}: ${best.title}, ${usd(best.total)} from ${best.merchant}.${skip}`,
+      speech: T('prod_best', { usual: best.matches_preference, title: P(best.title), total: usd(best.total), merchant: best.merchant, skip }),
       data: { query, offers, skipped, source: shopEnabled() ? 'channel3' : 'sandbox catalogue' },
       card: 'offers',
     };
@@ -310,24 +322,24 @@ export class Mandat {
     const m = merchantById(o.merchant_id);
     const r = await this.provider.merchantAgent({ merchant: m, when: `${o.when} ${ask}`, ask, guests: o.guests });
     const quote = guardQuote(m, r.quote, o.guests);
-    if (!quote) return { speech: `${m.name} says: ${r.reply}`, data: { offer: o, merchant_reply: r.reply, changed: false }, card: 'offers' };
+    if (!quote) return { speech: T('neg_says', { m: m.name, reply: r.reply }), data: { offer: o, merchant_reply: r.reply, changed: false }, card: 'offers' };
     const before = o.total;
     Object.assign(o, { base: round(quote.base), discount: round(quote.discount), total: round(quote.total), slot_label: quote.slotLabel, negotiation: r.reply, conditions: quote.conditions || '', expires: new Date(this.now() + OFFER_TTL).toISOString() });
     o.history = [...(o.history || []), { from: 'mandat', text: ask }, { from: 'merchant', list: round(quote.base), total: round(quote.total), text: r.reply }];
-    await this.live({ step: `n-${o.id}-${(o.history || []).length}`, state: 'done', text: `Negotiated with ${m.name}`, from: before, to: o.total, image_url: o.image_url });
+    await this.live({ step: `n-${o.id}-${(o.history || []).length}`, state: 'done', text: T('l_negotiated', { m: m.name }), from: before, to: o.total, image_url: o.image_url });
     if (quote.slotLabel) o.when = quote.slotLabel;
     await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
     const delta = before - o.total;
     return {
-      speech: delta > 0 ? `${m.name} agreed: ${usd(o.total)} instead of ${usd(before)}, ${spokenSlot(o.slot_label)}.` : `${m.name} says: ${r.reply}`,
+      speech: delta > 0 ? T('neg_agreed', { m: m.name, total: usd(o.total), before: usd(before), slot: spokenSlot(o.slot_label) }) : T('neg_says', { m: m.name, reply: r.reply }),
       data: { offer: o, previous_total: before, changed: delta !== 0, merchant_reply: r.reply, offers: [o] },
       card: 'offers',
     };
   }
   async offer(hid, oid) {
     const o = await this.store.get(pkOf(hid), `OFFER#${oid}`);
-    if (!o) throw new ToolError('I cannot find that option any more.', 'Search again with find_home_services or find_products.');
-    if (Date.parse(o.expires) < this.now()) throw new ToolError(`The quote from ${o.merchant} has expired.`, 'Search again to get a fresh quote.');
+    if (!o) throw new ToolError(T('e_gone'), 'Search again with find_home_services or find_products.');
+    if (Date.parse(o.expires) < this.now()) throw new ToolError(T('e_expired_quote', { m: o.merchant }), 'Search again to get a fresh quote.');
     return o;
   }
 
@@ -347,10 +359,10 @@ export class Mandat {
     // Bounded autonomy is per item: bundling a small restock with a big one would hide it behind a yes.
     const auto = Number(m.auto_approve_under) || 0;
     if (auto > 0 && lines.length > 1 && lines.every((l) => l.kind === 'product') && breakdown.total > auto && lines.some((l) => l.total <= auto)) {
-      throw new ToolError(`Under your ${usd(auto)} rule each product is its own plan, so the small ones go through at once.`, 'Call propose_plan once per product.');
+      throw new ToolError(T('e_split', { amt: usd(auto) }), 'Call propose_plan once per product.');
     }
     if (!verdict.ok) {
-      throw new ToolError(`That plan costs ${usd(breakdown.total)} but only ${usd(t.remaining)} is left in ${m.purpose}.`, 'Drop an item, pick cheaper options, or ask the user to raise the budget with set_spending_mandate.');
+      throw new ToolError(T('e_over', { total: usd(breakdown.total), left: usd(t.remaining), purpose: m.purpose }), 'Drop an item, pick cheaper options, or ask the user to raise the budget with set_spending_mandate.');
     }
     const token = crypto.randomBytes(16).toString('hex');
     const plan = {
@@ -363,8 +375,8 @@ export class Mandat {
     await this.event(hid, 'plan.proposed', { plan_id: plan.id, total: breakdown.total, auto_approved: plan.auto_approved });
     const items = lines.map((l) => `${l.merchant} ${usd(l.total)}`);
     const speech = plan.auto_approved
-      ? `${listWords(items)}. That is ${usd(breakdown.total)}, under your ${usd(m.auto_approve_under)} auto-approve rule, so I can buy it right away.`
-      : `Here is the plan: ${listWords(items)}. Total ${usd(breakdown.total)}${breakdown.discount ? `, after ${usd(breakdown.discount)} negotiated off` : ''}. That leaves ${usd(plan.remaining_after)} of your ${usd(t.total)}. Should I book it?`;
+      ? T('plan_auto', { items: listWords(items), total: usd(breakdown.total), auto: usd(m.auto_approve_under) })
+      : T('plan_ask', { items: listWords(items), total: usd(breakdown.total), discount: breakdown.discount ? usd(breakdown.discount) : '', left: usd(plan.remaining_after), budget: usd(t.total) });
     const { token_hash, ...pub } = plan;
     return { speech, data: { plan: pub, confirmation_token: token, needs_user_yes: !plan.auto_approved, envelope: this.envelopeView(m, env) }, card: 'plan' };
   }
@@ -377,18 +389,18 @@ export class Mandat {
       if (!sameHash(sha(confirmation_token || ''), plan.token_hash)) throw new ToolError('That confirmation does not match this plan, so I did not pay anything.', 'Use the confirmation token returned by propose_plan for this exact plan.');
       // Idempotency: a confirmed plan returns its receipt again, without a second hold.
       const prior = await this.store.get(pkOf(hid), `IDEMP#${plan.id}`);
-      if (prior?.receipt) return { ...(await this.receipt(hid, prior.receipt.order_ids, `Already booked: nothing new was charged.`)), duplicate: true };
+      if (prior?.receipt) return { ...(await this.receipt(hid, prior.receipt.order_ids, T('already'))), duplicate: true };
       // Only the plan the user is looking at can be paid: a revised (swapped) or dropped plan is dead with its token.
-      if (plan.status !== 'proposed') throw new ToolError(plan.status === 'revised' ? 'That plan was changed since, so I did not pay anything.' : `That plan is ${plan.status}, so I did not pay anything.`, plan.status === 'revised' ? `Use the newer plan ${plan.revised_to} and its confirmation_token from revise_plan.` : 'Call review_plan or get_household_status.');
+      if (plan.status !== 'proposed') throw new ToolError(plan.status === 'revised' ? T('e_changed') : `That plan is ${plan.status}, so I did not pay anything.`, plan.status === 'revised' ? `Use the newer plan ${plan.revised_to} and its confirmation_token from revise_plan.` : 'Call review_plan or get_household_status.');
       if (Date.parse(plan.expires) < this.now()) throw new ToolError('This plan expired before it was confirmed.', 'Propose it again so prices are fresh.');
       if (!plan.auto_approved && !isExplicitYes(user_confirmation)) {
-        throw new ToolError(`I need your explicit yes before paying ${usd(plan.breakdown.total)}.`, 'Read the total aloud, ask the user to say yes, then call confirm_plan with their words in user_confirmation.');
+        throw new ToolError(T('e_need_yes', { total: usd(plan.breakdown.total) }), 'Read the total aloud, ask the user to say yes, then call confirm_plan with their words in user_confirmation.');
       }
       const m = await this.mandate(hid, plan.mandate_id);
       if (!m.paypal?.paymentTokenId) throw new ToolError('The budget is not approved with PayPal yet.', 'Ask the user to open the approval link once.');
       const env = await this.envelopeOf(hid, m);
       const verdict = envelope.check(env, plan.breakdown.total); // re-checked: money may have moved since the proposal
-      if (!verdict.ok) throw new ToolError(`Only ${usd(envelope.totals(env).remaining)} is left now, the plan costs ${usd(plan.breakdown.total)}.`, 'Propose a smaller plan.');
+      if (!verdict.ok) throw new ToolError(T('e_left_now', { left: usd(envelope.totals(env).remaining), total: usd(plan.breakdown.total) }), 'Propose a smaller plan.');
       if (verdict.needsApproval && !isExplicitYes(user_confirmation)) throw new ToolError('This plan needs your explicit yes.', 'Ask the user to confirm.');
       if (!(await this.store.putIfAbsent(pkOf(hid), `IDEMP#${plan.id}`, { at: new Date(this.now()).toISOString() }))) {
         throw new ToolError('This plan is already being booked.', 'Wait a moment and call get_household_status.');
@@ -399,7 +411,7 @@ export class Mandat {
           const oid = id('ord');
           const pp = await this.paypal.hold({ paymentTokenId: m.paypal.paymentTokenId, amount: l.total, currency: m.currency, merchant: l.merchant, description: `${l.title} (${l.detail})`, reference: `${plan.id}-${i}` });
           envelope.hold(env, { id: oid, merchant: l.merchant, label: l.title, amount: l.total, paypal: pp });
-          await this.live({ step: `h-${oid}`, state: 'done', text: `Holding ${usd(l.total)} for ${l.merchant}`, detail: 'not charged until it is done', image_url: l.image_url });
+          await this.live({ step: `h-${oid}`, state: 'done', text: T('l_holding', { amt: usd(l.total), m: l.merchant }), detail: T('l_not_charged'), image_url: l.image_url });
           const at = new Date(this.now()).toISOString();
           orders.push({
             id: oid, plan_id: plan.id, mandate_id: m.id, kind: l.kind, category: l.category ?? null, merchant_id: l.merchant_id, merchant: l.merchant, label: l.title, slotLabel: l.detail,
@@ -423,7 +435,7 @@ export class Mandat {
       await this.event(hid, 'plan.confirmed', { plan_id: plan.id, total: plan.breakdown.total, orders: orders.length, how: plan.confirmed_with });
       const t = envelope.totals(env);
       const n = orders.length;
-      const speech = `${plan.auto_approved ? 'Bought, under your auto-approve rule.' : 'Booked.'} ${n === 1 ? 'One payment hold' : `${n} payment holds`} for ${usd(plan.breakdown.total)}; nothing is charged until ${n === 1 ? 'it is' : 'each is'} delivered. ${usd(t.remaining)} left in ${m.purpose}.`;
+      const speech = T('booked', { auto: plan.auto_approved, n, total: usd(plan.breakdown.total), left: usd(t.remaining), purpose: m.purpose });
       return this.receipt(hid, orders.map((o) => o.id), speech, { idempotency_key: plan.id });
     });
   }
@@ -452,7 +464,7 @@ export class Mandat {
       // Server-side truth over any model: a move to a day the merchant is closed is a decline.
       if (r.accepted && change.field === 'date') {
         const d = parseWhen(String(change.value)).day;
-        if (d && !mer.open.includes(d)) Object.assign(r, { accepted: false, reply: `Sorry, we are closed on ${DAY_NAMES[d]}, so we cannot move your booking.` });
+        if (d && !mer.open.includes(d)) Object.assign(r, { accepted: false, reply: merchantSay(loc(), 'closed_move', { day: I.dayName(DAY_NAMES[d], loc()) }) });
       }
       const m = (await this.mandates(hid)).find((x) => x.id === o.mandate_id);
       const env = await this.envelopeOf(hid, m);
@@ -466,13 +478,13 @@ export class Mandat {
         o.timeline.push({ state: 'changed', note: `${change.field}: ${change.value}`, at });
         await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
         await this.event(hid, 'order.changed', { order_id: o.id, change });
-        await this.live({ step: `c-${o.id}`, state: 'done', text: `${mer.name} moved it`, detail: usTime(o.slotLabel || ''), image_url: o.image_url });
-        return { ...(await this.receipt(hid, [o.id], `${mer.name} agreed: ${spokenSlot(o.slotLabel)}, same hold of ${usd(o.amount)}.`)), accepted: true };
+        await this.live({ step: `c-${o.id}`, state: 'done', text: T('l_moved', { m: mer.name }), detail: I.slot(usTime(o.slotLabel || ''), loc()), image_url: o.image_url });
+        return { ...(await this.receipt(hid, [o.id], T('chg_agreed', { m: mer.name, slot: spokenSlot(o.slotLabel), amount: usd(o.amount) }))), accepted: true };
       }
       // Declined: void the hold so the money is free again, then line up a replacement.
-      await this.live({ step: `c-${o.id}`, state: 'failed', text: `${mer.name} can't move it`, detail: firstSentence(r.reply), image_url: o.image_url });
+      await this.live({ step: `c-${o.id}`, state: 'failed', text: T('l_cant_move', { m: mer.name }), detail: firstSentence(r.reply), image_url: o.image_url });
       const pp = await this.paypal.release({ authorizationId: o.paypal.authorizationId });
-      await this.live({ step: `r-${o.id}`, state: 'done', text: `Released the ${usd(o.amount)} hold`, detail: 'nothing was charged' });
+      await this.live({ step: `r-${o.id}`, state: 'done', text: T('l_released', { amt: usd(o.amount) }), detail: T('l_nothing') });
       envelope.release(env, o.id, pp);
       o.state = 'released';
       o.timeline.push({ state: 'released', amount: o.amount, note: `${mer.name} declined: ${r.reply}`, at });
@@ -488,7 +500,7 @@ export class Mandat {
       }
       const rec = await this.receipt(hid, [o.id], '');
       const alt = alternatives[0];
-      rec.speech = `${mer.name} can't do it: ${r.reply} I voided their ${usd(o.amount)} hold, nothing was charged.${alt ? ` ${alt.merchant} can do ${spokenSlot(alt.slot_label)} for ${usd(alt.total)}. Want me to book them?` : ''}`;
+      rec.speech = T('chg_declined', { m: mer.name, reply: r.reply, amount: usd(o.amount), alt: alt?.merchant || '', altSlot: alt ? spokenSlot(alt.slot_label) : '', altTotal: alt ? usd(alt.total) : '' });
       rec.data.alternatives = alternatives;
       rec.accepted = false;
       return rec;
@@ -513,16 +525,14 @@ export class Mandat {
         Object.assign(o, { state: 'captured', captured: take, paypal: { ...o.paypal, captureId: pp.captureId } });
         o.timeline.push({ state: 'captured', amount: take, at });
         if (take < o.amount) o.timeline.push({ state: 'released', amount: round(o.amount - take), note: 'rest of the hold released', at });
-        speech = take < o.amount
-          ? `${o.merchant} billed ${usd(take)}, ${usd(o.amount - take)} less than held. I captured ${usd(take)} and released the rest.`
-          : `Paid ${o.merchant} ${usd(take)}.`;
+        speech = take < o.amount ? T('cap_partial', { m: o.merchant, take: usd(take), diff: usd(o.amount - take) }) : T('cap_full', { m: o.merchant, take: usd(take) });
       } else if (action === 'cancel') {
         if (o.state !== 'held') throw new ToolError(`That order is ${o.state}; only a held payment can be cancelled. A paid order can be refunded.`, 'Use action refund instead.');
         const pp = await this.paypal.release({ authorizationId: o.paypal.authorizationId });
         envelope.release(env, o.id, pp);
         o.state = 'released';
         o.timeline.push({ state: 'released', amount: o.amount, note: 'cancelled', at });
-        speech = `Cancelled ${o.merchant}. The ${usd(o.amount)} hold is released; nothing was charged.`;
+        speech = T('cancelled', { m: o.merchant, amount: usd(o.amount) });
       } else if (action === 'refund') {
         // A part refund on an order still on hold means "delivered, part sent back": settle the hold, then refund.
         let settled = '';
@@ -532,7 +542,7 @@ export class Mandat {
           envelope.capture(env, o.id, pc, take);
           Object.assign(o, { state: 'captured', captured: take, paypal: { ...o.paypal, captureId: pc.captureId } });
           o.timeline.push({ state: 'captured', amount: take, note: 'settled before a part refund', at });
-          settled = `Paid ${o.merchant} ${usd(take)}, then: `;
+          settled = T('settled_pre', { m: o.merchant, take: usd(take) });
         }
         if (o.state !== 'captured') throw new ToolError(`That order is ${o.state}; only a paid order can be refunded.`, o.state === 'held' ? 'If it was delivered, capture it first (close_order capture), then refund the amount; to call the whole order off, use cancel.' : 'Check the order with get_household_status.');
         const paid = round((o.captured ?? o.amount) - (o.refunded || 0));
@@ -543,13 +553,13 @@ export class Mandat {
         o.refunded = round((o.refunded || 0) + back);
         if (o.refunded >= (o.captured ?? o.amount) - 1e-9) o.state = 'refunded';
         o.timeline.push({ state: 'refunded', amount: back, at });
-        speech = `${settled}Refund of ${usd(back)} from ${o.merchant} is on its way.`;
+        speech = T('refund', { settled, back: usd(back), m: o.merchant });
       } else throw new ToolError('The action must be capture, cancel or refund.', 'Pick one.');
       await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
       await this.saveEnvelope(hid, m, env);
       await this.event(hid, `order.${action}`, { order_id: o.id, amount });
       const t = envelope.totals(env);
-      return this.receipt(hid, [o.id], `${speech} ${usd(t.remaining)} left in ${m.purpose}.`);
+      return this.receipt(hid, [o.id], `${speech} ${T('left_in', { left: usd(t.remaining), purpose: m.purpose })}`);
     });
   }
 
@@ -569,15 +579,15 @@ export class Mandat {
     const why = [];
     const n = sibs.length;
     const rank = sibs.findIndex((x) => x.id === o.id);
-    const noun = o.kind === 'service' ? ({ cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' }[o.category] || 'pros') : 'products';
-    if (n > 1 && rank === 0) why.push(`Cheapest of the ${n} ${noun} I asked`);
-    else if (n > 1 && rank > 0) why.push(`${usd(o.total - sibs[0].total)} more than the cheapest of ${n}`);
-    if (o.discount) why.push(`${usd(o.discount)} off${o.conditions ? ': ' + o.conditions.replace(/^Includes /, '').replace(/\.$/, '') : ''}`);
-    if (o.kind === 'service' && n > 1 && o.rating && o.rating >= Math.max(...sibs.map((x) => x.rating || 0))) why.push(`Best rated, ${o.rating}`);
-    if (o.matches_preference) why.push('Your usual brand');
+    const noun = nounOf(o.kind === 'service' ? o.category : 'products', n);
+    if (n > 1 && rank === 0) why.push(T('why_cheapest', { n, noun }));
+    else if (n > 1 && rank > 0) why.push(T('why_more', { diff: usd(o.total - sibs[0].total), n }));
+    if (o.discount) why.push(T('why_off', { amt: usd(o.discount), deal: o.conditions ? I.dealOf(o.conditions, loc()) : '' }));
+    if (o.kind === 'service' && n > 1 && o.rating && o.rating >= Math.max(...sibs.map((x) => x.rating || 0))) why.push(T('why_rated', { r: o.rating }));
+    if (o.matches_preference) why.push(T('why_usual'));
     const skipped = search?.skipped || [];
-    if (skipped.length) why.push(`Skipped ${skipped.length} with ${[...new Set(skipped.map((x) => x.ingredient))].join(', ')}: ${skipped[0].because}`);
-    if (o.kind === 'service' && o.card_verified) why.push('Agent identity verified');
+    if (skipped.length) why.push(T('why_skipped', { n: skipped.length, ing: listWords([...new Set(skipped.map((x) => P(x.ingredient)))]), because: skipped[0].because }));
+    if (o.kind === 'service' && o.card_verified) why.push(T('why_verified'));
     return why;
   }
   async ruleFor(hid, o, plan) {
@@ -586,7 +596,7 @@ export class Mandat {
     const env = this.envelopeView(m, await this.envelopeOf(hid, m));
     const auto = Number(m.auto_approve_under) || 0;
     const under = auto > 0 && o.total <= auto;
-    return { auto_approve_under: auto, buys_on_its_own: under, text: under ? `Buys on its own: under your ${usd(auto)} rule` : auto > 0 ? `Needs your yes: above your ${usd(auto)} rule` : 'Needs your yes before paying', envelope: env };
+    return { auto_approve_under: auto, buys_on_its_own: under, text: under ? T('rule_auto', { amt: usd(auto) }) : auto > 0 ? T('rule_above', { amt: usd(auto) }) : T('rule_always'), envelope: env };
   }
   async getOfferDetails(hid, { offer_id }) {
     const o = await this.offer(hid, offer_id);
@@ -597,14 +607,16 @@ export class Mandat {
     const why = this.whyOf(o, sibs, search);
     const rule = await this.ruleFor(hid, o, plan);
     const m = o.kind === 'service' ? merchantById(o.merchant_id) : null;
+    const L = loc();
     const specs = o.kind === 'service'
-      ? [{ k: 'What', v: o.title }, { k: 'When', v: o.slot_label }, ...(o.guests ? [{ k: 'Guests', v: `${o.guests} (${usd(m.price)} per guest)` }] : []), { k: 'Where', v: `${o.area}, rated ${o.rating}` }, { k: 'About', v: m.pitch }]
-      : [{ k: 'What', v: o.title }, { k: 'Delivery', v: `${o.slot_label}${o.fees ? `, ${usd(o.fees)} delivery` : ', free delivery'}` }, ...(o.contains?.length ? [{ k: 'Made with', v: o.contains.join(', ') }] : []), ...(o.quantity > 1 ? [{ k: 'Quantity', v: String(o.quantity) }] : [])];
+      ? [{ k: T('spec_what'), v: P(o.title) }, { k: T('spec_when'), v: I.slot(o.slot_label, L) }, ...(o.guests ? [{ k: T('spec_guests'), v: T('spec_per_guest', { n: o.guests, price: usd(m.price) }) }] : []), { k: T('spec_where'), v: T('spec_area', { area: o.area, r: o.rating }) }, { k: T('spec_about'), v: P(m.pitch) }]
+      : [{ k: T('spec_what'), v: P(o.title) }, { k: T('spec_delivery'), v: o.fees ? T('spec_fee', { slot: I.slot(o.slot_label, L), fee: usd(o.fees) }) : T('spec_free', { slot: I.slot(o.slot_label, L) }) }, ...(o.contains?.length ? [{ k: T('spec_made'), v: listWords(o.contains.map(P)) }] : []), ...(o.quantity > 1 ? [{ k: T('spec_qty'), v: String(o.quantity) }] : [])];
     const history = (o.history || []).map((h) => ({ ...h }));
+    const what = P(o.title);
     const lead = o.kind === 'service'
-      ? `${o.merchant}: ${usd(o.total)} for ${o.title.charAt(0).toLowerCase() + o.title.slice(1)}, ${spokenSlot(o.slot_label)}.`
-      : `${o.title}, ${usd(o.total)} from ${o.merchant}, delivered in 2 days.`;
-    const speech = `${lead} ${why.length ? why[0] + '.' : ''}${o.discount && why[0] && !why[0].includes(' off') ? ` ${usd(o.discount)} off.` : ''}${inPlan ? ' It is in your plan.' : ''}`.replace(/\s+/g, ' ').trim();
+      ? T('det_svc', { m: o.merchant, total: usd(o.total), what: what.charAt(0).toLowerCase() + what.slice(1), slot: spokenSlot(o.slot_label) })
+      : T('det_prod', { title: what, total: usd(o.total), m: o.merchant });
+    const speech = `${lead} ${why.length ? why[0] + '.' : ''}${inPlan ? ' ' + T('in_plan') : ''}`.replace(/\s+/g, ' ').trim();
     return { speech, data: { mode: 'detail', offer: o, images: galleryFor(o, this.publicUrl), specs, why, rule, history, in_plan: inPlan, plan_id: plan?.id || null, alternatives: sibs.filter((x) => x.id !== o.id).length }, card: 'item' };
   }
 
@@ -613,28 +625,28 @@ export class Mandat {
     const o = await this.offer(hid, offer_id);
     const sibs = await this.siblings(hid, o);
     const others = sibs.filter((x) => x.id !== o.id && (!cheaper_only || x.total < o.total));
-    const noun = o.kind === 'service' ? ({ cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' }[o.category] || 'pros') : 'products';
+    const noun = nounOf(o.kind === 'service' ? o.category : 'products', sibs.length);
     if (!others.length) {
-      const speech = cheaper_only ? `${o.kind === 'service' ? o.merchant : o.title} is already the cheapest of the ${sibs.length} ${noun} I found.` : `There is no other option from that search. I can search again with another day or price.`;
+      const speech = cheaper_only ? T('alt_cheapest', { name: o.kind === 'service' ? o.merchant : P(o.title), n: sibs.length, noun }) : T('alt_none');
       return { speech, data: { offers: sibs, current_offer_id: o.id, category: o.category, asked: sibs.length }, card: 'offers' };
     }
-    const said = others.slice(0, 3).map((x) => `${x.kind === 'service' ? x.merchant : x.title}, ${usd(x.total)}${x.kind === 'service' ? ' ' + spokenSlot(x.slot_label) : ''}`);
-    return { speech: `${others.length === 1 ? 'One other option' : `${others.length} other options`}: ${said.join('; ')}.`, data: { offers: [o, ...others], current_offer_id: o.id, category: o.category, asked: sibs.length }, card: 'offers' };
+    const said = others.slice(0, 3).map((x) => `${x.kind === 'service' ? x.merchant : P(x.title)}, ${usd(x.total)}${x.kind === 'service' ? ' ' + spokenSlot(x.slot_label) : ''}`);
+    return { speech: T('alt_list', { n: others.length, items: said.join('; ') }), data: { offers: [o, ...others], current_offer_id: o.id, category: o.category, asked: sibs.length }, card: 'offers' };
   }
 
   // ---------- 13. compare_offers ("compare the two caterers") ----------
   async compareOffers(hid, { offer_ids }) {
     const ids = [...new Set(offer_ids || [])].slice(0, 3);
-    if (ids.length < 2) throw new ToolError('I need two or three options to compare.', 'Pass two or three offer_ids from the same search.');
+    if (ids.length < 2) throw new ToolError(T('e_two'), 'Pass two or three offer_ids from the same search.');
     const offers = [];
     for (const x of ids) offers.push(await this.offer(hid, x));
     const plan = await this.pendingPlan(hid);
     const cheapest = [...offers].sort((a, b) => a.total - b.total)[0];
     const best = [...offers].sort((a, b) => (b.rating || 0) - (a.rating || 0))[0];
     const diff = round(Math.max(...offers.map((x) => x.total)) - cheapest.total);
-    const name = (x) => (x.kind === 'service' ? x.merchant : x.title);
-    const parts = offers.map((x) => `${name(x)}: ${usd(x.total)}${x.kind === 'service' ? `, ${spokenSlot(x.slot_label)}, rated ${x.rating}` : ''}${x.discount ? `, ${usd(x.discount)} off` : ''}`);
-    const verdict = diff > 0 ? `${name(cheapest)} is ${usd(diff)} cheaper${best.id !== cheapest.id && best.rating ? `; ${name(best)} is rated higher` : ''}.` : 'Same price.';
+    const name = (x) => (x.kind === 'service' ? x.merchant : P(x.title));
+    const parts = offers.map((x) => T('cmp_part', { name: name(x), total: usd(x.total), slot: x.kind === 'service' ? spokenSlot(x.slot_label) : '', r: x.rating, off: x.discount ? usd(x.discount) : '' }));
+    const verdict = diff > 0 ? T('cmp_cheaper', { name: name(cheapest), diff: usd(diff), best: best.id !== cheapest.id && best.rating ? name(best) : '' }) : T('cmp_same');
     const cols = offers.map((x) => ({ ...x, images: galleryFor(x, this.publicUrl).slice(0, 1), in_plan: !!plan?.lines.some((l) => l.offer_id === x.id) }));
     return { speech: `${parts.join('. ')}. ${verdict}`, data: { mode: 'compare', offers: cols, cheapest_id: cheapest.id, best_rated_id: best.id, difference: diff, plan_id: plan?.id || null }, card: 'item' };
   }
@@ -648,20 +660,20 @@ export class Mandat {
     const removing = new Set(remove_offer_ids);
     const kept = old.lines.map((l) => l.offer_id).filter((x) => !removing.has(x));
     const ids = [...new Set([...kept, ...add_offer_ids])];
-    if (!ids.length) throw new ToolError('Removing that leaves nothing in the plan.', 'Keep at least one item, or tell the user the plan is dropped and nothing was paid.');
-    if (ids.length === old.lines.length && ids.every((x) => old.lines.some((l) => l.offer_id === x))) throw new ToolError('That would not change the plan.', 'Use offer_ids from the plan (to remove) or from list_alternatives (to add).');
+    if (!ids.length) throw new ToolError(T('e_empty'), 'Keep at least one item, or tell the user the plan is dropped and nothing was paid.');
+    if (ids.length === old.lines.length && ids.every((x) => old.lines.some((l) => l.offer_id === x))) throw new ToolError(T('e_same'), 'Use offer_ids from the plan (to remove) or from list_alternatives (to add).');
     const next = await this.proposePlan(hid, { item_ids: ids, mandate_id: old.mandate_id, note: old.note });
     old.status = 'revised';
     old.revised_to = next.data.plan.id;
     await this.store.put(pkOf(hid), `PLAN#${old.id}`, old);
     const removed = old.lines.filter((l) => removing.has(l.offer_id));
     const added = next.data.plan.lines.filter((l) => !old.lines.some((x) => x.offer_id === l.offer_id));
-    const label = (l) => (l.kind === 'service' ? l.merchant : l.title.split(':')[0]);
-    const change = removed.length && added.length ? `Swapped ${listWords(removed.map(label))} for ${listWords(added.map(label))}.`
-      : removed.length ? `Removed ${listWords(removed.map(label))}.` : `Added ${listWords(added.map(label))}.`;
+    const label = (l) => (l.kind === 'service' ? l.merchant : P(l.title).split(/[:：]/)[0].trim());
+    const change = removed.length && added.length ? T('rev_swap', { out: listWords(removed.map(label)), in: listWords(added.map(label)) })
+      : removed.length ? T('rev_removed', { out: listWords(removed.map(label)) }) : T('rev_added', { in: listWords(added.map(label)) });
     const p = next.data.plan;
     const env = next.data.envelope;
-    const tail = p.auto_approved ? `New total ${usd(p.breakdown.total)}, under your auto-approve rule.` : `New total ${usd(p.breakdown.total)}, ${usd(p.remaining_after)} left of your ${usd(env.budget)}. Should I book it?`;
+    const tail = p.auto_approved ? T('rev_tail_auto', { total: usd(p.breakdown.total) }) : T('rev_tail', { total: usd(p.breakdown.total), left: usd(p.remaining_after), budget: usd(env.budget) });
     await this.live({ step: `v-${p.id}`, state: 'done', text: change.replace(/\.$/, ''), from: old.breakdown.total, to: p.breakdown.total });
     return { speech: `${change} ${tail}`, data: { ...next.data, revised: { from_plan_id: old.id, previous_total: old.breakdown.total, removed: removed.map((l) => l.offer_id), added: added.map((l) => l.offer_id) } }, card: 'plan' };
   }
@@ -669,12 +681,12 @@ export class Mandat {
   // ---------- 15. review_plan ("show me the plan", Back) ----------
   async reviewPlan(hid, { plan_id } = {}) {
     const plan = await this.pendingPlan(hid, plan_id);
-    if (!plan) throw new ToolError('No plan is waiting for your yes right now.', 'Ask the user what they need, or call get_household_status for what is booked.');
+    if (!plan) throw new ToolError(T('e_no_plan'), 'Ask the user what they need, or call get_household_status for what is booked.');
     const m = await this.mandate(hid, plan.mandate_id);
     const env = this.envelopeView(m, await this.envelopeOf(hid, m));
     const items = plan.lines.map((l) => `${l.merchant} ${usd(l.total)}`);
     const { token_hash, ...pub } = plan;
-    return { speech: `The plan: ${listWords(items)}. Total ${usd(plan.breakdown.total)}, ${usd(plan.remaining_after)} left of your ${usd(env.budget)}.${plan.auto_approved ? '' : ' Should I book it?'}`, data: { plan: pub, needs_user_yes: !plan.auto_approved, envelope: env, reviewed: true }, card: 'plan' };
+    return { speech: T('review', { items: listWords(items), total: usd(plan.breakdown.total), left: usd(plan.remaining_after), budget: usd(env.budget), ask: !plan.auto_approved }), data: { plan: pub, needs_user_yes: !plan.auto_approved, envelope: env, reviewed: true }, card: 'plan' };
   }
 
   // ---------- app-only: refresh a card ----------

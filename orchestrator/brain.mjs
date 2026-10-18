@@ -11,6 +11,7 @@ import { AgentSkills, Skill } from '@strands-agents/sdk/vended-plugins/skills';
 import { ScriptedModel } from './scripted-model.mjs';
 import { absorb, absorbTokens } from '../src/brain/policy.mjs';
 import { checkBudget, recordUsage } from '../src/core/spend.mjs';
+import { normLocale, tr } from '../src/core/i18n.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const SKILLS_DIR = path.join(HERE, '..', 'skill');
@@ -36,7 +37,7 @@ class ThrottleAwareRetry extends DefaultModelRetryStrategy {
 //  - confirm_plan: user_confirmation is overwritten with the user's exact words of this turn, so the server's
 //    "explicit yes" check (src/mandat.mjs isExplicitYes) judges what the person really said, not what the model wrote.
 //  - set_spending_mandate: refused unless the user said an amount in this turn.
-export const STATES_AMOUNT = /\$\s?\d|\b\d+\s*(dollars|bucks|usd)\b/i;
+export const STATES_AMOUNT = /\$\s?\d|\d\s?\$|\b\d+\s*(dollars?|bucks|usd|dólares)(?![\p{L}])/iu; // "$150", "150 $", "150 dollars", "150 dólares"
 export function guardToolCall(name, input, utterance) {
   if (name === 'confirm_plan') return { input: { ...input, user_confirmation: String(utterance).slice(0, 120) } };
   if (name === 'set_spending_mandate' && !STATES_AMOUNT.test(utterance)) {
@@ -75,12 +76,17 @@ many merchants you asked.
 Never say something is booked, ordered or paid unless confirm_plan or close_order succeeded in this turn; a proposed
 plan is only proposed ("X can do Sunday for $210. Want me to book them?").
 If a tool returns an error, do not retry it with similar arguments: tell the user what happened and offer the one
-next step the error gives.`;
+next step the error gives.
+Language: the context line gives the user's locale (for example [locale: fr-FR]). Always answer in that language,
+naturally, as a native speaker would (French: "372 $", "samedi à 19 h 30"; Spanish: "372 $", "el sábado a las 19:30").
+Tool results may already be in that language; keep their numbers, prices and names exactly. Keep tool arguments
+need, when and query in English (weekday names in English, e.g. "Saturday evening"); give fact and purpose in the
+user's words. A yes in the user's language ("oui", "sí") is a yes; pass their exact words in user_confirmation.`;
 
 // The context line given to the model with each utterance. The session travels with the request (stateless
 // server), so a "yes" works even when this turn lands on another Lambda container than the proposal.
 export function contextLine(session = {}) {
-  const parts = [`device: ${session.device === 'dot' ? 'dot' : 'show'}`];
+  const parts = [`device: ${session.device === 'dot' ? 'dot' : 'show'}`, `locale: ${normLocale(session.locale)}`];
   if (session.pending?.plan_id) parts.push(`pending plan_id: ${session.pending.plan_id}, confirmation_token: ${session.pending.token}, total: $${session.pending.total}${session.pending.lines?.length ? `, lines (merchant: offer_id): ${session.pending.lines.map((l) => `${l.merchant}${l.kind === 'product' ? ` (${String(l.title).split(':')[0]})` : ''}: ${l.offer_id}`).join('; ')}` : ''}`);
   if (session.focus) parts.push(`last item shown: ${session.focus}`);
   const close = Object.entries(session.closeTokens || {});
@@ -162,9 +168,9 @@ export async function createStrandsBrain({ mcpUrl, model = BRAIN_MODEL, headers 
       const start = e.trace.length;
       const scripted = e.llm instanceof ScriptedModel;  // e.llm is a BedrockModel or a ModelRouter otherwise
       e.utterance = text;
-      if (scripted) e.llm.beginTurn(text, session);
+      if (scripted) e.llm.beginTurn(text, { ...session, locale });
       else await checkBudget(); // throws a clear sentence once the demo's model budget is used up
-      const result = await e.agent.invoke(scripted ? `[device: ${session.device || 'show'}] ${text}` : `${contextLine(session)} ${text}`, scripted ? {} : { limits: TURN_LIMITS });
+      const result = await e.agent.invoke(scripted ? `[device: ${session.device || 'show'}] ${text}` : `${contextLine({ ...session, locale })} ${text}`, scripted ? {} : { limits: TURN_LIMITS });
       const usage = result.metrics?.latestAgentInvocation?.usage;
       if (!scripted && usage) await recordUsage(BEDROCK_BRAIN_ID, usage);
       const steps = e.trace.slice(start);
@@ -176,11 +182,12 @@ export async function createStrandsBrain({ mcpUrl, model = BRAIN_MODEL, headers 
         const last = [...steps].reverse().find((x) => x.result?.content?.[0]?.text);
         const moved = steps.some((x) => ['confirm_plan', 'close_order', 'change_order'].includes(x.name) && !x.result?.isError);
         speech = last?.result?.isError
-          ? `${last.result.content[0].text.replace(/ Next step:.*$/, '')} ${moved ? '' : 'Nothing was booked or charged. '}What would you like to do?`.replace(/\s+/g, ' ').trim()
-          : speech || (steps.length ? 'Done.' : 'Sorry, I did not catch that. Could you say it again?');
+          ? `${last.result.content[0].text.replace(/ Next step:.*$/, '')} ${moved ? '' : tr(locale, 'b_nothing') + ' '}${tr(locale, 'b_next')}`.replace(/\s+/g, ' ').trim()
+          : speech || (steps.length ? tr(locale, 'b_done') : tr(locale, 'b_repeat'));
       }
       // Alexa+ voice-only rule: on a screenless device a request for approval ends with the explicit prompt.
-      if (session.device === 'dot' && s.pending && !/say yes to confirm\.?$/i.test(speech)) speech = `${speech.replace(/\s*$/, '')} Say yes to confirm.`;
+      const sayYes = tr(locale, 'p_say_yes');
+      if (session.device === 'dot' && s.pending && !speech.trim().endsWith(sayYes) && !/say yes to confirm\.?$/i.test(speech)) speech = `${speech.replace(/\s*$/, '')} ${sayYes}`;
       return { speech, steps, session: s, protocolVersion: '2025-11-25', skills: e.skills.getActivatedSkills(e.agent), usage: usage ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } : undefined, stopReason: result.stopReason };
     },
     async close() { for (const e of agents.values()) await e.mcp.disconnect().catch(() => {}); },

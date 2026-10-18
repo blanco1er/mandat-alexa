@@ -126,9 +126,15 @@ export function search({ category, area } = {}) {
 }
 
 // ---- when / guests parsing (shared by the simulated agent and the server-side guard) ----
-const DAY_WORDS = { sunday: 'sun', sun: 'sun', monday: 'mon', mon: 'mon', tuesday: 'tue', tue: 'tue', tues: 'tue', wednesday: 'wed', wed: 'wed', thursday: 'thu', thu: 'thu', thurs: 'thu', friday: 'fri', fri: 'fri', saturday: 'sat', sat: 'sat' };
+const DAY_WORDS = { sunday: 'sun', sun: 'sun', monday: 'mon', mon: 'mon', tuesday: 'tue', tue: 'tue', tues: 'tue', wednesday: 'wed', wed: 'wed', thursday: 'thu', thu: 'thu', thurs: 'thu', friday: 'fri', fri: 'fri', saturday: 'sat', sat: 'sat',
+  dimanche: 'sun', lundi: 'mon', mardi: 'tue', mercredi: 'wed', jeudi: 'thu', vendredi: 'fri', samedi: 'sat',
+  domingo: 'sun', lunes: 'mon', martes: 'tue', miercoles: 'wed', jueves: 'thu', viernes: 'fri', sabado: 'sat' };
+// French and Spanish words for the parts of the day -> English ones (an assistant may pass "samedi soir").
+const PART_WORDS = [[/\b(matin|manana|mañana)\b/g, 'morning'], [/\b(apres-midi|après-midi|tarde)\b/g, 'afternoon'], [/\b(soir|soiree|soirée|noche)\b/g, 'evening'], [/\b(\d{1,2})\s?h\s?(\d{2})?\b/g, (_, h, m) => `${h}:${m || '00'}`]];
 export function parseWhen(text = '') {
-  const t = String(text).toLowerCase();
+  let t = String(text).toLowerCase();
+  for (const [re, to] of PART_WORDS) t = t.replace(re, to);
+  t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   let day = null;
   for (const w of t.split(/[^a-z]+/)) if (DAY_WORDS[w]) { day = DAY_WORDS[w]; break; }
   let hour = null;
@@ -138,10 +144,12 @@ export function parseWhen(text = '') {
   if (hour !== null) part = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
   return { day, part, hour };
 }
-const NUMBER_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12 };
+const NUMBER_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12,
+  deux: 2, trois: 3, quatre: 4, cinq: 5, huit: 8, neuf: 9, dix: 10, douze: 12, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, doce: 12 };
 export function parseGuests(text = '') {
-  const t = String(text).toLowerCase();
-  const m = /(?:for|of|party of|table of)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|twelve)\b/.exec(t) || /\b(\d{1,2}|two|three|four|five|six|seven|eight|nine|ten|twelve)\s+(?:people|guests|persons|adults)\b/.exec(t);
+  const t = String(text).toLowerCase().replace(/\bsix\b/g, 'six').replace(/\bsept\b/g, 'seven');
+  const W = 'one|two|three|four|five|six|seven|eight|nine|ten|twelve|deux|trois|quatre|cinq|huit|neuf|dix|douze|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|doce';
+  const m = new RegExp(`(?:for|of|party of|table of|pour|para)\\s+(\\d{1,2}|${W})\\b`).exec(t) || new RegExp(`\\b(\\d{1,2}|${W})\\s+(?:people|guests|persons|adults|personnes|invités|convives|personas|invitados|comensales)\\b`).exec(t);
   if (!m) return null;
   return NUMBER_WORDS[m[1]] || Number(m[1]);
 }

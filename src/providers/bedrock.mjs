@@ -3,6 +3,8 @@
 // Env (names only): MANDAT_MERCHANT_MODEL (default us.amazon.nova-2-lite-v1:0), AWS_REGION (default us-east-1),
 // MANDAT_LLM_BUDGET_USD (hard ceiling, see core/spend.mjs).
 // Every quote is still passed through guardQuote() by the caller: the model can never go below a merchant's floor.
+import { current } from '../core/context.mjs';
+import { langOf } from '../core/i18n.mjs';
 import { checkBudget, recordUsage } from '../core/spend.mjs';
 import { DAY_NAMES, listPrice } from '../core/merchants.mjs';
 import { quoteFor, SimulatedProvider } from './simulated.mjs';
@@ -32,6 +34,10 @@ Answer with JSON only: {"reply":"<one or two short sentences>","quote":null|{"to
 }
 
 // Pure builder, unit-tested without AWS.
+// The household's language for the merchant agent's "reply" (JSON keys and numbers stay as they are).
+const LANG_NAME = { fr: 'French', es: 'Spanish' };
+function replyIn() { const l = langOf(current().locale); return LANG_NAME[l] ? `\nWrite "reply" in ${LANG_NAME[l]} (24-hour times), the household speaks ${LANG_NAME[l]}.` : ''; }
+
 export function converseInput({ modelId, system, user, maxTokens = 400 }) {
   return {
     modelId,
@@ -71,11 +77,11 @@ export class BedrockProvider {
   // The agent talks; the merchant's own booking system (its terms, applied by quoteFor) says which day, slot and
   // lowest price this request qualifies for. The agent never quotes below that line (checked again here).
   async merchantAgent({ merchant, when, ask, guests }) {
-    const sys = quoteFor(merchant, { when, ask, guests });
+    const sys = quoteFor(merchant, { when, ask, guests }); // English desk notes for the model
     const desk = sys.quote
       ? `Your booking system for this request: ${sys.quote.slotLabel}, list price $${listPrice(merchant, guests)}, price with the deals this request qualifies for: $${sys.quote.total}${sys.quote.conditions ? ` (${sys.quote.conditions.replace(/^Includes /, '').replace(/\.$/, '')})` : ' (no deal applies)'}. Quote that price and say which deal it includes; go lower only if the household asks and your terms allow it.`
       : `Your booking system for this request: ${sys.reply}`;
-    const r = await this.send(converseInput({ modelId: this.model, system: merchantSystemPrompt(merchant), user: `Booking request: ${ask || 'best price'}. When: ${when || 'any time'}. Guests: ${guests || 'n/a'}.\n${desk}` }));
+    const r = await this.send(converseInput({ modelId: this.model, system: merchantSystemPrompt(merchant), user: `Booking request: ${ask || 'best price'}. When: ${when || 'any time'}. Guests: ${guests || 'n/a'}.\n${desk}${replyIn()}` }));
     if (r.quote && sys.quote) {
       if (!(Number(r.quote.total) >= sys.quote.total)) r.quote.total = sys.quote.total;
       r.quote.day = r.quote.day || sys.quote.day; r.quote.slot = r.quote.slot || sys.quote.slot;
@@ -91,7 +97,7 @@ export class BedrockProvider {
     const desk = sys.accepted
       ? `Your booking system ACCEPTS this change: ${sys.slotLabel || ''}${sys.guests ? `, ${sys.guests} guests` : ''}, total $${sys.total}.`
       : `Your booking system DECLINES this change: ${sys.reply}`;
-    const r = await this.send(converseInput({ modelId: this.model, system: merchantSystemPrompt(merchant) + '\nFor a change request answer {"accepted":true|false,"reply":"<one or two short sentences>"}. Follow your booking system\'s decision. Keep the agreed price on an accepted move.', user: `Confirmed booking: ${order.label}, ${order.slotLabel}, $${order.amount}. Change requested: ${change.field} -> ${change.value}.\n${desk}` }));
+    const r = await this.send(converseInput({ modelId: this.model, system: merchantSystemPrompt(merchant) + '\nFor a change request answer {"accepted":true|false,"reply":"<one or two short sentences>"}. Follow your booking system\'s decision. Keep the agreed price on an accepted move.', user: `Confirmed booking: ${order.label}, ${order.slotLabel}, $${order.amount}. Change requested: ${change.field} -> ${change.value}.\n${desk}${replyIn()}` }));
     const reply = String(r.reply || '').trim() || sys.reply;
     return sys.accepted
       ? { accepted: true, reply, slotLabel: sys.slotLabel, guests: sys.guests, total: sys.total }

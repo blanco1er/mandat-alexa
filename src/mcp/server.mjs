@@ -11,7 +11,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { ToolError } from '../mandat.mjs';
-import { header, runWith } from '../core/context.mjs';
+import { current, header, runWith } from '../core/context.mjs';
+import * as I from '../core/i18n.mjs';
 import { note } from '../core/activity.mjs';
 import { cards, CARD_NAMES, MCP_APP_MIME, resourceUiMeta, UI_EXTENSION } from './ui.mjs';
 
@@ -71,47 +72,49 @@ const UI_TEXT = {
   refresh_card: ['Refreshing…', 'Up to date'],
 };
 
-// Live activity lines for each tool call (the merchant-by-merchant and hold-by-hold lines come from src/mandat.mjs).
-const NOUN = { cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' };
-const $ = (n) => '$' + (Math.round(n * 100) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
+// Live activity lines for each tool call, in the user's language (the merchant-by-merchant and hold-by-hold lines
+// come from src/mandat.mjs).
+const L = () => current().locale || 'en-US';
+const T = (k, v) => I.tr(L(), k, v);
+const $ = (n) => I.money(n, L());
 export function liveStart(name, a = {}) {
   switch (name) {
-    case 'get_household_status': return 'Checking your budget';
-    case 'set_spending_mandate': return `Setting a ${$(a.budget)} budget`;
-    case 'remember_preference': return `Remembering: ${a.subject}`;
-    case 'find_home_services': return `Asking ${NOUN[a.category] || 'pros'} near you for ${a.when}`;
-    case 'find_products': return `Searching shops for ${a.query}`;
-    case 'negotiate_offer': return 'Negotiating';
-    case 'propose_plan': return 'Building one plan';
-    case 'confirm_plan': return 'Placing payment holds';
-    case 'change_order': return `Asking the merchant: ${a.change?.field} → ${a.change?.value}`;
-    case 'close_order': return a.action === 'capture' ? 'Paying the merchant' : a.action === 'refund' ? 'Asking for a refund' : 'Cancelling';
-    case 'get_offer_details': return 'Opening the details';
-    case 'list_alternatives': return a.cheaper_only ? 'Looking for something cheaper' : 'Looking at other options';
-    case 'compare_offers': return 'Comparing side by side';
-    case 'revise_plan': return 'Updating the plan';
-    case 'review_plan': return 'Opening the plan';
-    default: return 'Working';
+    case 'get_household_status': return T('ls_status');
+    case 'set_spending_mandate': return T('ls_budget', { amt: $(a.budget) });
+    case 'remember_preference': return T('ls_remember', { s: a.subject });
+    case 'find_home_services': return T('ls_svc', { noun: I.noun(a.category, 2, L()), when: a.when });
+    case 'find_products': return T('ls_prod');
+    case 'negotiate_offer': return T('ls_negotiate');
+    case 'propose_plan': return T('ls_propose');
+    case 'confirm_plan': return T('ls_confirm');
+    case 'change_order': return T('ls_change');
+    case 'close_order': return a.action === 'capture' ? T('ls_capture') : a.action === 'refund' ? T('ls_refund') : T('ls_cancel');
+    case 'get_offer_details': return T('ls_details');
+    case 'list_alternatives': return a.cheaper_only ? T('ls_cheaper') : T('ls_alts');
+    case 'compare_offers': return T('ls_compare');
+    case 'revise_plan': return T('ls_revise');
+    case 'review_plan': return T('ls_review');
+    default: return T('ls_working');
   }
 }
-export function liveEnd(name, d = {}, fallback = 'Done') {
+export function liveEnd(name, d = {}) {
   const env = d.envelope || d.receipt?.envelope;
   switch (name) {
-    case 'find_home_services': return { text: `${d.asked} ${NOUN[d.category] || 'pros'} asked · ${d.offers?.length || 0} ${d.offers?.length === 1 ? 'quote' : 'quotes'}`, to: d.offers?.[0]?.total ?? null, detail: d.offers?.[0] ? `best ${d.offers[0].merchant}` : undefined };
+    case 'find_home_services': return { text: T('le_svc', { n: d.asked, noun: I.noun(d.category, d.asked, L()), q: d.offers?.length || 0 }), to: d.offers?.[0]?.total ?? null, detail: d.offers?.[0] ? T('le_best', { m: d.offers[0].merchant }) : undefined };
     case 'find_products': {
       const best = d.offers?.[0];
       const skipped = d.skipped || [];
-      return { text: `${d.offers?.length || 0} ${d.offers?.length === 1 ? 'option' : 'options'} for ${d.query}`, detail: skipped.length ? `${skipped.length} skipped: ${[...new Set(skipped.map((x) => x.ingredient))].join(', ')}` : best ? `${best.matches_preference ? 'your usual: ' : 'best: '}${best.merchant}` : undefined, to: best?.total ?? null, image_url: best?.image_url };
+      return { text: T('le_prod', { n: d.offers?.length || 0 }), detail: skipped.length ? T('le_skipped', { n: skipped.length, ing: I.list([...new Set(skipped.map((x) => I.phrase(x.ingredient, L())))], L()) }) : best ? T(best.matches_preference ? 'le_usual' : 'le_best', { m: best.merchant }) : undefined, to: best?.total ?? null, image_url: best?.image_url };
     }
-    case 'propose_plan': case 'revise_plan': return { text: `Plan ${$(d.plan?.breakdown?.total || 0)}`, detail: d.plan?.auto_approved ? 'under your auto-buy rule' : `${$(d.plan?.remaining_after ?? 0)} left · needs your yes` };
-    case 'confirm_plan': return { text: `${d.receipt?.orders?.length || 0} payment ${d.receipt?.orders?.length === 1 ? 'hold' : 'holds'} placed`, detail: env ? `${$(env.remaining)} left · nothing charged yet` : undefined };
-    case 'set_spending_mandate': return { text: `Budget ${$(d.mandate?.budget || 0)} set`, detail: d.mandate?.auto_approve_under ? `buys on its own under ${$(d.mandate.auto_approve_under)}` : 'asks before every payment' };
-    case 'get_household_status': return { text: env || d.envelopes?.[0] ? `${$((d.envelopes?.[0] || env).remaining)} left` : 'No budget yet', detail: d.envelopes?.[0]?.purpose };
-    case 'get_offer_details': return { text: d.offer ? (d.offer.kind === 'service' ? d.offer.merchant : d.offer.title) : fallback, to: d.offer?.total ?? null };
-    case 'compare_offers': return { text: `${d.offers?.length || 0} options compared`, detail: d.difference ? `${$(d.difference)} apart` : undefined };
-    case 'list_alternatives': return { text: `${Math.max(0, (d.offers?.length || 1) - 1)} other ${d.offers?.length === 2 ? 'option' : 'options'}` };
-    case 'close_order': case 'change_order': return { text: fallback, detail: env ? `${$(env.remaining)} left` : undefined };
-    default: return { text: fallback };
+    case 'propose_plan': case 'revise_plan': return { text: T('le_plan', { total: $(d.plan?.breakdown?.total || 0) }), detail: d.plan?.auto_approved ? T('le_plan_auto') : T('le_plan_left', { left: $(d.plan?.remaining_after ?? 0) }) };
+    case 'confirm_plan': return { text: T('le_holds', { n: d.receipt?.orders?.length || 0 }), detail: env ? T('le_left_nc', { left: $(env.remaining) }) : undefined };
+    case 'set_spending_mandate': return { text: T('le_budget', { amt: $(d.mandate?.budget || 0) }), detail: d.mandate?.auto_approve_under ? T('le_budget_auto', { amt: $(d.mandate.auto_approve_under) }) : T('le_budget_ask') };
+    case 'get_household_status': { const e = d.envelopes?.[0] || env; return { text: e ? T('le_left', { left: $(e.remaining) }) : T('le_nobudget'), detail: e?.purpose }; }
+    case 'get_offer_details': return { text: d.offer ? (d.offer.kind === 'service' ? d.offer.merchant : I.phrase(d.offer.title, L()).split(/[:,]/)[0]) : T('le_done'), to: d.offer?.total ?? null, image_url: d.offer?.image_url };
+    case 'compare_offers': return { text: T('le_compared', { n: d.offers?.length || 0 }), detail: d.difference ? T('le_apart', { amt: $(d.difference) }) : undefined };
+    case 'list_alternatives': return { text: T('le_others', { n: Math.max(0, (d.offers?.length || 1) - 1) }) };
+    case 'close_order': case 'change_order': return { text: T('le_done'), detail: env ? T('le_left', { left: $(env.remaining) }) : undefined };
+    default: return { text: T('le_done') };
   }
 }
 
@@ -143,7 +146,7 @@ export function createMcpServer({ service, household = householdFrom }) {
       if (!visibility) await note(service.store, { step, tool: name, state: 'running', text: liveStart(name, args) });
       try {
         const out = await run(hid, args);
-        if (!visibility) await note(service.store, { step, tool: name, state: 'done', ...liveEnd(name, out.data || {}, invoked) });
+        if (!visibility) await note(service.store, { step, tool: name, state: 'done', ...liveEnd(name, out.data || {}) });
         const cardName = out.card || card;
         const data = { ...out.data, ...(out.duplicate ? { duplicate: true } : {}) };
         return {

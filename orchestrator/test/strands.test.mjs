@@ -70,8 +70,9 @@ test('host guardrail: no budget is created or changed unless the user said an am
 
 test('context line: device, pending plan and close tokens travel with the request (stateless server)', () => {
   const l = contextLine({ device: 'dot', pending: { plan_id: 'plan_1', token: 'tok', total: 210 }, closeTokens: { ord_1: 'c1' } });
-  assert.match(l, /^\[device: dot; pending plan_id: plan_1, confirmation_token: tok, total: \$210; close tokens \(order_id=close_token\): ord_1=c1\]$/);
-  assert.equal(contextLine({}), '[device: show]');
+  assert.match(l, /^\[device: dot; locale: en-US; pending plan_id: plan_1, confirmation_token: tok, total: \$210; close tokens \(order_id=close_token\): ord_1=c1\]$/);
+  assert.equal(contextLine({}), '[device: show; locale: en-US]');
+  assert.match(contextLine({ locale: 'fr' }), /locale: fr-FR/);
 });
 
 test('spoken(): what the speaker says has no reasoning tags, markdown or context line', () => {
@@ -88,4 +89,10 @@ test('with Bedrock, the skill instructions are pinned in the system prompt', () 
   const p = pinnedPrompt();
   assert.match(p, /<skill name="mandat-household-errands">/);
   assert.match(p, /One product per plan/);
+});
+
+test('host guard: a budget needs an amount the user said, in English, French or Spanish', () => {
+  for (const u of ['Keep it under $400.', 'Ne dépasse pas 400 $.', 'Un budget de 150 dollars', 'Que no pase de 400 dólares.']) assert.ok(!guardToolCall('set_spending_mandate', { budget: 400 }, u).cancel, u);
+  for (const u of ['Augmente le budget.', 'Sube el presupuesto.', 'Raise the budget.']) assert.ok(guardToolCall('set_spending_mandate', { budget: 999 }, u).cancel, u);
+  assert.equal(guardToolCall('confirm_plan', { user_confirmation: 'yes' }, 'Oui, réserve.').input.user_confirmation, 'Oui, réserve.');
 });

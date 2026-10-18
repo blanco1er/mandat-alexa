@@ -43,49 +43,49 @@
 <body><main class="card" id="app" aria-live="polite"><p class="context">Asking the merchants…</p></main>
 <script>/*BRIDGE_JS*/
 showLoading('Asking the merchants’ agents…');
-const PLURAL = { catering: 'caterers', cleaning: 'cleaners', plumbing: 'plumbers', handyman: 'handymen' };
-const ONE = { catering: 'caterer', cleaning: 'cleaner', plumbing: 'plumber', handyman: 'handyman' };
+const ASKED = { catering: ['{n} caterer asked', '{n} caterers asked'], cleaning: ['{n} cleaner asked', '{n} cleaners asked'], plumbing: ['{n} plumber asked', '{n} plumbers asked'], handyman: ['{n} handyman asked', '{n} handymen asked'] };
+const nameOf = (o) => (o.kind === 'service' ? o.merchant : P(o.title).split(/[:,(]/)[0].trim());
 const CHECK = `<svg viewBox="0 0 24 24">${ICONS.check}</svg>`;
-const trust = (o) => o.kind !== 'service' ? (o.matches_preference ? `<span class="trust">${CHECK}Your usual</span>` : '') : o.card_verified ? `<span class="trust">${CHECK}Verified agent</span>` : '<span class="trust no">Unverified agent</span>';
+const trust = (o) => o.kind !== 'service' ? (o.matches_preference ? `<span class="trust">${CHECK}${tx('Your usual')}</span>` : '') : o.card_verified ? `<span class="trust">${CHECK}${tx('Verified agent')}</span>` : `<span class="trust no">${tx('Unverified agent')}</span>`;
 function render(result) {
   if (result.isError) return showError(result);
   ready();
   const sc = result.structuredContent || {};
   const offers = sc.offers || sc.alternatives || [];
   const cur = sc.current_offer_id ? offers.find((o) => o.id === sc.current_offer_id) : null;
-  const who = cur ? `Other options than ${cur.kind === 'service' ? cur.merchant : cur.title.split(':')[0]}` : sc.category ? `${sc.asked} ${(sc.asked === 1 ? ONE : PLURAL)[sc.category] || 'pros'} asked` : sc.query ? 'Products' : 'Updated quote';
+  const who = cur ? tx('Other options than {name}', { name: nameOf(cur) }) : sc.category ? tx((ASKED[sc.category] || [null, '{n} pros asked'])[sc.asked === 1 ? 0 : 1] || '{n} pros asked', { n: sc.asked }) : sc.query ? tx('Products') : tx('Updated quote');
   if (!offers.length) {
-    $('#app').innerHTML = `<div class="head"><p class="context">${esc(who)}</p>${status('wait', 'No match')}</div>
-      <h1>No one can do it at that time</h1><p class="lead">Try another day, or a higher price limit.</p>`;
+    $('#app').innerHTML = `<div class="head"><p class="context">${esc(who)}</p>${status('wait', tx('No match'))}</div>
+      <h1>${tx('No one can do it at that time')}</h1><p class="lead">${tx('Try another day, or a higher price limit.')}</p>`;
     return;
   }
   const svc = offers[0].kind === 'service';
   const skipped = sc.skipped && sc.skipped.length;
-  const st = skipped ? status('info', `${sc.skipped.length} skipped for your household`) : svc ? status('ok', `${offers.length} ${offers.length === 1 ? 'quote' : 'quotes'}`) : '';
+  const st = skipped ? status('info', tx('{n} skipped for your household', { n: sc.skipped.length })) : svc ? status('ok', tx(offers.length === 1 ? '{n} quote' : '{n} quotes', { n: offers.length })) : '';
   const best = cur || offers[0];
   if (offers.length === 1) {
     const o = best;
     $('#app').innerHTML = `
-      <div class="head"><p class="context">${esc(who)}${o.kind === 'service' && o.card_verified ? ' · agent card verified' : ''}</p>${st}</div>
-      <div class="hero"><div class="lead-in">${o.image_url ? thumb(o, 'lg') : ''}<div class="stack"><h1>${esc(o.merchant)}</h1><span class="meta">${esc(o.slot_label || '')}${o.kind === 'service' && o.rating ? ` · rated ${o.rating}` : ''}</span></div></div>
+      <div class="head"><p class="context">${esc(who)}${o.kind === 'service' && o.card_verified ? tx(' · agent card verified') : ''}</p>${st}</div>
+      <div class="hero"><div class="lead-in">${o.image_url ? thumb(o, 'lg') : ''}<div class="stack"><h1>${esc(o.merchant)}</h1><span class="meta">${esc(slotL(o.slot_label))}${o.kind === 'service' && o.rating ? ` · ${tx('rated {r}', { r: o.rating })}` : ''}</span></div></div>
         <span class="num">${usd(o.total)}</span></div>
       <div class="single">
-        ${o.kind === 'service' ? `<p class="said">${esc(o.negotiation)}</p>` : `<p class="said">${esc(o.title)}</p>`}
-        <div class="facts">${o.discount ? `<span>Was <b>${usd(o.base + (o.fees || 0))}</b></span><span>Negotiated <b style="color:var(--ok-text)">−${usd(o.discount)}</b></span>` : ''}${trust(o)}</div>
+        ${o.kind === 'service' ? `<p class="said">${esc(o.negotiation)}</p>` : `<p class="said">${esc(P(o.title))}</p>`}
+        <div class="facts">${o.discount ? `<span>${tx('Was')} <b>${usd(o.base + (o.fees || 0))}</b></span><span>${tx('Negotiated')} <b style="color:var(--ok-text)">−${usd(o.discount)}</b></span>` : ''}${trust(o)}</div>
       </div>`;
     return;
   }
   $('#app').innerHTML = `
-    <div class="head"><p class="context">${esc(who)}${svc ? ' · every agent verified' : ''}</p>${st}</div>
-    <div class="hero"><div class="stack"><span class="best">${cur ? 'Now in your plan' : svc ? 'Best quote' : 'Best match'}</span><h1>${esc(cur && cur.kind === 'product' ? cur.title.split(':')[0] : best.merchant)}</h1></div><span class="num">${usd(best.total)}</span></div>
-    <div class="rail${offers.length < 3 ? ' two' : ''}" role="list" aria-label="Options">${offers.slice(0, 5).map((o, i) => `
-      <button class="offer" role="listitem" aria-pressed="${cur ? o.id === cur.id : i === 0}" data-id="${esc(o.id)}" aria-label="${esc(o.kind === 'product' ? o.title : o.merchant)}, ${esc(usd(o.total))}, ${esc(o.slot_label || '')}${cur && o.id !== cur.id ? '. Tap to take it instead' : ''}">
+    <div class="head"><p class="context">${esc(who)}${svc && !cur ? tx(' · every agent verified') : ''}</p>${st}</div>
+    <div class="hero"><div class="stack"><span class="best">${tx(cur ? 'Now in your plan' : svc ? 'Best quote' : 'Best match')}</span><h1>${esc(cur && cur.kind === 'product' ? nameOf(cur) : best.merchant)}</h1></div><span class="num">${usd(best.total)}</span></div>
+    <div class="rail${offers.length < 3 ? ' two' : ''}" role="list" aria-label="${tx('Options')}">${offers.slice(0, 5).map((o, i) => `
+      <button class="offer" role="listitem" aria-pressed="${cur ? o.id === cur.id : i === 0}" data-id="${esc(o.id)}" aria-label="${esc(o.kind === 'product' ? P(o.title) : o.merchant)}, ${esc(usd(o.total))}, ${esc(slotL(o.slot_label))}${cur && o.id !== cur.id ? esc(tx('. Tap to take it instead')) : ''}">
         <span class="sel" aria-hidden="true">${CHECK}</span>
-        ${o.image_url ? `<span class="ph"><img src="${esc(o.image_url)}" alt="${esc(o.image_alt || o.title)}" loading="lazy" decoding="async"></span>` : ''}
-        <span class="top">${o.image_url ? '' : kindIcon(o)}<b>${esc(cur && o.kind === 'product' ? o.title.split(/[:,(]/)[0].trim() : o.merchant)}</b></span>
+        ${o.image_url ? `<span class="ph"><img src="${esc(o.image_url)}" alt="${esc(o.image_alt || P(o.title))}" loading="lazy" decoding="async"></span>` : ''}
+        <span class="top">${o.image_url ? '' : kindIcon(o)}<b>${esc(cur && o.kind === 'product' ? nameOf(o) : o.merchant)}</b></span>
         <span class="price">${usd(o.total)}${o.discount ? `<s>${usd(o.base + (o.fees || 0))}</s>` : ''}</span>
-        <span class="when">${esc(o.slot_label || '')}${o.kind === 'service' && o.rating ? ` · ${o.rating}` : ''}</span>
-        <span class="quote">${o.kind === 'service' ? `“${esc(o.negotiation)}”` : esc(o.title)}</span>
+        <span class="when">${esc(slotL(o.slot_label))}${o.kind === 'service' && o.rating ? ` · ${o.rating}` : ''}</span>
+        <span class="quote">${o.kind === 'service' ? `“${esc(o.negotiation)}”` : esc(P(o.title))}</span>
         ${trust(o)}
       </button>`).join('')}</div>`;
   // Alternatives to a plan line: a tap on another option is "take this one instead" (said to Alexa, same guardrails).
@@ -95,7 +95,7 @@ function render(result) {
       if (o.id === cur.id || b.getAttribute('aria-busy')) return;
       for (const x of document.querySelectorAll('.offer')) x.setAttribute('aria-pressed', String(x === b));
       b.setAttribute('aria-busy', 'true');
-      mcpApp.say(`Take ${o.kind === 'service' ? o.merchant : o.title.split(/[:,(]/)[0].trim()} instead.`).catch(() => b.removeAttribute('aria-busy'));
+      mcpApp.say(tx('Take {name} instead.', { name: nameOf(o) })).catch(() => b.removeAttribute('aria-busy'));
     };
     return;
   }

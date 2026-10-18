@@ -20,6 +20,7 @@
 <script>/*BRIDGE_JS*/
 showLoading('Placing payment holds…');
 const LABEL = { held: 'Held', captured: 'Paid', released: 'Released', refunded: 'Refunded', changed: 'Moved' };
+const lab = (s) => (LABEL[s] ? tx(LABEL[s]) : s);
 function render(result) {
   if (result.isError) return showError(result);
   const sc = result.structuredContent || {};
@@ -31,24 +32,24 @@ function render(result) {
   const settled = r.orders.every((o) => o.state !== 'held');
   const mode = (r.orders[0] && r.orders[0].paypal_mode) || 'sandbox';
   const declined = r.orders.length === 1 && r.orders[0].state === 'released' && !r.orders[0].captured;
-  const title = r.orders.length === 1 ? esc(r.orders[0].merchant) : `${r.orders.length} orders`;
-  const st = declined ? status('wait', 'Hold released') : settled ? status('ok', 'Settled') : status('info', `${usd(held)} on hold`);
+  const title = r.orders.length === 1 ? esc(r.orders[0].merchant) : tx('{n} orders', { n: r.orders.length });
+  const st = declined ? status('wait', tx('Hold released')) : settled ? status('ok', tx('Settled')) : status('info', tx('{amt} on hold', { amt: usd(held) }));
   $('#app').innerHTML = `
-    <div class="head"><p class="context">Receipt · ${mode === 'offline' ? 'Simulated payments' : 'PayPal ' + esc(mode)}</p>${st}</div>
-    <div class="hero"><h1>${title}</h1><span class="num">${usd(settled ? paid : held)}<small>${settled ? 'paid' : 'held'}</small></span></div>
+    <div class="head"><p class="context">${mode === 'offline' ? tx('Receipt · Simulated payments') : esc(tx('Receipt · PayPal {mode}', { mode }))}</p>${st}</div>
+    <div class="hero"><h1>${title}</h1><span class="num">${usd(settled ? paid : held)}<small>${tx(settled ? 'paid' : 'held')}</small></span></div>
     <ul class="rows${r.orders.length > 3 ? ' compact' : ''}">${r.orders.slice(0, 6).map((o) => {
       const tl = o.timeline.filter((t) => t.state !== 'changed');
-      return `<li>${thumb(o, 'sm')}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.kind === 'product' ? `${o.label} · ${o.slotLabel || ''}` : o.slotLabel || o.label || '')}</span></span>
-        <ol class="tl" aria-label="Payment timeline">${tl.map((t) => `<li class="${t.state}"><i aria-hidden="true"></i>${LABEL[t.state] || esc(t.state)}${t.amount ? ' ' + usd(t.amount) : ''}</li>`).join('')}</ol>
+      return `<li>${thumb(o, 'sm')}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.kind === 'product' ? `${P(o.label)} · ${slotL(o.slotLabel)}` : slotL(o.slotLabel) || P(o.label) || '')}</span></span>
+        <ol class="tl" aria-label="${tx('Payment timeline')}">${tl.map((t) => `<li class="${t.state}"><i aria-hidden="true"></i>${esc(lab(t.state))}${t.amount ? ' ' + usd(t.amount) : ''}</li>`).join('')}</ol>
         <span class="amt">${usd(o.state === 'held' ? o.amount : (o.captured || 0) - (o.refunded || 0))}</span></li>`;
     }).join('')}</ul>
-    ${alts.length ? `<div class="alt">${thumb(alts[0], 'sm')}<span class="who"><b>Replacement: ${esc(alts[0].merchant)}</b><span>${esc(alts[0].slot_label)}</span></span><span class="amt">${usd(alts[0].total)}</span><button class="btn primary" id="alt">Book</button></div>` : ''}
+    ${alts.length ? `<div class="alt">${thumb(alts[0], 'sm')}<span class="who"><b>${esc(tx('Replacement: {m}', { m: alts[0].merchant }))}</b><span>${esc(slotL(alts[0].slot_label))}</span></span><span class="amt">${usd(alts[0].total)}</span><button class="btn primary" id="alt">${tx('Book')}</button></div>` : ''}
     ${r.envelope ? gauge(r.envelope) : ''}`;
   const a = $('#alt');
   if (a) a.onclick = () => {
     if (a.disabled) return;
-    a.disabled = true; a.setAttribute('aria-busy', 'true'); a.innerHTML = '<span class="spin" aria-hidden="true"></span>Asking…';
-    mcpApp.say(`Book ${alts[0].merchant} instead (offer ${alts[0].id}).`).catch(() => { a.disabled = false; a.removeAttribute('aria-busy'); a.textContent = 'Book'; });
+    a.disabled = true; a.setAttribute('aria-busy', 'true'); a.innerHTML = `<span class="spin" aria-hidden="true"></span>${tx('Asking…')}`;
+    mcpApp.say(tx('Book {m} instead (offer {id}).', { m: alts[0].merchant, id: alts[0].id })).catch(() => { a.disabled = false; a.removeAttribute('aria-busy'); a.textContent = tx('Book'); });
   };
 }
 mcpApp.on('result', render);

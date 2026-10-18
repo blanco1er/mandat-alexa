@@ -25,11 +25,11 @@ export function rpc(url, body, headers = {}) {
   return fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers }, body: JSON.stringify(body) });
 }
 // A brain that keeps the session between turns, like the simulator page does.
-export function talker(mcpUrl, household, device = 'show') {
+export function talker(mcpUrl, household, device = 'show', locale) {
   const brain = new SimulatedBrain({ mcpUrl });
   let session = { device };
   return async (t) => {
-    const out = await brain.runTurn({ text: t, session: { ...session, device }, household });
+    const out = await brain.runTurn({ text: t, session: { ...session, device }, household, locale });
     session = out.session;
     return out;
   };

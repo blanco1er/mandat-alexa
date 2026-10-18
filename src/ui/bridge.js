@@ -39,6 +39,7 @@
   function applyContext() {
     const root = document.documentElement;
     if (hostContext.theme) root.dataset.theme = hostContext.theme;
+    if (hostContext.locale) root.lang = hostContext.locale;
     const vars = hostContext.styles && hostContext.styles.variables;
     if (vars) for (const [k, v] of Object.entries(vars)) if (v) root.style.setProperty(k, v);
     const dm = hostContext.displayMode || 'inline';
@@ -82,6 +83,8 @@
         hostContext = (r && r.hostContext) || {};
       } catch (e) { hostContext = {}; }
       applyContext();
+      // the loading words were written before the host said which language: say them again in it
+      if (window.__loading && document.querySelector('main.card.loading')) showLoading(window.__loading);
       notify('ui/notifications/initialized', {});
       ro.observe(document.body);
       return hostContext;
@@ -97,7 +100,23 @@
 // Small shared helpers for the cards.
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const usd = (n, cur = 'USD') => new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, minimumFractionDigits: Number.isInteger(Math.round(n * 100) / 100) ? 0 : 2 }).format(n || 0);
+// Language: hostContext.locale (en-US default). Card strings and catalogue names come from I18N (inlined at build).
+const LOC = () => (window.mcpApp && window.mcpApp.hostContext && window.mcpApp.hostContext.locale) || 'en-US';
+const LANG = () => { const l = String(LOC()).slice(0, 2).toLowerCase(); return I18N.cards[l] ? l : 'en'; };
+function tx(s, v = {}) { const tpl = (LANG() !== 'en' && I18N.cards[LANG()][s]) || s; return tpl.replace(/\{(\w+)\}/g, (_, k) => (v[k] ?? '')); }
+const P = (x) => (x != null && LANG() !== 'en' && I18N.phrases[LANG()][x]) || x;
+const usd = (n, cur = 'USD') => new Intl.NumberFormat(LOC(), { style: 'currency', currency: cur, currencyDisplay: 'narrowSymbol', minimumFractionDigits: Number.isInteger(Math.round(n * 100) / 100) ? 0 : 2, maximumFractionDigits: 2 }).format(n || 0).replace(/\u202f|\u00a0/g, ' ');
+const DAYS = { en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'], fr: ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'], es: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'] };
+// "Friday 10 AM" -> "vendredi 10 h" / "viernes 10:00"; "Delivery in 2 days" -> its translation
+function slotL(label) {
+  const l = LANG();
+  if (l === 'en' || !label) return label || '';
+  const x = /^(\w+day)\s+(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i.exec(String(label).trim());
+  if (!x) return P(label);
+  const h = (Number(x[2]) % 12) + (x[4].toUpperCase() === 'PM' ? 12 : 0), m = Number(x[3] || 0);
+  const d = DAYS[l][DAYS.en.findIndex((n) => n.toLowerCase() === x[1].toLowerCase())] || x[1];
+  return `${d} ${l === 'fr' ? `${h} h${m ? ' ' + String(m).padStart(2, '0') : ''}` : `${h}:${String(m).padStart(2, '0')}`}`;
+}
 const cap = (s) => String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1);
 const ICONS = {
   cleaning: '<path d="M14 3 9 13M7 13h6l3 8H4l3-8Z"/><path d="M18 4v3M16.5 5.5h3"/>',
@@ -131,10 +150,10 @@ function gauge(env, { adding = 0, after = null, grow = false } = {}) {
   if (!env || !env.budget) return '';
   const pct = (x) => Math.max(0, Math.min(100, (x / env.budget) * 100));
   const left = after ?? env.remaining;
-  const per = env.period && env.period !== 'once' ? ' this ' + esc({ weekly: 'week', monthly: 'month' }[env.period] || env.period) : '';
-  return `<div class="gauge" role="img" aria-label="${esc(usd(left))} left of ${esc(usd(env.budget))}${after !== null ? ' after this' : ''}">
+  const per = env.period && env.period !== 'once' ? tx(env.period === 'monthly' ? ' this month' : ' this week') : '';
+  return `<div class="gauge" role="img" aria-label="${esc(tx('{left} left of {budget}', { left: usd(left), budget: usd(env.budget) }))}${after !== null ? esc(tx(' after this')) : ''}">
     <div class="bar"><span class="spent" style="width:${pct(env.spent)}%"></span><span class="held" style="width:${pct(env.held)}%"></span>${adding ? `<span class="next" data-w="${pct(adding)}" style="width:${grow ? 0 : pct(adding)}%"></span>` : ''}</div>
-    <div class="gauge-text"><span><b>${usd(left)}</b> left${after !== null ? ' after this' : ''}</span><span>${esc(env.purpose || '')} · ${usd(env.budget)}${per}</span></div>
+    <div class="gauge-text"><span>${tx(after !== null ? '{amt} left after this' : '{amt} left', { amt: `<b>${usd(left)}</b>` })}</span><span>${esc(env.purpose || '')} · ${usd(env.budget)}${per}</span></div>
   </div>`;
 }
 function growGauges() {
@@ -146,14 +165,14 @@ function skeleton(words) {
     <div class="hero"><span class="sk sk-title"></span><span class="sk sk-num"></span></div>
     <div class="stack"><span class="sk sk-row"></span><span class="sk sk-row short"></span><span class="sk sk-row"></span></div>`;
 }
-function showLoading(words) { const a = document.querySelector('main.card'); if (a) { a.classList.add('loading'); a.setAttribute('aria-busy', 'true'); a.innerHTML = skeleton(words); } }
+function showLoading(words) { window.__loading = words; words = tx(words); const a = document.querySelector('main.card'); if (a) { a.classList.add('loading'); a.setAttribute('aria-busy', 'true'); a.innerHTML = skeleton(words); } }
 // Error: the cause as the title, then the one next step the server gave (Alexa+ guide: errors offer one action).
 function showError(result) {
   const text = (result.content || []).map((c) => c.text).join(' ');
   const [cause, next] = text.split(/\s*Next step:\s*/);
   const a = document.querySelector('main.card');
   a.classList.remove('loading'); a.removeAttribute('aria-busy');
-  a.innerHTML = `<div class="head"><p class="context">Mandat needs a change</p>${status('wait', 'Not done')}</div>
+  a.innerHTML = `<div class="head"><p class="context">${esc(tx('Mandat needs a change'))}</p>${status('wait', tx('Not done'))}</div>
     <h1>${esc(cause)}</h1>${next ? `<p class="lead">${esc(next)}</p>` : ''}`;
 }
 function ready() { const a = document.querySelector('main.card'); if (a) { a.classList.remove('loading'); a.removeAttribute('aria-busy'); } }
