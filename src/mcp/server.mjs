@@ -68,8 +68,8 @@ export function createMcpServer({ service, household = householdFrom }) {
   // ---------- resources: the 5 cards ----------
   for (const name of CARD_NAMES) {
     const c = ui[name];
-    server.registerResource(`card-${name}`, c.uri, { title: c.title, description: `Mandat ${c.title.toLowerCase()} card (MCP App view)`, mimeType: MCP_APP_MIME, _meta: resourceUiMeta() },
-      async (uri) => ({ contents: [{ uri: uri.href, mimeType: MCP_APP_MIME, text: c.html, _meta: resourceUiMeta() }] }));
+    server.registerResource(`card-${name}`, c.uri, { title: c.title, description: `Mandat ${c.title.toLowerCase()} card (MCP App view)`, mimeType: MCP_APP_MIME, _meta: resourceUiMeta(service.publicUrl) },
+      async (uri) => ({ contents: [{ uri: uri.href, mimeType: MCP_APP_MIME, text: c.html, _meta: resourceUiMeta(service.publicUrl) }] }));
   }
 
   // ---------- tools ----------

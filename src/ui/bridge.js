@@ -111,6 +111,12 @@ const ICONS = {
 const icon = (k) => `<span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24">${ICONS[k] || ICONS.product}</svg></span>`;
 const kindIcon = (o) => icon(o.kind === 'product' ? 'product' : o.category || guessCategory(o));
 const status = (tone, text) => `<span class="status ${tone}">${esc(text)}</span>`;
+// Item photo (served from Mandat's own origin, the only domain in the card's CSP), else the category icon.
+// The box has a fixed size, so the card never jumps when the photo arrives; a photo that fails keeps a quiet tile.
+const thumb = (o, cls = '') => o && o.image_url
+  ? `<span class="thumb ${cls}"><img src="${esc(o.image_url)}" alt="${esc(o.image_alt || o.title || o.label || '')}" loading="lazy" decoding="async"></span>`
+  : kindIcon(o);
+document.addEventListener('error', (e) => { if (e.target && e.target.tagName === 'IMG') e.target.closest('.thumb, .ph')?.classList.add('broken'); }, true);
 function guessCategory(o) {
   const t = `${o.merchant || ''} ${o.title || o.label || ''}`.toLowerCase();
   if (/clean|maid|tidy|nest/.test(t)) return 'cleaning';

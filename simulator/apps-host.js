@@ -28,8 +28,15 @@ export class AppsHost {
     this.frame = null;
   }
   // Show a view for one tool call: html from resources/read, then tool-input + tool-result once it is initialized.
-  async show({ html, toolName, args, result }) {
+  async show({ html, toolName, args, result, csp }) {
     await this.teardown();
+    // Enforce the resource's declared CSP (_meta.ui.csp), as a real MCP Apps host does: inline code only, no network,
+    // images only from the listed resourceDomains.
+    if (csp) {
+      const list = (a) => (a || []).filter((d) => /^https?:\/\/[^\s;'"]+$/.test(d)).join(' ');
+      const policy = `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: ${list(csp.resourceDomains)}; font-src data: ${list(csp.resourceDomains)}; connect-src ${list(csp.connectDomains) || "'none'"}`;
+      html = html.replace(/<head>/i, `<head><meta http-equiv="Content-Security-Policy" content="${policy}">`);
+    }
     const f = document.createElement('iframe');
     f.setAttribute('sandbox', 'allow-scripts');
     f.setAttribute('title', `Mandat ${toolName} card`);

@@ -65,7 +65,10 @@ test('resources: 5 MCP Apps views, text/html;profile=mcp-app, self-contained, wi
     assert.equal(r.mimeType, 'text/html;profile=mcp-app');
     const { contents } = await c.readResource({ uri: r.uri });
     assert.equal(contents[0].mimeType, 'text/html;profile=mcp-app');
-    assert.deepEqual(contents[0]._meta.ui.csp, { connectDomains: [], resourceDomains: [] });
+    // no network; images only from our own origin (item photos under /media/items/)
+    assert.deepEqual(contents[0]._meta.ui.csp.connectDomains, []);
+    assert.equal(contents[0]._meta.ui.csp.resourceDomains.length, 1);
+    assert.match(contents[0]._meta.ui.csp.resourceDomains[0], /^https?:\/\/[^/]+$/);
     const html = contents[0].text;
     assert.match(html, /^<!doctype html>/);
     assert.match(html, /ui\/initialize/);
@@ -119,5 +122,31 @@ test('errors are tool execution errors with one next step', async () => {
   const r = await c.callTool({ name: 'find_home_services', arguments: { need: 'deep clean', category: 'cleaning', when: 'Sunday', max_price: 20 } });
   assert.equal(r.isError, true);
   assert.match(text(r), /Next step:/);
+  await c.close();
+});
+
+test('item photos: offers, plan lines and receipts carry an image from our own origin, with alt text; files ≤ 60 KB', async () => {
+  const fs = await import('node:fs');
+  const { ITEM_MEDIA } = await import('../src/core/media.mjs');
+  const { PRODUCTS } = await import('../src/core/catalog.mjs');
+  for (const p of PRODUCTS) assert.ok(ITEM_MEDIA[p.id], `no photo for ${p.id}`);
+  for (const id of ['m_brightnest', 'm_tidyhive', 'm_sparkle', 'm_hearth', 'm_olive', 'm_basil']) assert.ok(ITEM_MEDIA[id], `no photo for ${id}`);
+  for (const [, [name, alt]] of Object.entries(ITEM_MEDIA)) {
+    assert.ok(fs.statSync(new URL(`../media/items/${name}.webp`, import.meta.url)).size <= 60000, name);
+    assert.ok(alt.length > 10 && !/image|photo|picture/i.test(alt), `alt text of ${name}`);
+  }
+  const c = await client(srv.mcpUrl);
+  const { plan, clean } = await inLawsPlan(c);
+  const origin = new URL(srv.url).origin;
+  for (const o of sc(clean).offers) { assert.ok(o.image_url.startsWith(origin + '/media/items/'), o.image_url); assert.ok(o.image_alt); }
+  for (const l of sc(plan).plan.lines) assert.ok(l.image_url && l.image_alt, l.merchant);
+  const yes = await c.callTool({ name: 'confirm_plan', arguments: { plan_id: sc(plan).plan.id, confirmation_token: sc(plan).confirmation_token, user_confirmation: 'yes' } });
+  for (const o of sc(yes).receipt.orders) assert.ok(o.image_url, o.merchant);
+  // the card's CSP lists that one origin; the photo is served there as WebP
+  const { contents } = await c.readResource({ uri: (await c.listResources()).resources.find((r) => r.uri.includes('/plan-')).uri });
+  assert.deepEqual(contents[0]._meta.ui.csp.resourceDomains, [new URL(sc(plan).plan.lines[0].image_url).origin]);
+  const img = await fetch(sc(plan).plan.lines[0].image_url);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/webp');
   await c.close();
 });

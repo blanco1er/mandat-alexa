@@ -28,7 +28,10 @@ export function cards() {
 }
 
 // _meta.ui for the resource (both in resources/list and in resources/read contents[]).
-// No network access, no external resources: every card is fully inline, so the CSP lists stay empty.
-export function resourceUiMeta() {
-  return { ui: { csp: { connectDomains: [], resourceDomains: [] }, prefersBorder: false } };
+// No network access; code, styles and icons are inline. The only external resources are the item photos, served
+// from our own origin (/media/items/), so resourceDomains lists that one origin and nothing else.
+export function resourceUiMeta(publicUrl) {
+  let origin = null;
+  try { origin = publicUrl ? new URL(publicUrl).origin : null; } catch {}
+  return { ui: { csp: { connectDomains: [], resourceDomains: origin ? [origin] : [] }, prefersBorder: false } };
 }

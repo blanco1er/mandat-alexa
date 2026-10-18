@@ -152,12 +152,12 @@ async function render(name, args, result) {
   if (!uri || result.isError || device === 'dot') return;
   if (!resourceCache.has(uri)) {
     const r = await mcp.readResource(uri);
-    resourceCache.set(uri, r.contents[0].text);
+    resourceCache.set(uri, { html: r.contents[0].text, csp: r.contents[0]._meta?.ui?.csp || { connectDomains: [], resourceDomains: [] } });
   }
   document.body.classList.remove('fullscreen');
   document.body.dataset.screen = 'card';
   host.setContext({ displayMode: 'inline', containerDimensions: slotSize() });
-  await host.show({ html: resourceCache.get(uri), toolName: name, args, result });
+  await host.show({ ...resourceCache.get(uri), toolName: name, args, result });
 }
 
 // Close tokens and pending plans from card actions are kept like the orchestrator's own.

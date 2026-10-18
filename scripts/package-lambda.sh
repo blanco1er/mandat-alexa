@@ -5,7 +5,7 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAGE="$ROOT/dist/stage"
 rm -rf "$STAGE" && mkdir -p "$STAGE"
-cp -R "$ROOT/src" "$ROOT/simulator" "$ROOT/skill" "$ROOT/package.json" "$ROOT/package-lock.json" "$ROOT/LICENSE" "$STAGE/"
+cp -R "$ROOT/src" "$ROOT/simulator" "$ROOT/media" "$ROOT/skill" "$ROOT/package.json" "$ROOT/package-lock.json" "$ROOT/LICENSE" "$STAGE/"
 mkdir -p "$STAGE/orchestrator"
 cp "$ROOT/orchestrator/brain.mjs" "$ROOT/orchestrator/scripted-model.mjs" "$ROOT/orchestrator/package.json" "$ROOT/orchestrator/package-lock.json" "$STAGE/orchestrator/"
 # Never ship local state or secrets: the git-ignored data folders (store.json, .network-secret) and any .env.

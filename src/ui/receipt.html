@@ -38,11 +38,11 @@ function render(result) {
     <div class="hero"><h1>${title}</h1><span class="num">${usd(settled ? paid : held)}<small>${settled ? 'paid' : 'held'}</small></span></div>
     <ul class="rows${r.orders.length > 3 ? ' compact' : ''}">${r.orders.slice(0, 6).map((o) => {
       const tl = o.timeline.filter((t) => t.state !== 'changed');
-      return `<li>${kindIcon(o)}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.kind === 'product' ? `${o.label} · ${o.slotLabel || ''}` : o.slotLabel || o.label || '')}</span></span>
+      return `<li>${thumb(o, 'sm')}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.kind === 'product' ? `${o.label} · ${o.slotLabel || ''}` : o.slotLabel || o.label || '')}</span></span>
         <ol class="tl" aria-label="Payment timeline">${tl.map((t) => `<li class="${t.state}"><i aria-hidden="true"></i>${LABEL[t.state] || esc(t.state)}${t.amount ? ' ' + usd(t.amount) : ''}</li>`).join('')}</ol>
         <span class="amt">${usd(o.state === 'held' ? o.amount : (o.captured || 0) - (o.refunded || 0))}</span></li>`;
     }).join('')}</ul>
-    ${alts.length ? `<div class="alt">${kindIcon(alts[0])}<span class="who"><b>Replacement: ${esc(alts[0].merchant)}</b><span>${esc(alts[0].slot_label)}</span></span><span class="amt">${usd(alts[0].total)}</span><button class="btn primary" id="alt">Book</button></div>` : ''}
+    ${alts.length ? `<div class="alt">${thumb(alts[0], 'sm')}<span class="who"><b>Replacement: ${esc(alts[0].merchant)}</b><span>${esc(alts[0].slot_label)}</span></span><span class="amt">${usd(alts[0].total)}</span><button class="btn primary" id="alt">Book</button></div>` : ''}
     ${r.envelope ? gauge(r.envelope) : ''}`;
   const a = $('#alt');
   if (a) a.onclick = () => {

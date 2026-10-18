@@ -12,6 +12,7 @@ import * as envelope from './core/envelope.mjs';
 import * as defaultPaypal from './core/paypal.mjs';
 import { searchProducts, shopEnabled } from './core/shop.mjs';
 import { searchCatalog } from './core/catalog.mjs';
+import { mediaFor } from './core/media.mjs';
 import { DAY_NAMES, guardQuote, identityCard, merchant as merchantById, MERCHANTS, normalizeCategory, parseGuests, parseWhen, search, verifyCard } from './core/merchants.mjs';
 import { pkOf } from './store/index.mjs';
 
@@ -221,6 +222,7 @@ export class Mandat {
         base: round(quote.base), discount: round(quote.discount), fees: 0, tax: 0, total: round(quote.total), currency: 'USD',
         negotiation: r.reply, conditions: quote.conditions || '',
         card_verified: verifyCard(card), agent: card.agent, card_issuer: card.issuedBy,
+        ...mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl),
         created: new Date(now).toISOString(), expires: new Date(now + OFFER_TTL).toISOString(),
       });
     }
@@ -272,6 +274,7 @@ export class Mandat {
       id: id('off'), kind: 'product', merchant_id: p.shop, merchant: p.shopName, product_id: p.id, title: p.title, quantity,
       base: round(p.price * quantity), discount: 0, fees: round(p.delivery || 0), tax: 0, total: round(p.price * quantity + (p.delivery || 0)), currency: 'USD',
       matches_preference: liked(p), slot_label: 'Delivery in 2 days',
+      ...mediaFor({ kind: 'product', product_id: p.id }, this.publicUrl),
       created: new Date(now).toISOString(), expires: new Date(now + OFFER_TTL).toISOString(),
     }));
     for (const o of offers) await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
@@ -318,7 +321,7 @@ export class Mandat {
     for (const oid of ids) offers.push(await this.offer(hid, oid));
     const m = await this.mandate(hid, mandate_id);
     const env = await this.envelopeOf(hid, m);
-    const lines = offers.map((o) => ({ offer_id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, merchant_id: o.merchant_id, title: o.title, detail: o.slot_label, guests: o.guests ?? null, quantity: o.quantity ?? null, base: o.base, discount: o.discount, fees: o.fees, tax: o.tax, total: o.total }));
+    const lines = offers.map((o) => ({ offer_id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, merchant_id: o.merchant_id, title: o.title, detail: o.slot_label, guests: o.guests ?? null, quantity: o.quantity ?? null, base: o.base, discount: o.discount, fees: o.fees, tax: o.tax, total: o.total, ...(o.image_url ? { image_url: o.image_url, image_alt: o.image_alt } : {}) }));
     const sum = (k) => round(lines.reduce((s, l) => s + (l[k] || 0), 0));
     const breakdown = { base: sum('base'), discount: sum('discount'), fees: sum('fees'), tax: sum('tax'), total: sum('total'), currency: m.currency };
     const verdict = envelope.check(env, breakdown.total);
@@ -381,6 +384,7 @@ export class Mandat {
             id: oid, plan_id: plan.id, mandate_id: m.id, kind: l.kind, category: l.category ?? null, merchant_id: l.merchant_id, merchant: l.merchant, label: l.title, slotLabel: l.detail,
             guests: l.guests, quantity: l.quantity, amount: l.total, currency: m.currency, state: 'held', paypal: { orderId: pp.orderId, authorizationId: pp.authorizationId, mode: pp.mode },
             close_token: crypto.randomBytes(12).toString('hex'), timeline: [{ state: 'held', amount: l.total, at }],
+            ...(l.image_url ? { image_url: l.image_url, image_alt: l.image_alt } : {}),
           });
         }
       } catch (e) {
