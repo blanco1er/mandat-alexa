@@ -120,3 +120,25 @@ test('"can it come tomorrow?" is answered with the real delivery; a swap is alwa
   assert.equal(sc(linen).offers.length - 1, 3, text(linen));
   await c.close();
 });
+
+test('found live by the off-script battery: linen, "it", cheaper of the same kind, a TV', async () => {
+  const c = await client(srv.mcpUrl);
+  const { bed, plan } = await inLawsPlan(c);
+  // "linen sheet set": both sheet sets are sheets; nothing is linen -> no swap, closest options
+  const l = await c.callTool({ name: 'swap_item', arguments: { wanted: 'linen sheet set' } });
+  assert.match(text(l), /^I don't have “linen sheet set” among the options\. The closest:/);
+  assert.equal(sc(await c.callTool({ name: 'review_plan', arguments: {} })).plan.id, sc(plan).plan.id);
+  // "can it come tomorrow?" with no clear item: the real timing of every line, nothing changed
+  const t = await c.callTool({ name: 'swap_item', arguments: { wanted: 'tomorrow', item: 'it' } });
+  assert.match(text(t), /^Hearth & Linen delivers in 2 days, so the Guest bed bundle cannot come tomorrow\. The services keep their slots: BrightNest Cleaning Friday at 10 AM and Hearth Table Catering Saturday at 7 PM\. Once booked, I can ask a merchant to move\. Nothing changed: your plan is still \$372\.$/);
+  // something cheaper than the sheets = cheaper sheets only (towels are not a replacement)
+  const sateen = sc(bed).offers.find((o) => /sateen/i.test(o.title));
+  const alt = sc(await c.callTool({ name: 'list_alternatives', arguments: { offer_id: sateen.id, cheaper_only: true } }));
+  assert.deepEqual(alt.offers.slice(1).map((o) => o.product_type), ['sheets']);
+  // a TV is not carried: say what Mandat buys, never "try a higher price"
+  const tv = await c.callTool({ name: 'find_products', arguments: { query: 'TV' } });
+  assert.ok(tv.isError);
+  assert.match(text(tv), /Mandat doesn't buy TV: it handles household essentials/);
+  assert.doesNotMatch(text(tv), /price limit/);
+  await c.close();
+});

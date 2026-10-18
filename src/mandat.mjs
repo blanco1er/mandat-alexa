@@ -346,6 +346,8 @@ export class Mandat {
     // Household brand/product preferences go first.
     const liked = (p) => prefs.some((x) => (p.brand && x.fact.toLowerCase().includes(p.brand.toLowerCase())));
     ok.sort((a, b) => Number(liked(b)) - Number(liked(a)));
+    // Not carried at all (a TV): say what Mandat does buy, never "try a higher price"
+    if (!found.length && !max_price) throw new ToolError(T('e_not_carried', { q: query }), 'Tell the user what Mandat can buy; do not suggest another price.');
     if (!ok.length) throw new ToolError(T('e_nothing', { q: query, prefs: skipped.length > 0 }), 'Ask the user for another product or a higher price limit.');
     const now = this.now();
     const sid = id('srch');
@@ -708,7 +710,8 @@ export class Mandat {
   async listAlternatives(hid, { offer_id, cheaper_only = false }) {
     const o = await this.offer(hid, offer_id);
     const sibs = await this.siblings(hid, o);
-    const others = sibs.filter((x) => x.id !== o.id && (!cheaper_only || x.total < o.total));
+    // "something cheaper" means the same kind of thing (sheets for sheets, not towels)
+    const others = sibs.filter((x) => x.id !== o.id && (!cheaper_only || (x.total < o.total && (o.kind !== 'product' || !o.product_type || x.product_type === o.product_type))));
     const noun = nounOf(o.kind === 'service' ? o.category : 'products', sibs.length);
     if (!others.length) {
       const speech = cheaper_only ? T('alt_cheapest', { name: o.kind === 'service' ? o.merchant : P(o.title), n: sibs.length, noun }) : T('alt_none');
@@ -790,10 +793,18 @@ export class Mandat {
     if (SWAP_TIMING.test(`${want} ${item}`)) {
       const lines = plan.lines;
       const iw = words(item);
-      const line = lines.find((l) => iw.length && iw.some((w) => words(`${l.title} ${l.merchant} ${l.category || ''} ${CAT_WORDS[l.category] || ''}`).includes(w))) || lines.find((l) => l.kind === 'product') || lines[0];
-      const o = (await this.store.get(pkOf(hid), `OFFER#${line.offer_id}`)) || line;
-      const name = o.kind === 'service' ? o.merchant : P(o.title).split(/[:(]/)[0].trim();
-      const speech = o.kind === 'product' ? T('swap_timing_product', { name, m: o.merchant }) : T('swap_timing_service', { m: o.merchant, slot: spokenSlot(o.slot_label) });
+      const named = lines.filter((l) => iw.length && iw.some((w) => words(`${l.title} ${l.merchant} ${l.category || ''} ${CAT_WORDS[l.category] || ''} ${l.kind === 'product' ? CAT_WORDS.sheets : ''}`).includes(w)));
+      const which = named.length === 1 ? named : lines; // "it" without a clear item: the real timing of every line
+      const parts = [], svc = [];
+      for (const line of which) {
+        const o = (await this.store.get(pkOf(hid), `OFFER#${line.offer_id}`)) || line;
+        const name = o.kind === 'service' ? o.merchant : P(o.title).split(/[:(]/)[0].trim();
+        if (o.kind === 'product') parts.push(T('swap_timing_product', { name, m: o.merchant }));
+        else svc.push(o);
+      }
+      if (svc.length === 1) parts.push(T('swap_timing_service', { m: svc[0].merchant, slot: spokenSlot(svc[0].slot_label) }));
+      else if (svc.length) parts.push(T('swap_timing_services', { list: listWords(svc.map((o) => `${o.merchant} ${spokenSlot(o.slot_label)}`)) }));
+      const speech = parts.join(' ');
       const review = await this.reviewPlan(hid, { plan_id: plan.id });
       return { speech: `${speech} ${T('swap_nothing_changed', { total: usd(plan.breakdown.total) })}`, data: { ...review.data, swap: { matched: false, timing: true } }, card: 'plan' };
     }
@@ -824,7 +835,8 @@ export class Mandat {
           const s = wantWords.filter((w) => t.includes(w) && !lineText.includes(w)).length * 2 + wantWords.filter((w) => t.includes(w)).length + (x.product_type && x.product_type === cur.product_type ? 0.5 : 0);
           if (s > score) { score = s; pick = x; }
         }
-        if (score < 2) pick = null; // at least one word that the current item does not already have
+        // at least one word the candidate has and the current item does not ("linen" is not a reason to pick sateen)
+        if (score < 2 || !pick || !wantWords.some((w) => textOf(pick).includes(w) && !lineText.includes(w))) pick = null;
         if (!pick && SWAP_ANOTHER.test(want) && kindHit) pick = [...sibs].filter((x) => x.kind === cur.kind && (x.category || x.product_type) === (cur.category || cur.product_type)).sort((a, b) => a.total - b.total)[0] || null;
       }
       tries.push({ line: l, cur, sibs, pick, rank: (pick ? 10 : 0) + aim * 5 + kindHit + score });
