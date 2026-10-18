@@ -7,18 +7,26 @@ import { Mandat } from './mandat.mjs';
 import { createStore } from './store/index.mjs';
 import { createProvider } from './providers/index.mjs';
 import { SimulatedBrain } from './brain/simulated.mjs';
+import { setSharedLedger } from './core/spend.mjs';
+import crypto from 'node:crypto';
+
+// Key on the brain's own MCP calls so the per-IP limit does not count them (derived, never the secret itself).
+export const internalKeyOf = (secret) => (secret ? crypto.createHash('sha256').update(`mandat-internal:${secret}`).digest('hex').slice(0, 32) : '');
 
 let app = null;
 async function appFor(origin) {
   if (app) return app;
   const publicUrl = process.env.MANDAT_PUBLIC_URL || origin;
-  const service = new Mandat({ store: createStore(process.env.MANDAT_STORE || 'dynamodb'), provider: createProvider(), publicUrl });
-  const headers = process.env.MANDAT_DEMO_TOKEN ? { Authorization: `Bearer ${process.env.MANDAT_DEMO_TOKEN}` } : {};
+  const store = createStore(process.env.MANDAT_STORE || 'dynamodb');
+  if (store.ledger) setSharedLedger(store.ledger()); // one LLM budget for every warm container
+  const service = new Mandat({ store, provider: createProvider(), publicUrl });
+  const internalKey = internalKeyOf(process.env.MANDAT_NETWORK_SECRET);
+  const headers = { ...(process.env.MANDAT_DEMO_TOKEN ? { Authorization: `Bearer ${process.env.MANDAT_DEMO_TOKEN}` } : {}), ...(internalKey ? { 'X-Mandat-Internal': internalKey } : {}) };
   // The brain calls this same function's /mcp over HTTPS, like any external MCP client would.
   const brain = process.env.MANDAT_BRAIN === 'strands'
     ? await (await import('../orchestrator/brain.mjs')).createStrandsBrain({ mcpUrl: `${publicUrl}/mcp`, headers })
     : new SimulatedBrain({ mcpUrl: `${publicUrl}/mcp`, headers });
-  app = createApp({ service, brain, allowedOrigins: (process.env.MANDAT_ALLOWED_ORIGINS || publicUrl).split(",").map((x) => x.trim()) });
+  app = createApp({ service, brain, internalKey, allowedOrigins: (process.env.MANDAT_ALLOWED_ORIGINS || publicUrl).split(",").map((x) => x.trim()) });
   return app;
 }
 
@@ -29,6 +37,9 @@ export function eventToRequest(event) {
   const url = `https://${host}${event.rawPath || '/'}${qs}`;
   const method = event.requestContext?.http?.method || 'GET';
   const headers = new Headers(event.headers || {});
+  // The caller's address as AWS saw it (never a header the caller could set): used by the per-IP demo limits.
+  headers.delete('x-mandat-client-ip');
+  if (event.requestContext?.http?.sourceIp) headers.set('x-mandat-client-ip', event.requestContext.http.sourceIp);
   if (event.cookies?.length) headers.set('cookie', event.cookies.join('; '));
   const body = event.body ? (event.isBase64Encoded ? Buffer.from(event.body, 'base64') : event.body) : undefined;
   return new Request(url, { method, headers, body: ['GET', 'HEAD'].includes(method) ? undefined : body });

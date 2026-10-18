@@ -17,6 +17,8 @@ export const commands = {
     ConsistentRead: true,
   }),
   delete: (pk, sk) => ({ TableName: TABLE(), Key: { PK: pk, SK: sk } }),
+  // Atomic counter (the shared LLM spend ledger): ADD n to attribute "n".
+  add: (pk, sk, n) => ({ TableName: TABLE(), Key: { PK: pk, SK: sk }, UpdateExpression: 'ADD n :n SET updatedAt = :t', ExpressionAttributeValues: { ':n': n, ':t': new Date().toISOString() } }),
 };
 
 export class DynamoDbStore {
@@ -55,4 +57,11 @@ export class DynamoDbStore {
     return out;
   }
   async delete(pk, sk) { const c = await this.client(); await c.send(new this.lib.DeleteCommand(commands.delete(pk, sk))); }
+  // Shared spend ledger for core/spend.mjs: one item, PK "SPEND", SK "LLM", attribute n = USD spent on models.
+  ledger(pk = 'SPEND', sk = 'LLM') {
+    return {
+      total: async () => { const c = await this.client(); return Number((await c.send(new this.lib.GetCommand(commands.get(pk, sk)))).Item?.n || 0); },
+      add: async (usd) => { const c = await this.client(); await c.send(new this.lib.UpdateCommand(commands.add(pk, sk, usd))); },
+    };
+  }
 }

@@ -14,12 +14,33 @@ import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
 import { createMcpServer } from './mcp/server.mjs';
 import { createTts } from './providers/tts.mjs';
 import { MODE as PAYPAL_MODE } from './core/paypal.mjs';
+import { spendViewShared } from './core/spend.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATIC = { '/simulator/': path.join(ROOT, 'simulator') };
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json' };
 
 const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
+
+// Per-IP limits for the public demo (per warm process; the shared LLM budget in core/spend.mjs is the global cap).
+// MANDAT_LIMIT_TURNS (turns per IP per hour, default 60), MANDAT_LIMIT_TTS (120), MANDAT_LIMIT_MCP (MCP POSTs, 600).
+// The brain's own MCP calls carry X-Mandat-Internal (derived from MANDAT_NETWORK_SECRET) and are not counted.
+export function createLimiter({ perHour, windowMs = 3_600_000, now = () => Date.now() }) {
+  const hits = new Map();
+  return (key) => {
+    if (!perHour) return { ok: true };
+    const t = now();
+    const list = (hits.get(key) || []).filter((x) => t - x < windowMs);
+    if (list.length >= perHour) { hits.set(key, list); return { ok: false, retryAfter: Math.ceil((windowMs - (t - list[0])) / 1000) }; }
+    list.push(t);
+    hits.set(key, list);
+    if (hits.size > 5000) hits.delete(hits.keys().next().value);
+    return { ok: true };
+  };
+}
+const limitOf = (name, dflt) => { const v = process.env[name]; return v === undefined || v === '' ? dflt : Math.max(0, Number(v) || 0); };
+export const clientIp = (request) => request.headers.get('x-mandat-client-ip') || 'local';
+const tooMany = (retryAfter, speech) => json(429, { error: 'Too many requests', speech }, { 'retry-after': String(retryAfter) });
 
 // MCP 2025-11-25 transports: servers MUST validate Origin and answer 403 when it is invalid.
 // Requests without Origin (server-to-server: the orchestrator, Strands, MCP Inspector CLI, curl) are allowed.
@@ -28,12 +49,18 @@ export function originAllowed(origin, allowed) {
   return allowed.includes(origin);
 }
 
-export function createApp({ service, brain = null, allowedOrigins, demoToken = process.env.MANDAT_DEMO_TOKEN || '', tts = createTts() }) {
+export function createApp({ service, brain = null, allowedOrigins, demoToken = process.env.MANDAT_DEMO_TOKEN || '', tts = createTts(), internalKey = '' }) {
   const origins = allowedOrigins || (process.env.MANDAT_ALLOWED_ORIGINS || 'http://localhost:8787,http://127.0.0.1:8787').split(',').map((s) => s.trim()).filter(Boolean);
+  const limits = { turn: createLimiter({ perHour: limitOf('MANDAT_LIMIT_TURNS', 60) }), tts: createLimiter({ perHour: limitOf('MANDAT_LIMIT_TTS', 120) }), mcp: createLimiter({ perHour: limitOf('MANDAT_LIMIT_MCP', 600) }) };
+  const internal = (request) => !!internalKey && request.headers.get('x-mandat-internal') === internalKey;
 
   async function mcp(request) {
     if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { jsonrpc: '2.0', error: { code: -32000, message: 'Forbidden origin' }, id: null });
     if (demoToken && request.headers.get('authorization') !== `Bearer ${demoToken}`) return json(401, { jsonrpc: '2.0', error: { code: -32001, message: 'Missing or wrong bearer token' }, id: null }, { 'www-authenticate': 'Bearer' });
+    if (request.method === 'POST' && !internal(request)) {
+      const l = limits.mcp(clientIp(request));
+      if (!l.ok) return json(429, { jsonrpc: '2.0', error: { code: -32000, message: 'Too many requests from this address; try again later.' }, id: null }, { 'retry-after': String(l.retryAfter) });
+    }
     const server = createMcpServer({ service });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
@@ -61,7 +88,7 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
     const p = url.pathname;
     try {
       if (p === '/mcp') return await mcp(request);
-      if (p === '/healthz') return json(200, { ok: true, protocol: LATEST_PROTOCOL_VERSION, model: service.provider.name, store: service.store.kind, paypal: PAYPAL_MODE, brain: brain?.name || null, tts: tts?.name || 'browser' });
+      if (p === '/healthz') return json(200, { ok: true, protocol: LATEST_PROTOCOL_VERSION, model: service.provider.name, store: service.store.kind, paypal: PAYPAL_MODE, brain: brain?.name || null, tts: tts?.name || 'browser', llm_budget: (({ usd, budget, left, paused }) => ({ usd, budget, left, paused }))(await spendViewShared()) });
       if (p === '/turn' && request.method === 'POST') {
         if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { error: 'Forbidden origin' });
         if (!brain) return json(501, { error: 'No orchestrator configured' });
@@ -69,12 +96,23 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
         const text = String(body.text || '').slice(0, 500);
         if (!text.trim()) return json(400, { error: 'Say something.' });
         const household = /^[a-z0-9_-]{1,40}$/i.test(body.household || '') ? body.household : 'demo';
-        const out = await brain.runTurn({ text, session: { ...(body.session || {}), device: body.device || 'show' }, household });
-        return json(200, out);
+        const l = limits.turn(clientIp(request));
+        if (!l.ok) return tooMany(l.retryAfter, 'That is a lot of requests from here in one hour. Please try again a little later; nothing was booked or charged.');
+        try {
+          const out = await brain.runTurn({ text, session: { ...(body.session || {}), device: body.device || 'show' }, household });
+          return json(200, out);
+        } catch (e) {
+          if (e.code === 'LLM_BUDGET') return json(503, { error: 'Model budget used up', speech: e.message });
+          throw e;
+        }
       }
       if (p === '/tts' && request.method === 'POST') {
         if (!tts) return json(501, { error: 'No server TTS; the browser voice is used.' });
-        const { text } = await request.json();
+        if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { error: 'Forbidden origin' });
+        const l = limits.tts(clientIp(request));
+        if (!l.ok) return tooMany(l.retryAfter);
+        const { text } = await request.json().catch(() => ({}));
+        if (!String(text || '').trim()) return json(400, { error: 'Nothing to say.' });
         return new Response(await tts.synthesize(text), { headers: { 'content-type': 'audio/mpeg' } });
       }
       if (p === '/paypal/return') {

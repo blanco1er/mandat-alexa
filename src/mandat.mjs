@@ -110,7 +110,7 @@ export class Mandat {
       household_id: hid,
       envelopes: section && section !== 'budget' ? undefined : envelopes,
       mandates: section && section !== 'budget' ? undefined : mandates.map(({ paypal, ...m }) => ({ ...m, paypal_mode: paypal?.mode })),
-      open_orders: section && section !== 'orders' ? undefined : open.map(publicOrder),
+      open_orders: section && section !== 'orders' ? undefined : open.map((o) => ({ ...publicOrder(o), purpose: mandates.find((m) => m.id === o.mandate_id)?.purpose })),
       recent_orders: section && section !== 'orders' ? undefined : orders.filter((o) => o.state !== 'held').slice(-5).map(publicOrder),
       preferences: section && section !== 'preferences' ? undefined : preferences,
       pending_decisions: pending.map((p) => ({ plan_id: p.id, total: p.breakdown.total, lines: p.lines.map((l) => l.merchant) })),
@@ -201,6 +201,8 @@ export class Mandat {
     const cat = normalizeCategory(category) || normalizeCategory(need);
     if (!cat) throw new ToolError(`I can book cleaning, catering, plumbing and handyman services.`, 'Ask the user which of these they need.');
     guests = guests || parseGuests(need) || null;
+    // Caterers price per guest: never quote a dinner for "one" because the number was lost on the way.
+    if (cat === 'catering' && !guests) throw new ToolError('How many guests should the caterer plan for?', 'Ask the user, or reuse the guest count of the booking being replaced, then search again with guests.');
     const merchants = search({ category: cat, area }).map((p) => merchantById(p.id));
     const answers = await Promise.all(merchants.map(async (m) => {
       const r = await this.provider.merchantAgent({ merchant: m, when, ask: need, guests });
@@ -321,6 +323,11 @@ export class Mandat {
     const breakdown = { base: sum('base'), discount: sum('discount'), fees: sum('fees'), tax: sum('tax'), total: sum('total'), currency: m.currency };
     const verdict = envelope.check(env, breakdown.total);
     const t = envelope.totals(env);
+    // Bounded autonomy is per item: bundling a small restock with a big one would hide it behind a yes.
+    const auto = Number(m.auto_approve_under) || 0;
+    if (auto > 0 && lines.length > 1 && lines.every((l) => l.kind === 'product') && breakdown.total > auto && lines.some((l) => l.total <= auto)) {
+      throw new ToolError(`Under your ${usd(auto)} rule each product is its own plan, so the small ones go through at once.`, 'Call propose_plan once per product.');
+    }
     if (!verdict.ok) {
       throw new ToolError(`That plan costs ${usd(breakdown.total)} but only ${usd(t.remaining)} is left in ${m.purpose}.`, 'Drop an item, pick cheaper options, or ask the user to raise the budget with set_spending_mandate.');
     }
@@ -417,6 +424,11 @@ export class Mandat {
       if (o.kind !== 'service') throw new ToolError('Shop orders cannot be changed once placed.', 'Cancel it with close_order and buy again.');
       const mer = merchantById(o.merchant_id);
       const r = await this.provider.merchantChange({ merchant: mer, order: o, change });
+      // Server-side truth over any model: a move to a day the merchant is closed is a decline.
+      if (r.accepted && change.field === 'date') {
+        const d = parseWhen(String(change.value)).day;
+        if (d && !mer.open.includes(d)) Object.assign(r, { accepted: false, reply: `Sorry, we are closed on ${DAY_NAMES[d]}, so we cannot move your booking.` });
+      }
       const m = (await this.mandates(hid)).find((x) => x.id === o.mandate_id);
       const env = await this.envelopeOf(hid, m);
       const at = new Date(this.now()).toISOString();
@@ -484,7 +496,17 @@ export class Mandat {
         o.timeline.push({ state: 'released', amount: o.amount, note: 'cancelled', at });
         speech = `Cancelled ${o.merchant}. The ${usd(o.amount)} hold is released; nothing was charged.`;
       } else if (action === 'refund') {
-        if (o.state !== 'captured') throw new ToolError(`That order is ${o.state}; only a paid order can be refunded.`, o.state === 'held' ? 'Use action cancel to release the hold instead.' : 'Check the order with get_household_status.');
+        // A part refund on an order still on hold means "delivered, part sent back": settle the hold, then refund.
+        let settled = '';
+        if (o.state === 'held' && amount > 0 && amount < o.amount - 1e-9) {
+          const take = round(o.expected_total ?? o.amount);
+          const pc = await this.paypal.capture({ authorizationId: o.paypal.authorizationId, amount: take < o.amount ? take : undefined, currency: o.currency });
+          envelope.capture(env, o.id, pc, take);
+          Object.assign(o, { state: 'captured', captured: take, paypal: { ...o.paypal, captureId: pc.captureId } });
+          o.timeline.push({ state: 'captured', amount: take, note: 'settled before a part refund', at });
+          settled = `Paid ${o.merchant} ${usd(take)}, then: `;
+        }
+        if (o.state !== 'captured') throw new ToolError(`That order is ${o.state}; only a paid order can be refunded.`, o.state === 'held' ? 'If it was delivered, capture it first (close_order capture), then refund the amount; to call the whole order off, use cancel.' : 'Check the order with get_household_status.');
         const paid = round((o.captured ?? o.amount) - (o.refunded || 0));
         const back = round(amount ?? paid);
         if (!(back > 0) || back > paid + 1e-9) throw new ToolError(`At most ${usd(paid)} can be refunded on this order.`, 'Refund a smaller amount.');
@@ -493,7 +515,7 @@ export class Mandat {
         o.refunded = round((o.refunded || 0) + back);
         if (o.refunded >= (o.captured ?? o.amount) - 1e-9) o.state = 'refunded';
         o.timeline.push({ state: 'refunded', amount: back, at });
-        speech = `Refund of ${usd(back)} from ${o.merchant} is on its way.`;
+        speech = `${settled}Refund of ${usd(back)} from ${o.merchant} is on its way.`;
       } else throw new ToolError('The action must be capture, cancel or refund.', 'Pick one.');
       await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
       await this.saveEnvelope(hid, m, env);

@@ -61,7 +61,14 @@ test('deploy: empty account -> table, role, function, URL, permissions, env, in 
   assert.deepEqual(policy.Statement.map((s) => s.Sid), ['Table', 'Models', 'Voice']);
   assert.equal(policy.Statement[0].Resource, 'arn:aws:dynamodb:us-east-1:111122223333:table/mandat');
   assert.ok(!JSON.stringify(policy).includes('"dynamodb:*"') && !JSON.stringify(policy).includes('"bedrock:*"'), 'least privilege');
-  assert.ok(policy.Statement[1].Resource.includes('arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-5-5*'));
+  const models = policy.Statement[1].Resource;
+  assert.ok(models.includes('arn:aws:bedrock:us-east-1:111122223333:inference-profile/us.amazon.nova-2-lite-v1:0'), 'Nova 2 Lite brain (US profile)');
+  assert.ok(models.includes('arn:aws:bedrock:us-east-1:111122223333:inference-profile/global.amazon.nova-2-lite-v1:0'), 'global fallback profile');
+  assert.ok(models.includes('arn:aws:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0*'));
+  assert.ok(models.includes('arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0*'), 'Nova Lite merchants');
+  assert.ok(!models.some((m) => /anthropic/.test(m)), 'no third-party model by default');
+  assert.ok(policy.Statement[0].Action.includes('dynamodb:UpdateItem'), 'shared LLM spend counter');
+  assert.equal(new Set(models).size, models.length, 'no duplicate ARN');
 
   const env = JSON.parse(fs.readFileSync(path.join(dir, 'env.json'), 'utf8')).Variables;
   assert.equal(env.MANDAT_STORE, 'dynamodb');
@@ -71,6 +78,8 @@ test('deploy: empty account -> table, role, function, URL, permissions, env, in 
   assert.equal(env.PAYPAL_CLIENT_SECRET, secret);
   assert.equal(env.MANDAT_PAYPAL, undefined, 'sandbox keys given: payments are not forced offline');
   assert.equal(env.MANDAT_MODEL, 'simulated');
+  assert.equal(env.MANDAT_LLM_BUDGET_USD, '15', 'hard LLM ceiling on by default');
+  assert.equal(env.MANDAT_BEDROCK_BRAIN_ID, 'us.amazon.nova-2-lite-v1:0');
   assert.ok(!('AWS_REGION' in env), 'AWS_REGION is reserved by Lambda');
 });
 
@@ -85,6 +94,17 @@ test('deploy: a second run updates in place and keeps the network secret', () =>
   const env = JSON.parse(fs.readFileSync(path.join(dir, 'env.json'), 'utf8')).Variables;
   assert.equal(env.MANDAT_NETWORK_SECRET, 'k'.repeat(64));
   assert.deepEqual([env.MANDAT_MODEL, env.MANDAT_BRAIN, env.MANDAT_BRAIN_MODEL, env.MANDAT_TTS, env.MANDAT_PAYPAL], ['bedrock', 'strands', 'bedrock', 'polly', 'offline']);
+});
+
+test('deploy: an account with a 10-execution Lambda limit skips reserved concurrency instead of failing', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mandat-deploy-'));
+  const bin = fakeAws(dir);
+  const aws = path.join(bin, 'aws');
+  fs.writeFileSync(aws, fs.readFileSync(aws, 'utf8').replace('case "$args" in', 'case "$args" in\n  *" get-account-settings "*) echo \'{"AccountLimit":{"ConcurrentExecutions":10}}\';;'));
+  const r = run({ PATH: `${bin}:${process.env.PATH}` }, dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(fs.readFileSync(path.join(dir, 'calls.log'), 'utf8'), /put-function-concurrency/);
+  assert.match(r.stdout, /reserved concurrency skipped/);
 });
 
 test('deploy: DRY_RUN prints the plan and calls nothing', () => {

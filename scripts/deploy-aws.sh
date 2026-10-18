@@ -5,15 +5,19 @@
 #
 #   DRY_RUN=1 npm run deploy:aws                     # prints every AWS call, calls nothing (no credentials needed)
 #   AWS_PROFILE=mandat npm run deploy:aws            # tier A: simulated brain + merchants, DynamoDB, PayPal offline
-#   AWS_PROFILE=mandat DEPLOY_STAGE=bedrock npm run deploy:aws   # Strands + Bedrock brain, Nova merchants, Polly
+#   AWS_PROFILE=mandat DEPLOY_STAGE=bedrock npm run deploy:aws   # Strands + Amazon Nova brain, Nova merchants, Polly
 # (npm run deploy:aws = bash scripts/deploy-aws.sh)
 #
 # Settings are read from environment variables, by NAME only. Nothing secret lives in this file or in git:
 #   AWS_PROFILE, AWS_REGION (us-east-1)            which account / region (credentials come from the AWS CLI)
 #   MANDAT_FUNCTION (mandat-alexa), MANDAT_TABLE (mandat), MANDAT_ROLE (mandat-alexa-role)
 #   DEPLOY_STAGE (simulated | bedrock)             simulated first, bedrock once model access is granted
-#   MANDAT_BEDROCK_BRAIN_ID, MANDAT_MERCHANT_MODEL Bedrock ids (defaults: us.anthropic.claude-haiku-5-5, us.amazon.nova-2-lite-v1:0)
-#   MANDAT_POLLY_VOICE (Danielle), MANDAT_LLM_BUDGET_USD (25), MANDAT_RESERVED_CONCURRENCY (5)
+#   MANDAT_BEDROCK_BRAIN_ID (us.amazon.nova-2-lite-v1:0), MANDAT_BRAIN_FALLBACK_ID (global.amazon.nova-2-lite-v1:0)
+#   MANDAT_MERCHANT_MODEL (us.amazon.nova-lite-v1:0), MANDAT_MERCHANT_FALLBACK_ID (global.amazon.nova-2-lite-v1:0)
+#                                                  Amazon Nova by default; Claude (us.anthropic.*) works where enabled
+#   MANDAT_POLLY_VOICE (Danielle), MANDAT_LLM_BUDGET_USD (15, hard ceiling shared by every container)
+#   MANDAT_LIMIT_TURNS (60), MANDAT_LIMIT_TTS (120), MANDAT_LIMIT_MCP (600)   per-IP, per-hour demo limits
+#   MANDAT_RESERVED_CONCURRENCY (5)                skipped when the account's Lambda limit is too small to reserve
 #   PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET         sandbox keys, from your shell only; absent = payments stay simulated
 #   MANDAT_DEMO_TOKEN                              optional bearer token on /mcp
 #   MANDAT_NETWORK_SECRET                          optional; generated once and then kept from the live function
@@ -28,9 +32,12 @@ FUNCTION="${MANDAT_FUNCTION:-mandat-alexa}"
 TABLE="${MANDAT_TABLE:-mandat}"
 ROLE="${MANDAT_ROLE:-mandat-alexa-role}"
 STAGE="${DEPLOY_STAGE:-simulated}"
-BRAIN_ID="${MANDAT_BEDROCK_BRAIN_ID:-us.anthropic.claude-haiku-5-5}"
-MERCHANT_ID="${MANDAT_MERCHANT_MODEL:-us.amazon.nova-2-lite-v1:0}"
+BRAIN_ID="${MANDAT_BEDROCK_BRAIN_ID:-us.amazon.nova-2-lite-v1:0}"
+BRAIN_FALLBACK="${MANDAT_BRAIN_FALLBACK_ID-global.amazon.nova-2-lite-v1:0}"
+MERCHANT_ID="${MANDAT_MERCHANT_MODEL:-us.amazon.nova-lite-v1:0}"
+MERCHANT_FALLBACK="${MANDAT_MERCHANT_FALLBACK_ID-global.amazon.nova-2-lite-v1:0}"
 CONCURRENCY="${MANDAT_RESERVED_CONCURRENCY:-5}"
+TIMEOUT="${MANDAT_TIMEOUT:-90}" # one voice turn = several model calls + nested MCP calls; throttling retries back off
 DRY="${DRY_RUN:-0}"
 TMP="$(mktemp -d)"
 chmod 700 "$TMP"
@@ -76,20 +83,19 @@ fi
 cat > "$TMP/trust.json" <<'JSON'
 { "Version": "2012-10-17", "Statement": [ { "Effect": "Allow", "Principal": { "Service": "lambda.amazonaws.com" }, "Action": "sts:AssumeRole" } ] }
 JSON
-# Cross-region inference profiles (us.*) route to several US regions: allow the profile and the underlying models.
-strip_profile() { printf '%s' "${1#us.}"; }
-jq -n --arg region "$REGION" --arg account "$ACCOUNT" --arg table "$TABLE" --arg brain "$BRAIN_ID" --arg merchant "$MERCHANT_ID" \
-  --arg brainModel "$(strip_profile "$BRAIN_ID")" --arg merchantModel "$(strip_profile "$MERCHANT_ID")" '{
+# Inference profiles (us.* geo, global.*) route to several regions: allow each profile and its underlying model in
+# every region (a global profile's model ARN has no region, which "*" also matches). Plain model ids: the model only.
+MODEL_IDS="$(printf '%s\n' "$BRAIN_ID" "$BRAIN_FALLBACK" "$MERCHANT_ID" "$MERCHANT_FALLBACK" | sed '/^$/d' | sort -u | paste -sd, -)"
+jq -n --arg region "$REGION" --arg account "$ACCOUNT" --arg table "$TABLE" --arg ids "$MODEL_IDS" '
+  ($ids | split(",")) as $ids |
+  [ $ids[] | if test("^(us|eu|apac|global|us-gov|jp|au)\\.") then
+      ("arn:aws:bedrock:\($region):\($account):inference-profile/\(.)", "arn:aws:bedrock:*::foundation-model/\(sub("^[a-z-]+\\."; ""))*")
+    else "arn:aws:bedrock:*::foundation-model/\(.)*" end ] as $models | {
   Version: "2012-10-17",
   Statement: [
-    { Sid: "Table", Effect: "Allow", Action: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:DeleteItem"],
+    { Sid: "Table", Effect: "Allow", Action: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:DeleteItem", "dynamodb:UpdateItem"],
       Resource: "arn:aws:dynamodb:\($region):\($account):table/\($table)" },
-    { Sid: "Models", Effect: "Allow", Action: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-      Resource: [
-        "arn:aws:bedrock:\($region):\($account):inference-profile/\($brain)",
-        "arn:aws:bedrock:\($region):\($account):inference-profile/\($merchant)",
-        "arn:aws:bedrock:*::foundation-model/\($brainModel)*",
-        "arn:aws:bedrock:*::foundation-model/\($merchantModel)*" ] },
+    { Sid: "Models", Effect: "Allow", Action: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], Resource: ($models | unique) },
     { Sid: "Voice", Effect: "Allow", Action: "polly:SynthesizeSpeech", Resource: "*" }
   ] }' > "$TMP/policy.json"
 NEW_ROLE=0
@@ -108,14 +114,22 @@ if exists lambda get-function --function-name "$FUNCTION"; then
   say "updating code of $FUNCTION"
   aws_ lambda update-function-code --function-name "$FUNCTION" --zip-file "fileb://$ZIP" --architectures arm64 >/dev/null
 else
-  say "creating $FUNCTION (nodejs22.x, arm64, 1024 MB, 30 s)"
+  say "creating $FUNCTION (nodejs22.x, arm64, 1024 MB, ${TIMEOUT} s)"
   aws_ lambda create-function --function-name "$FUNCTION" --runtime nodejs22.x --architectures arm64 \
-    --handler src/lambda.handler --memory-size 1024 --timeout 30 --role "$ROLE_ARN" \
+    --handler src/lambda.handler --memory-size 1024 --timeout "$TIMEOUT" --role "$ROLE_ARN" \
     --zip-file "fileb://$ZIP" --tags project=mandat-alexa >/dev/null
   aws_ lambda wait function-active-v2 --function-name "$FUNCTION"
 fi
 aws_ lambda wait function-updated-v2 --function-name "$FUNCTION"
-aws_ lambda put-function-concurrency --function-name "$FUNCTION" --reserved-concurrent-executions "$CONCURRENCY" >/dev/null
+# Reserved concurrency caps the bill, but Lambda keeps at least min(100, account limit) unreserved: a new account
+# (limit 10) cannot reserve anything. Then the per-IP limits and the LLM budget are the caps.
+LIMIT=1000; [ "$DRY" = 1 ] || LIMIT="$(aws_ lambda get-account-settings | jq -r '.AccountLimit.ConcurrentExecutions // 1000')"
+MIN_FREE=$(( LIMIT < 100 ? LIMIT : 100 ))
+if [ $(( LIMIT - CONCURRENCY )) -ge "$MIN_FREE" ]; then
+  aws_ lambda put-function-concurrency --function-name "$FUNCTION" --reserved-concurrent-executions "$CONCURRENCY" >/dev/null
+else
+  say "account Lambda limit is $LIMIT: reserved concurrency skipped (per-IP limits + LLM budget cap the demo)"
+fi
 
 # ---------- 5. Function URL (public, buffered: JSON responses, no SSE) ----------
 if exists lambda get-function-url-config --function-name "$FUNCTION"; then say "function URL exists"; else
@@ -145,13 +159,15 @@ if [ "$STAGE" = bedrock ]; then MODEL=bedrock; BRAIN=strands; BRAIN_MODEL=bedroc
 PAYPAL_MODE=offline; [ -n "${PAYPAL_CLIENT_ID:-}" ] && [ -n "${PAYPAL_CLIENT_SECRET:-}" ] && PAYPAL_MODE=
 umask 077
 NETWORK_SECRET="$NETWORK_SECRET" MODEL="$MODEL" BRAIN="$BRAIN" BRAIN_MODEL="$BRAIN_MODEL" TTS="$TTS" URL="$URL" TABLE="$TABLE" \
-BRAIN_ID="$BRAIN_ID" MERCHANT_ID="$MERCHANT_ID" PAYPAL_MODE="$PAYPAL_MODE" node -e '
+BRAIN_ID="$BRAIN_ID" MERCHANT_ID="$MERCHANT_ID" BRAIN_FALLBACK="$BRAIN_FALLBACK" MERCHANT_FALLBACK="$MERCHANT_FALLBACK" PAYPAL_MODE="$PAYPAL_MODE" node -e '
   const e = process.env;
   const v = {
     MANDAT_STORE: "dynamodb", MANDAT_TABLE: e.TABLE, MANDAT_MODEL: e.MODEL, MANDAT_BRAIN: e.BRAIN, MANDAT_BRAIN_MODEL: e.BRAIN_MODEL,
     MANDAT_BEDROCK_BRAIN_ID: e.BRAIN_ID, MANDAT_MERCHANT_MODEL: e.MERCHANT_ID, MANDAT_TTS: e.TTS, MANDAT_POLLY_VOICE: e.MANDAT_POLLY_VOICE || "Danielle",
+    MANDAT_BRAIN_FALLBACK_ID: e.BRAIN_FALLBACK, MANDAT_MERCHANT_FALLBACK_ID: e.MERCHANT_FALLBACK, MANDAT_BRAIN_REASONING: e.MANDAT_BRAIN_REASONING,
+    MANDAT_LIMIT_TURNS: e.MANDAT_LIMIT_TURNS, MANDAT_LIMIT_TTS: e.MANDAT_LIMIT_TTS, MANDAT_LIMIT_MCP: e.MANDAT_LIMIT_MCP,
     MANDAT_PUBLIC_URL: e.URL, MANDAT_ALLOWED_ORIGINS: e.URL, MANDAT_NETWORK_SECRET: e.NETWORK_SECRET,
-    MANDAT_LLM_BUDGET_USD: e.MANDAT_LLM_BUDGET_USD || "25", MANDAT_PAYPAL: e.PAYPAL_MODE,
+    MANDAT_LLM_BUDGET_USD: e.MANDAT_LLM_BUDGET_USD || "15", MANDAT_PAYPAL: e.PAYPAL_MODE,
     PAYPAL_CLIENT_ID: e.PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET: e.PAYPAL_CLIENT_SECRET, MANDAT_DEMO_TOKEN: e.MANDAT_DEMO_TOKEN,
     NODE_OPTIONS: "--enable-source-maps",
   };
@@ -159,7 +175,7 @@ BRAIN_ID="$BRAIN_ID" MERCHANT_ID="$MERCHANT_ID" PAYPAL_MODE="$PAYPAL_MODE" node 
   process.stdout.write(JSON.stringify({ Variables: v }));
 ' > "$TMP/env.json"
 say "setting $(jq -r '.Variables | keys | join(", ")' "$TMP/env.json")"
-aws_ lambda update-function-configuration --function-name "$FUNCTION" --environment "file://$TMP/env.json" >/dev/null
+aws_ lambda update-function-configuration --function-name "$FUNCTION" --timeout "$TIMEOUT" --environment "file://$TMP/env.json" >/dev/null
 aws_ lambda wait function-updated-v2 --function-name "$FUNCTION"
 
 # ---------- 7. smoke test ----------
@@ -167,7 +183,7 @@ if [ "$DRY" != 1 ] && [ "${SKIP_SMOKE:-0}" != 1 ]; then
   say "smoke test"
   curl -fsS "$URL/healthz" | jq -c . || die "healthz failed"
   AUTH=(); [ -n "${MANDAT_DEMO_TOKEN:-}" ] && AUTH=(-H "authorization: Bearer $MANDAT_DEMO_TOKEN")
-  PROTO="$(curl -fsS "$URL/mcp" "${AUTH[@]}" -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  PROTO="$(curl -fsS "$URL/mcp" ${AUTH[@]+"${AUTH[@]}"} -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"deploy-smoke","version":"1"}}}' | jq -r .result.protocolVersion)"
   [ "$PROTO" = "2025-11-25" ] || die "MCP initialize answered '$PROTO'"
   say "MCP initialize over the public URL: $PROTO"

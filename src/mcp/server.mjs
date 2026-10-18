@@ -30,12 +30,16 @@ export function householdFrom(extra, fallback = 'demo') {
 function idsFor(tool, d) {
   switch (tool) {
     case 'set_spending_mandate': return { mandate_id: d.mandate?.id, status: d.mandate?.status, approval_url: d.approval_url || undefined };
-    case 'get_household_status': return { mandates: d.envelopes?.map((e) => ({ mandate_id: e.mandate_id, purpose: e.purpose, remaining: e.remaining })), open_orders: d.open_orders?.map((o) => ({ order_id: o.id, merchant: o.merchant, amount: o.amount })), pending: d.pending_decisions };
+    case 'get_household_status': {
+      const purpose = Object.fromEntries((d.envelopes || []).map((e) => [e.mandate_id, e.purpose]));
+      return { mandates: d.envelopes?.map((e) => ({ mandate_id: e.mandate_id, purpose: e.purpose, remaining: e.remaining })), open_orders: d.open_orders?.map((o) => ({ order_id: o.id, kind: o.kind, category: o.category || undefined, merchant: o.merchant, item: o.label, when: o.slotLabel || undefined, amount: o.amount, state: o.state, mandate_id: o.mandate_id, budget: o.purpose || purpose[o.mandate_id] })), pending: d.pending_decisions };
+    }
     case 'find_home_services': case 'find_products': case 'negotiate_offer':
-      return { offers: (d.offers || []).map((o) => ({ offer_id: o.id, merchant: o.merchant, total: o.total, when: o.slot_label })) };
+      // offers come best first (cheapest verified service; for products, the household's usual brand first)
+      return { recommended_offer_id: d.offers?.[0]?.id, offers: (d.offers || []).map((o) => ({ offer_id: o.id, merchant: o.merchant, title: o.title, total: o.total, when: o.slot_label })) };
     case 'propose_plan': return { plan_id: d.plan?.id, mandate_id: d.plan?.mandate_id, total: d.plan?.breakdown?.total, needs_user_yes: d.needs_user_yes, confirmation_token: d.confirmation_token };
     case 'confirm_plan': case 'change_order': case 'close_order':
-      return { orders: d.receipt?.orders?.map((o) => ({ order_id: o.id, merchant: o.merchant, state: o.state, amount: o.amount, close_token: o.close_token })), alternatives: d.alternatives?.map((o) => ({ offer_id: o.id, merchant: o.merchant, total: o.total, when: o.slot_label })) };
+      return { orders: d.receipt?.orders?.map((o) => ({ order_id: o.id, merchant: o.merchant, state: o.state, amount: o.amount, captured: o.captured || undefined, mandate_id: o.mandate_id, close_token: o.close_token })), alternatives: d.alternatives?.map((o) => ({ offer_id: o.id, merchant: o.merchant, total: o.total, when: o.slot_label })), replacement: d.alternatives?.length ? `propose_plan with item_ids ["${d.alternatives[0].id}"] and mandate_id "${d.receipt?.orders?.[0]?.mandate_id}"` : undefined };
     default: return {};
   }
 }
@@ -132,7 +136,7 @@ export function createMcpServer({ service, household = householdFrom }) {
       when: z.string().min(2).max(80).describe('Day and time wished, e.g. "Friday before noon" or "Saturday 7pm".'),
       area: z.string().max(60).optional().describe('Neighbourhood, to prefer closer merchants.'),
       max_price: z.number().positive().max(5000).optional().describe('Skip quotes above this total.'),
-      guests: z.number().int().min(1).max(30).optional().describe('Number of guests, for catering.'),
+      guests: z.number().int().min(1).max(30).optional().describe('Number of guests: required for catering (prices are per guest).'),
     },
     card: 'offers', annotations: { readOnlyHint: true, openWorldHint: true },
   }, (hid, a) => service.findHomeServices(hid, a));
@@ -143,7 +147,7 @@ export function createMcpServer({ service, household = householdFrom }) {
     input: {
       query: z.string().min(2).max(200).describe('What to look for, e.g. "dog food" or "queen sheets for the guest room".'),
       max_price: z.number().positive().max(5000).optional().describe('Highest price per item.'),
-      quantity: z.number().int().min(1).max(10).default(1).describe('How many.'),
+      quantity: z.number().int().min(1).max(10).default(1).describe('How many units. Leave it out (1) unless the user said a number: one bedding set covers a bed.'),
     },
     card: 'offers', annotations: { readOnlyHint: true, openWorldHint: true },
   }, (hid, a) => service.findProducts(hid, a));
@@ -179,7 +183,7 @@ export function createMcpServer({ service, household = householdFrom }) {
 
   tool('change_order', {
     title: 'Change a booked order',
-    description: 'Use when plans change on a booked service: a new date, a new time or a new number of guests. Asks the merchant\'s agent. If the merchant declines, Mandat voids that payment hold at once and returns replacement options to propose.',
+    description: 'Use when plans change on a booked service: a new date, a new time or a new number of guests. Asks the merchant\'s agent. If the merchant declines, Mandat voids that payment hold at once and returns replacement options to propose (with the same mandate_id). When guests now arrive on another day, call it once for every service of that event: work needed before they arrive (cleaning) moves to the day before the new arrival day, the dinner moves to the new day.',
     input: {
       order_id: z.string().min(3).max(40).describe('order_id from a receipt or get_household_status.'),
       change: z.object({ field: z.enum(['date', 'time', 'quantity']), value: z.string().min(1).max(60).describe('New value, e.g. "Sunday", "7pm" or "5".') }).describe('The one thing to change.'),
@@ -189,7 +193,7 @@ export function createMcpServer({ service, household = householdFrom }) {
 
   tool('close_order', {
     title: 'Pay, cancel or refund an order',
-    description: 'Use when a service is done (capture: pays the merchant, a lower final bill captures less and releases the rest), when the user cancels before it happens (cancel: voids the hold), or for money back after payment (refund, full or partial). Needs the order\'s close_token from its receipt.',
+    description: 'Use when a service is done (capture: pays the merchant, a lower final bill captures less and releases the rest), when the user cancels before it happens (cancel: voids the hold), or for money back (refund, full or partial: on an order still on hold, a part refund first pays the rest). To settle up after an event, capture every held order of that event, with the final bill as amount when the user gives one. Needs the order\'s close_token from its receipt.',
     input: {
       order_id: z.string().min(3).max(40),
       action: z.enum(['capture', 'cancel', 'refund']),

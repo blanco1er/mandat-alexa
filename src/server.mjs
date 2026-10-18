@@ -13,6 +13,7 @@ export function toRequest(req, base) {
   const url = new URL(req.url, base);
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) if (v !== undefined) headers.set(k, Array.isArray(v) ? v.join(', ') : v);
+  headers.set('x-mandat-client-ip', req.socket?.remoteAddress || 'local');
   const hasBody = !['GET', 'HEAD'].includes(req.method);
   return new Request(url, { method: req.method, headers, body: hasBody ? Readable.toWeb(req) : undefined, duplex: hasBody ? 'half' : undefined });
 }

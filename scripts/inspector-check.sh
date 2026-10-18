@@ -6,7 +6,7 @@
 # Needs: node >= 22, npx (downloads @modelcontextprotocol/inspector once), jq. No AWS call, no paid API.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="$ROOT/docs/inspector"
+OUT="${INSPECTOR_OUT:-$ROOT/docs/inspector}"
 mkdir -p "$OUT"
 INSPECTOR="${INSPECTOR:-@modelcontextprotocol/inspector@2.11.0}"
 HH="inspector-$(date +%s)"

@@ -15,11 +15,18 @@
     "test:orchestrator": "cd orchestrator && npm test",
     "package": "sh scripts/package-lambda.sh",
     "inspect": "bash scripts/inspector-check.sh",
-    "deploy:aws": "bash scripts/deploy-aws.sh"
+    "deploy:aws": "bash scripts/deploy-aws.sh",
+    "live:scenarios": "node scripts/live-scenarios.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@paypal/paypal-server-sdk": "^2.5.0",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1152.0",
+    "@aws-sdk/client-dynamodb": "^3.1152.0",
+    "@aws-sdk/client-polly": "^3.1152.0",
+    "@aws-sdk/lib-dynamodb": "^3.1152.0"
   }
 }

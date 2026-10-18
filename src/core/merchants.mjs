@@ -163,6 +163,8 @@ export function floorPrice(m, guests) { return Math.max(0, listPrice(m, guests) 
 // Server-side guard on any quote coming back from a merchant agent (simulated or Bedrock).
 export function guardQuote(m, quote, guests) {
   if (!quote) return null;
+  // a model can agree to a day the merchant is closed: the merchant's opening days are the truth
+  if (quote.day && m.open && !m.open.includes(String(quote.day).toLowerCase().slice(0, 3))) return null;
   const list = listPrice(m, guests);
   const total = Math.round(Number(quote.total) * 100) / 100;
   if (!(total > 0)) return null;

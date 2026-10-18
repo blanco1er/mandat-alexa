@@ -17,6 +17,12 @@ Severity scale: **Blocker** (could not continue) · **High** (hours lost or a de
 | 8 | MCP TypeScript SDK 1.32.1 | Low | `McpServer` announces `listChanged: true` on its own, even when nothing can ever change |
 | 9 | MCP Inspector 2.11 CLI | Low | `--protocol-era modern` fails hard against a `2025-11-25` server; a 403 Origin refusal is reported as `auth_required` |
 | 10 | AWS promotional credits | High | The $150 hackathon credits were exhausted on 7 Oct, before many builders started on AWS |
+| 11 | Amazon Bedrock model access | High | On a new account, the newest Claude models answer `AccessDeniedException` "not available for this account" with no reason given |
+| 12 | Amazon Bedrock quotas | High | Nova 2 Lite on a new account: 20 requests/minute per inference profile (not adjustable for the US profile); one agent turn makes 6 model calls |
+| 13 | Strands Agents TS 1.21 × Bedrock | Medium | A `ThrottlingException` on the request (HTTP 429) becomes a plain `ModelError`, so the default retry strategy never retries it |
+| 14 | Strands Agents TS 1.21 AgentSkills × Nova 2 Lite | Medium | The model called the `skills` tool before acting in only 4 of 11 turns and skipped the playbooks otherwise |
+| 15 | AWS Lambda on a new account | Medium | Account concurrency limit is 10: reserving even 1 execution is refused, so reserved concurrency cannot cap a public demo |
+| 16 | Amazon Bedrock model catalogue | Low | Listed ids that do not work: Nova Premier (profile listed, "end of its life"), Nova 2 Pro (priced and quota'd, id invalid) |
 
 ---
 
@@ -107,5 +113,60 @@ Severity scale: **Blocker** (could not continue) · **High** (hours lost or a de
 - **Expected:** credits for the AWS Builder mini-challenge.
 - **Actual:** "while supplies last": exhausted on 7 Oct; Bedrock, Polly and the rest are paid by the entrant.
 - **Severity:** High for individual builders (it decides whether the Bedrock path gets built at all).
-- **Workaround:** every AWS integration has a local stand-in (simulated merchants, scripted Strands model, JSON store, browser voice) so the whole product runs and is tested without an account; a budget cap (`MANDAT_LLM_BUDGET_USD`) and reserved concurrency limit the bill once deployed.
+- **Workaround:** every AWS integration has a local stand-in (simulated merchants, scripted Strands model, JSON store, browser voice) so the whole product runs and is tested without an account; once deployed (on the owner's own new account, free plan), a hard model budget shared by every Lambda container (`MANDAT_LLM_BUDGET_USD`, one DynamoDB counter), per-address limits and an AWS Budgets alert cap the bill (reserved concurrency could not be used, see #15).
 - **Suggestion:** a small per-entrant Bedrock allowance, or a sandbox account with model access pre-approved for hackathon entrants.
+
+### 11. Newest Claude models "not available for this account" on a new AWS account
+- **Task attempted:** run the Alexa+ brain (Strands `BedrockModel`) on Claude Haiku 5.5 as first planned, on a brand-new AWS account (free plan, us-east-1), 18 Oct 2026.
+- **Steps taken:** `aws bedrock-runtime converse --model-id us.anthropic.claude-haiku-5-5` (and `us.anthropic.claude-sonnet-5-5`); both profiles are listed by `aws bedrock list-inference-profiles`.
+- **Expected:** an answer, or an error that says what to do (enable access, upgrade the plan, wait).
+- **Actual:** `AccessDeniedException: anthropic.claude-haiku-5-5 is not available for this account. You can explore other available models on Amazon Bedrock. For additional access options, contact AWS Sales`. The same call to `us.anthropic.claude-haiku-4-5-20251001-v1:0` answered. No reason is given (plan? account age? model generation?), while `list-inference-profiles` lists both profiles.
+- **Severity:** High (a design change on deploy day).
+- **Workaround:** moved the brain to **Amazon Nova 2 Lite** and the merchant agents to **Amazon Nova Lite** (first-party models available on every account); Claude stays a documented optional provider (`MANDAT_BEDROCK_BRAIN_ID`), and the deploy script builds its IAM policy from whatever model ids are configured.
+- **Suggestion:** say *why* in the error (for example "requires a paid support plan / account age"), and show the access status in `list-inference-profiles` so builders find out before they write code.
+
+### 12. Nova 2 Lite quota on a new account: 20 requests per minute
+- **Task attempted:** replay our three demo stories (11 voice turns) through the Strands agent on Nova 2 Lite.
+- **Steps taken:** ran `npm run live:scenarios`; one in-laws turn makes about 6 brain calls plus 6 merchant-agent calls in parallel.
+- **Expected:** a short demo to run without throttling on a pay-as-you-go account.
+- **Actual:** after about 20 calls, every call failed with `Too many requests, please wait before trying again.` Service Quotas shows "Cross-region model inference requests per minute for Amazon Nova 2 Lite" = **20, not adjustable**; the global profile has its own pool of 20 (adjustable); Amazon Nova Lite has 200.
+- **Severity:** High (8 of 11 turns failed on the first run).
+- **Workaround:** merchant agents moved to Amazon Nova Lite (its own 200/minute pool, a fifth of the price); the brain uses a Strands `ModelRouter` that falls back from the `us.` profile to the `global.` one; throttled calls are retried with backoff (#13). Result: 33/33 turns on three full runs.
+- **Suggestion:** document per-profile request pools next to each model, and give new accounts a default that fits one agentic demo (an agent turn is many calls, not one).
+
+### 13. Strands TS: request-level throttling is not retried
+- **Task attempted:** rely on Strands' default retry strategy (6 attempts, exponential backoff) to ride out Bedrock throttling.
+- **Steps taken:** read `retry/default-model-retry-strategy.js` and `models/bedrock.js` in `@strands-agents/sdk` 1.21.0 after seeing turns fail at once.
+- **Expected:** a Bedrock `ThrottlingException` to be retried.
+- **Actual:** only `ModelThrottledError` is retryable, and `BedrockModel` raises it only for a throttling event *inside* a stream. When `ConverseStream` itself is refused with HTTP 429, the error is wrapped as a generic `ModelError` (`models/model.js`) and surfaces immediately.
+- **Severity:** Medium.
+- **Workaround:** a 3-line subclass of `DefaultModelRetryStrategy` whose `isRetryable` also accepts throttling messages and causes (`orchestrator/brain.mjs`), plus the `ModelRouter` fallback.
+- **Suggestion:** map `ThrottlingException` / `ServiceUnavailableException` from the request to `ModelThrottledError` in `BedrockModel`.
+
+### 14. AgentSkills: the model has to choose to load the skill, and Nova 2 Lite often did not
+- **Task attempted:** let the Strands `AgentSkills` plugin load our `mandat-household-errands` skill on demand (progressive disclosure), as with the scripted model.
+- **Steps taken:** logged `skills.getActivatedSkills(agent)` after each live turn.
+- **Expected:** the model calls the `skills` tool before the first Mandat tool, as the system prompt asks.
+- **Actual:** it did in 4 of 11 turns. Without the playbook, story 3 went wrong (cleaning moved to the wrong day, two products bundled into one plan, a budget raised on its own).
+- **Severity:** Medium.
+- **Workaround:** with Bedrock, the host pins the skill's instructions (read with `Skill.fromDirectory`) into the system prompt; the plugin stays for the skill's reference files. Money-critical rules are also enforced outside the model: the host writes the user's own words into `user_confirmation` and refuses `set_spending_mandate` when no amount was said; the server refuses a bundled plan under an auto-approve rule.
+- **Suggestion:** an `AgentSkills` option to pre-activate skills (`activate: ['name']`) for single-purpose agents, and a hook to know when a turn ran without its skill.
+
+### 15. Lambda on a new account: no reserved concurrency possible
+- **Task attempted:** cap the public demo with reserved concurrency (5) in the one-command deploy.
+- **Steps taken:** `aws lambda put-function-concurrency --reserved-concurrent-executions 1` (even 1).
+- **Expected:** the reservation, as in every Lambda guide.
+- **Actual:** `InvalidParameterValueException: Specified ReservedConcurrentExecutions for function decreases account's UnreservedConcurrentExecution below its minimum value of [10]` — `get-account-settings` shows a total limit of 10.
+- **Severity:** Medium (the documented way to bound cost and abuse does not exist on a new account).
+- **Workaround:** the deploy script reads the account limit and skips the reservation when it cannot be made; the bill is capped by a model budget shared across containers (DynamoDB atomic counter), per-address limits on `/turn`, `/tts` and `/mcp`, and an AWS Budgets alert.
+- **Suggestion:** mention the new-account limit of 10 in the reserved-concurrency docs and console, and offer a per-function maximum that does not consume the unreserved pool.
+
+### 16. Model ids listed but not callable
+- **Task attempted:** compare Nova models for tool use before choosing the brain.
+- **Steps taken:** `list-inference-profiles` and `list-foundation-models`, then one Converse call each.
+- **Expected:** listed ids to work, or to be marked.
+- **Actual:** `us.amazon.nova-premier-v1:0` is listed and answers `ResourceNotFoundException: This model version has reached the end of its life`; "Nova 2 Pro" has prices in the Price List API and quotas in Service Quotas ("Nova 2 Pro Preview", 1 request/minute) but no callable id (`amazon.nova-2-pro-v1:0` → `The provided model identifier is invalid`).
+- **Severity:** Low.
+- **Workaround:** picked from what answered: Nova 2 Lite (brain, native parallel tool calls, no `<thinking>` text) over Nova Pro (it writes `<thinking>` blocks into the answer, which a voice would read aloud).
+- **Suggestion:** hide end-of-life profiles from the listing, and show preview models with their access status.
+

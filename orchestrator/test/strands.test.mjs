@@ -46,3 +46,46 @@ test('app-only tools (MCP Apps visibility ["app"]) never reach the model', async
   assert.ok(names.includes('confirm_plan'));
   assert.ok(!names.includes('refresh_card'), 'refresh_card is for the cards only');
 });
+
+// ---------- Bedrock (Amazon Nova) brain: host guardrails and helpers, no AWS call ----------
+const { guardToolCall, contextLine, spoken, isThrottle, pinnedPrompt, BEDROCK_BRAIN_ID, BEDROCK_BRAIN_FALLBACK_ID } = await import('../brain.mjs');
+
+test('Amazon Nova 2 Lite is the default brain, with the global profile as throttling fallback', () => {
+  assert.equal(BEDROCK_BRAIN_ID, 'us.amazon.nova-2-lite-v1:0');
+  assert.equal(BEDROCK_BRAIN_FALLBACK_ID, 'global.amazon.nova-2-lite-v1:0');
+});
+
+test('host guardrail: confirm_plan always carries the user\'s own words, never the model\'s', () => {
+  const g = guardToolCall('confirm_plan', { plan_id: 'p', confirmation_token: 't', user_confirmation: 'Yes, buy it' }, "We're almost out of dog food and coffee.");
+  assert.equal(g.input.user_confirmation, "We're almost out of dog food and coffee.", 'the server then refuses a plan that needs a yes');
+  assert.equal(g.input.plan_id, 'p');
+});
+
+test('host guardrail: no budget is created or changed unless the user said an amount', () => {
+  assert.ok(guardToolCall('set_spending_mandate', { budget: 200 }, 'Yes, go ahead.').cancel);
+  assert.ok(!guardToolCall('set_spending_mandate', { budget: 400 }, 'Keep it under $400.').cancel);
+  assert.ok(!guardToolCall('set_spending_mandate', { budget: 150 }, 'a weekly budget of 150 dollars').cancel);
+  assert.ok(!guardToolCall('find_products', { query: 'coffee' }, 'coffee').cancel);
+});
+
+test('context line: device, pending plan and close tokens travel with the request (stateless server)', () => {
+  const l = contextLine({ device: 'dot', pending: { plan_id: 'plan_1', token: 'tok', total: 210 }, closeTokens: { ord_1: 'c1' } });
+  assert.match(l, /^\[device: dot; pending plan_id: plan_1, confirmation_token: tok, total: \$210; close tokens \(order_id=close_token\): ord_1=c1\]$/);
+  assert.equal(contextLine({}), '[device: show]');
+});
+
+test('spoken(): what the speaker says has no reasoning tags, markdown or context line', () => {
+  assert.equal(spoken('<thinking>plan</thinking>**Booked.** [device: show]\n- $372 on hold'), 'Booked. $372 on hold');
+});
+
+test('throttling is recognised whether Bedrock raised it inside the stream or on the request', () => {
+  assert.ok(isThrottle(Object.assign(new Error('Too many requests, please wait before trying again.'), { name: 'ModelError' })));
+  assert.ok(isThrottle({ name: 'ModelError', message: 'x', cause: { name: 'ThrottlingException' } }));
+  assert.ok(!isThrottle(new Error('ValidationException: bad input')));
+});
+
+test('with Bedrock, the skill instructions are pinned in the system prompt', () => {
+  const p = pinnedPrompt();
+  assert.match(p, /<skill name="mandat-household-errands">/);
+  assert.match(p, /One product per plan/);
+});

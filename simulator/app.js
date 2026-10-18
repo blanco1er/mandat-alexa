@@ -238,7 +238,7 @@ function trailLabel(s) {
     case 'find_products': return d.skipped?.length ? `Products · ${d.skipped.length} skipped` : 'Products checked';
     case 'negotiate_offer': return 'Negotiated';
     case 'propose_plan': return d.plan ? `Plan ${usd(d.plan.breakdown.total)}${d.auto_approved ? ' · auto' : ''}` : 'Plan';
-    case 'confirm_plan': { const n = d.receipt?.orders?.length || 0; return `${n} PayPal hold${n === 1 ? '' : 's'}`; }
+    case 'confirm_plan': { const n = d.receipt?.orders?.length || 0; return `${n} payment hold${n === 1 ? '' : 's'}`; }
     case 'change_order': { const o = d.receipt?.orders?.[0]; return o?.state === 'released' ? `${o.merchant} declined · hold voided` : `${o?.merchant || 'Merchant'} moved`; }
     case 'close_order': {
       const o = d.receipt?.orders?.[0];
@@ -411,7 +411,7 @@ async function turn(text) {
     log('orch', 'page → /turn', { method: 'turn', params: { text, device } });
     const r = await fetch('/turn', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, session, household, device: device === 'dot' ? 'dot' : 'show' }) });
     const out = await r.json();
-    if (!r.ok) throw new Error(out.error || 'turn failed');
+    if (!r.ok) throw Object.assign(new Error(out.error || 'turn failed'), { spoken: out.speech });
     for (const s of out.steps) log('orch', 'brain tools/call', { method: 'tools/call', params: { name: s.name, arguments: s.args }, result: s.result });
     session = { ...out.session, modelContext: null };
     store.set(`mandat.session.${household}`, session);
@@ -428,7 +428,7 @@ async function turn(text) {
     // Honest error: what happened, what did not, and the way out.
     played.delete(text); store.set(`mandat.played.${household}`, [...played]); renderScript();
     if (document.body.dataset.screen === 'home') document.body.dataset.screen = 'card';
-    setReply('I could not reach Mandat, so nothing was booked or charged. Try again in a moment.', { error: true });
+    setReply(e.spoken || 'I could not reach Mandat, so nothing was booked or charged. Try again in a moment.', { error: true });
     markAll();
     setState('idle');
     log('orch', 'page ✕ /turn', { method: 'error', error: { message: String(e.message || e) } });
@@ -493,6 +493,10 @@ new ResizeObserver(() => { cancelAnimationFrame(slotRaf); slotRaf = requestAnima
   try {
     const health = await fetch('/healthz').then((r) => r.json()).catch(() => ({}));
     ttsServer = health.tts === 'polly';
+    // Say honestly what runs behind this page: real model or not, sandbox payments or simulated ones.
+    const brain = /nova-2-lite/.test(health.brain || '') ? 'Amazon Nova 2 Lite on Bedrock' : /bedrock/.test(health.brain || '') ? 'Amazon Bedrock' : 'a scripted demo brain';
+    const pay = health.paypal === 'offline' ? 'payments are simulated (PayPal sandbox not connected)' : 'PayPal sandbox';
+    if (health.ok) $('#fine').textContent = `Unofficial Alexa+ simulator. Brain: ${brain}; ${pay}. No real money.`;
     await mcp.initialize();
     showSession();
     const { tools } = await mcp.listTools();

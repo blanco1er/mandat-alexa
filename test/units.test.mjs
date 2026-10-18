@@ -28,10 +28,10 @@ test('local store: putIfAbsent is exclusive and query is prefix-sorted', async (
 test('Bedrock: Converse input for a merchant agent carries its private terms and the chosen model', () => {
   const m = merchant('m_hearth');
   const input = converseInput({ modelId: BEDROCK_MODELS.merchant, system: merchantSystemPrompt(m), user: 'dinner for six' });
-  assert.equal(input.modelId, 'us.amazon.nova-2-lite-v1:0');
+  assert.equal(input.modelId, 'us.amazon.nova-lite-v1:0');
   assert.match(input.system[0].text, /Closed Sunday and Monday/);
   assert.equal(input.messages[0].role, 'user');
-  assert.equal(BEDROCK_MODELS.brain, 'us.anthropic.claude-haiku-5-5');
+  assert.equal(BEDROCK_MODELS.brain, 'us.amazon.nova-2-lite-v1:0', 'Amazon Nova by default (Claude is optional)');
 });
 
 test('Polly: neural mp3 request', () => {

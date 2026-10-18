@@ -18,7 +18,7 @@
 </style></head>
 <body><main class="card" id="app" aria-live="polite"><p class="context">Working…</p></main>
 <script>/*BRIDGE_JS*/
-showLoading('Talking to PayPal sandbox…');
+showLoading('Placing payment holds…');
 const LABEL = { held: 'Held', captured: 'Paid', released: 'Released', refunded: 'Refunded', changed: 'Moved' };
 function render(result) {
   if (result.isError) return showError(result);
@@ -34,7 +34,7 @@ function render(result) {
   const title = r.orders.length === 1 ? esc(r.orders[0].merchant) : `${r.orders.length} orders`;
   const st = declined ? status('wait', 'Hold released') : settled ? status('ok', 'Settled') : status('info', `${usd(held)} on hold`);
   $('#app').innerHTML = `
-    <div class="head"><p class="context">Receipt · PayPal ${mode === 'offline' ? 'sandbox, simulated' : esc(mode)}</p>${st}</div>
+    <div class="head"><p class="context">Receipt · ${mode === 'offline' ? 'Simulated payments' : 'PayPal ' + esc(mode)}</p>${st}</div>
     <div class="hero"><h1>${title}</h1><span class="num">${usd(settled ? paid : held)}<small>${settled ? 'paid' : 'held'}</small></span></div>
     <ul class="rows${r.orders.length > 3 ? ' compact' : ''}">${r.orders.slice(0, 6).map((o) => {
       const tl = o.timeline.filter((t) => t.state !== 'changed');
