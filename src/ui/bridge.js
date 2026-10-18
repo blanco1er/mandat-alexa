@@ -48,12 +48,12 @@
   }
 
   // Glanceable means no scrolling: when the host gives a maxHeight (hostContext.containerDimensions) and the card is
-  // taller, the whole type scale shrinks a little (--k), down to 72%. Fullscreen cards are never shrunk.
+  // taller, the whole type scale shrinks a little (--k), down to 72%, in inline and fullscreen alike.
   function autoFit() {
     const root = document.documentElement;
     const max = hostContext.containerDimensions && hostContext.containerDimensions.maxHeight;
     root.style.setProperty('--k', '1');
-    if (!max || hostContext.displayMode === 'fullscreen') return;
+    if (!max) return;
     // measure the card itself: the iframe viewport may still be taller than the content
     const h = () => { const c = document.querySelector('main'); return c ? c.getBoundingClientRect().height : root.scrollHeight; };
     let k = 1;
@@ -105,10 +105,12 @@ const ICONS = {
   plumbing: '<path d="M4 10h8a3 3 0 0 1 3 3v2h3v-5h2v9h-2v-2h-5v-2a1 1 0 0 0-1-1H4Z"/><path d="M8 10V6M6 6h4"/>',
   handyman: '<path d="M14.5 6.5a4 4 0 0 0 4.9 4.9L21 13l-8 8-3-3 8-8-1.6-1.6a4 4 0 0 0-4.9-4.9l2.5 2.5-1.4 1.4Z"/><path d="M3 21l6-6"/>',
   product: '<path d="M4 8 12 4l8 4v8l-8 4-8-4Z"/><path d="M4 8l8 4 8-4M12 12v8"/>',
+  memory: '<path d="M12 21s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.6-7 10-7 10Z"/>',
   check: '<path d="M5 12.5 10 17 19 7"/>',
 };
 const icon = (k) => `<span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24">${ICONS[k] || ICONS.product}</svg></span>`;
 const kindIcon = (o) => icon(o.kind === 'product' ? 'product' : o.category || guessCategory(o));
+const status = (tone, text) => `<span class="status ${tone}">${esc(text)}</span>`;
 function guessCategory(o) {
   const t = `${o.merchant || ''} ${o.title || o.label || ''}`.toLowerCase();
   if (/clean|maid|tidy|nest/.test(t)) return 'cleaning';
@@ -117,17 +119,35 @@ function guessCategory(o) {
   if (/handy|fix|mount/.test(t)) return 'handyman';
   return 'product';
 }
-// Budget gauge: spent, held, and (optional) what this plan would add.
-function gauge(env, { adding = 0, after = null } = {}) {
-  if (!env) return '';
+// Budget gauge: spent, held, and (optional) what this plan would add. `grow` starts the new segment at zero so it
+// springs to its real width once painted (a state change made visible, not decoration).
+function gauge(env, { adding = 0, after = null, grow = false } = {}) {
+  if (!env || !env.budget) return '';
   const pct = (x) => Math.max(0, Math.min(100, (x / env.budget) * 100));
   const left = after ?? env.remaining;
-  return `<div class="gauge" role="img" aria-label="${esc(usd(left))} left of ${esc(usd(env.budget))}">
-    <div class="bar"><span class="spent" style="width:${pct(env.spent)}%"></span><span class="held" style="width:${pct(env.held)}%"></span>${adding ? `<span class="next" style="width:${pct(adding)}%"></span>` : ''}</div>
-    <div class="gauge-text"><span><b>${usd(left)}</b> left${after !== null ? ' after this' : ''} · ${esc(env.purpose || '')}</span><span>of ${usd(env.budget)}${env.period && env.period !== 'once' ? ' this ' + esc({ weekly: 'week', monthly: 'month' }[env.period] || env.period) : ''}</span></div>
+  const per = env.period && env.period !== 'once' ? ' this ' + esc({ weekly: 'week', monthly: 'month' }[env.period] || env.period) : '';
+  return `<div class="gauge" role="img" aria-label="${esc(usd(left))} left of ${esc(usd(env.budget))}${after !== null ? ' after this' : ''}">
+    <div class="bar"><span class="spent" style="width:${pct(env.spent)}%"></span><span class="held" style="width:${pct(env.held)}%"></span>${adding ? `<span class="next" data-w="${pct(adding)}" style="width:${grow ? 0 : pct(adding)}%"></span>` : ''}</div>
+    <div class="gauge-text"><span><b>${usd(left)}</b> left${after !== null ? ' after this' : ''}</span><span>${esc(env.purpose || '')} · ${usd(env.budget)}${per}</span></div>
   </div>`;
 }
-function showError(result) {
-  const text = (result.content || []).map((c) => c.text).join(' ').replace(/\s*Next step:.*$/, '');
-  document.body.innerHTML = `<main class="card"><div class="head"><p class="eyebrow">Mandat</p><span class="pill wait">Not done</span></div><h1>${esc(text)}</h1></main>`;
+function growGauges() {
+  requestAnimationFrame(() => requestAnimationFrame(() => { for (const s of document.querySelectorAll('.bar .next[data-w]')) s.style.width = s.dataset.w + '%'; }));
 }
+// Loading: the card's real shape, plus words that say what is happening.
+function skeleton(words) {
+  return `<div class="head"><p class="context">${esc(words)}</p></div>
+    <div class="hero"><span class="sk sk-title"></span><span class="sk sk-num"></span></div>
+    <div class="stack"><span class="sk sk-row"></span><span class="sk sk-row short"></span><span class="sk sk-row"></span></div>`;
+}
+function showLoading(words) { const a = document.querySelector('main.card'); if (a) { a.classList.add('loading'); a.setAttribute('aria-busy', 'true'); a.innerHTML = skeleton(words); } }
+// Error: the cause as the title, then the one next step the server gave (Alexa+ guide: errors offer one action).
+function showError(result) {
+  const text = (result.content || []).map((c) => c.text).join(' ');
+  const [cause, next] = text.split(/\s*Next step:\s*/);
+  const a = document.querySelector('main.card');
+  a.classList.remove('loading'); a.removeAttribute('aria-busy');
+  a.innerHTML = `<div class="head"><p class="context">Mandat needs a change</p>${status('wait', 'Not done')}</div>
+    <h1>${esc(cause)}</h1>${next ? `<p class="lead">${esc(next)}</p>` : ''}`;
+}
+function ready() { const a = document.querySelector('main.card'); if (a) { a.classList.remove('loading'); a.removeAttribute('aria-busy'); } }

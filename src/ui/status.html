@@ -1,39 +1,50 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mandat status</title>
 <style>/*SHARED_CSS*/
-.envs { display: grid; gap: calc(var(--gap) * .9); }
-.prefs { display: flex; gap: .5em; flex-wrap: wrap; }
-.chip { display: inline-flex; gap: .45em; align-items: baseline; font-size: var(--t-small); padding: .4em .9em; border-radius: 999px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line) inset; }
-.chip b { font-weight: 650; }
-.chip.new { background: var(--accent-soft); box-shadow: none; }
-.fact { font-size: var(--t-title); font-weight: 650; letter-spacing: -.02em; line-height: 1.12; margin: 0; text-wrap: balance; }
-.fact .q { color: var(--faint); }
+.envs { display: grid; gap: calc(var(--gap) * 1.1); }
+.env-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1em; font-weight: 590; }
+.env-head span { font-weight: 400; color: var(--label-2); font-size: var(--t-meta); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fact { margin: 0; font-size: var(--t-title); font-weight: 700; letter-spacing: -.022em; line-height: 1.12; text-wrap: balance; }
+.fact .who-is { display: block; font-size: var(--t-body); font-weight: 590; color: var(--label-2); letter-spacing: -.012em; margin-bottom: .2em; }
+.memory .who b { font-weight: 590; }
+.memory li.is-new .who b::after { content: " · just now"; font-weight: 400; color: var(--label-2); font-size: var(--t-meta); }
 </style></head>
-<body><main class="card" id="app"><p class="eyebrow">Mandat · household</p><h1>Loading…</h1></main>
+<body><main class="card" id="app" aria-live="polite"><p class="context">Checking your household…</p></main>
 <script>/*BRIDGE_JS*/
+showLoading('Checking your household…');
+function memoryList(prefs, savedId, max) {
+  if (!prefs.length) return '';
+  return `<ul class="rows memory">${prefs.slice(-max).reverse().map((p) => `<li class="${p.id === savedId ? 'is-new' : ''}">${icon('memory')}<span class="who"><b>${esc(p.subject)}</b><span>${esc(p.fact)}</span></span><span></span></li>`).join('')}</ul>`;
+}
 function render(result) {
   if (result.isError) return showError(result);
+  ready();
   const sc = result.structuredContent || {};
   const envs = sc.envelopes || [];
   const prefs = sc.preferences || [];
   const open = sc.open_orders || [];
   const main = envs[0];
-  const chips = prefs.slice(0, 6).map((p) => `<span class="chip${sc.saved && p.id === sc.saved.id ? ' new' : ''}"><b>${esc(p.subject)}</b>${esc(p.fact)}</span>`).join('');
   if (sc.saved) {
+    const others = prefs.filter((p) => p.id !== sc.saved.id);
     $('#app').innerHTML = `
-      <div class="head"><p class="eyebrow">Household memory<span class="sep"></span>${esc(sc.saved.subject)}</p><span class="pill ok">Remembered</span></div>
-      <p class="fact"><span class="q">“</span>${esc(sc.saved.fact)}<span class="q">”</span></p>
-      <p class="note">Applied to every search from now on, in every session.</p>
-      ${chips ? `<div class="prefs">${chips}</div>` : ''}`;
+      <div class="head"><p class="context">Household memory · ${prefs.length} ${prefs.length === 1 ? 'fact' : 'facts'}</p>${status('ok', 'Remembered')}</div>
+      <p class="fact"><span class="who-is">${esc(sc.saved.subject)}</span>${esc(cap(sc.saved.fact))}</p>
+      <p class="note">Used in every search and every session from now on.</p>
+      ${memoryList(others, null, 3)}`;
     return;
   }
   const pending = (sc.pending_decisions || []).length;
+  const st = pending ? status('wait', `${pending} waiting for your yes`) : open.length ? status('info', `${open.length} on hold`) : status('ok', 'All settled');
+  if (!main) {
+    $('#app').innerHTML = `<div class="head"><p class="context">Household</p>${st}</div>
+      <h1>No budget yet</h1><p class="lead">Say “Set a weekly household budget of $150, and buy on your own under $40.”</p>${memoryList(prefs, null, 3)}`;
+    return;
+  }
   $('#app').innerHTML = `
-    <div class="head"><p class="eyebrow">Household<span class="sep"></span>${envs.length} ${envs.length === 1 ? 'budget' : 'budgets'}</p>${pending ? `<span class="pill wait">${pending} waiting for your yes</span>` : open.length ? `<span class="pill">${open.length} open</span>` : '<span class="pill ok">All settled</span>'}</div>
-    ${main ? `<div class="hero"><h1>${esc(main.purpose)}</h1><span class="num">${usd(main.remaining)}<span class="small" style="margin-left:.3em;letter-spacing:0;font-weight:500">left</span></span></div>` : '<h1>No budget yet</h1><p class="lead">Say “Set a weekly household budget of $150”.</p>'}
-    <div class="envs">${envs.map((e) => gauge(e)).join('')}</div>
-    ${open.length ? `<ul class="rows">${open.slice(0, 4).map((o) => `<li>${kindIcon(o)}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.slotLabel || o.label || '')}</span></span><span class="amt">${usd(o.amount)}</span></li>`).join('')}</ul>` : ''}
-    ${chips && !open.length ? `<div class="prefs">${chips}</div>` : ''}`;
+    <div class="head"><p class="context">Household · ${envs.length} ${envs.length === 1 ? 'budget' : 'budgets'}</p>${st}</div>
+    <div class="hero"><h1>${esc(main.purpose)}</h1><span class="num">${usd(main.remaining)}<small>left</small></span></div>
+    <div class="envs">${envs.slice(0, 2).map((e, i) => (i ? `<div class="env-head">${esc(e.purpose)}<span>${usd(e.remaining)} left</span></div>` : '') + gauge(e)).join('')}</div>
+    ${open.length ? `<ul class="rows">${open.slice(0, 3).map((o) => `<li>${kindIcon(o)}<span class="who"><b>${esc(o.merchant)}</b><span>${esc(o.slotLabel || o.label || '')}</span></span><span class="amt">${usd(o.amount)}</span></li>`).join('')}</ul>` : memoryList(prefs, null, 2)}`;
 }
 mcpApp.on('result', render);
 mcpApp.connect('mandat-status');

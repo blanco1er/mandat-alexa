@@ -1,33 +1,44 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-ui-auto="off">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Mandat for Alexa+ · Simulator</title>
 <meta name="description" content="Unofficial Alexa+ web simulator: a voice-first MCP client and MCP Apps host for the Mandat add-on (Echo Show 15, Echo Show 8, Echo Dot).">
 <meta name="color-scheme" content="light dark">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3CradialGradient id='g' cx='50%25' cy='40%25' r='60%25'%3E%3Cstop offset='0' stop-color='%23b9f0ff'/%3E%3Cstop offset='.55' stop-color='%2333c3ff'/%3E%3Cstop offset='1' stop-color='%230a5bd6'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='26' fill='url(%23g)'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23000'/%3E%3Cpath d='M18 44V20l14 15 14-15v24' fill='none' stroke='%23fff' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="design-system/tokens.css">
+<link rel="stylesheet" href="design-system/components.css">
 <link rel="stylesheet" href="style.css">
 </head>
-<body data-device="show15" data-state="idle" data-screen="home">
-  <header class="bar">
-    <div class="brand" aria-label="Mandat for Alexa+">
-      <span class="orb" aria-hidden="true"></span>
-      <span class="word">Mandat</span><span class="for">for Alexa+</span>
+<body class="ui-root" data-device="show15" data-state="idle" data-screen="home">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="8.5" y="3" width="7" height="11.5" rx="3.5"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></symbol>
+    <symbol id="i-house" viewBox="0 0 24 24"><path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M12 12.5v5M9.5 15h5"/></symbol>
+    <symbol id="i-braces" viewBox="0 0 24 24"><path d="M8.5 4H8a2 2 0 0 0-2 2v3.5A2.5 2.5 0 0 1 3.5 12 2.5 2.5 0 0 1 6 14.5V18a2 2 0 0 0 2 2h.5M15.5 4h.5a2 2 0 0 1 2 2v3.5a2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0-2.5 2.5V18a2 2 0 0 1-2 2h-.5"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5 10 17 19 7"/></symbol>
+  </svg>
+
+  <header class="ui-toolbar sim-bar">
+    <div class="sim-id">
+      <b>Mandat</b>
+      <span>Alexa+ add-on simulator</span>
     </div>
-    <nav class="devices" aria-label="Device">
-      <button data-dev="show15" aria-pressed="true">Echo Show 15</button>
-      <button data-dev="show8" aria-pressed="false">Echo Show 8</button>
-      <button data-dev="dot" aria-pressed="false">Echo Dot</button>
-    </nav>
-    <div class="tools">
-      <button class="icon" id="theme" title="Screen light / dark" aria-label="Screen light or dark">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg>
-      </button>
-      <button class="icon" id="newHousehold" title="Start a fresh household" aria-label="New household">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V20h-5v-5H9v5H4Z"/></svg>
-      </button>
-      <button class="pill-btn" id="devToggle" title="MCP traffic (D)"><span class="mono">{ }</span><span class="lbl">MCP traffic</span><kbd>D</kbd></button>
+    <fieldset class="ui-segmented sim-devices" aria-label="Device">
+      <label><input type="radio" name="device" value="show15" checked>Echo Show 15</label>
+      <label><input type="radio" name="device" value="show8">Echo Show 8</label>
+      <label><input type="radio" name="device" value="dot">Echo Dot</label>
+    </fieldset>
+    <div class="sim-tools ui-toolbar__group ui-glass">
+      <button class="ui-icon-button" id="theme" type="button" aria-label="Dark appearance" aria-pressed="false" title="Light or dark appearance"><svg class="ui-icon"><use href="#i-moon"/></svg></button>
+      <button class="ui-icon-button" id="newHousehold" type="button" aria-label="New household" title="Start a fresh household"><svg class="ui-icon"><use href="#i-house"/></svg></button>
+      <button class="ui-button sim-dev" id="devToggle" type="button" aria-expanded="false" aria-controls="drawer" title="MCP traffic (D)"><svg class="ui-icon"><use href="#i-braces"/></svg><span class="lbl">MCP traffic</span><kbd>D</kbd></button>
     </div>
   </header>
 
@@ -38,8 +49,6 @@
         <div class="bezel" id="bezel">
           <span class="cam" aria-hidden="true"></span>
           <div class="screen" id="screen">
-            <div class="wall" aria-hidden="true"></div>
-
             <div class="s-top">
               <p class="heard" id="caption" aria-live="polite"></p>
               <div class="env" id="gauge" hidden>
@@ -50,13 +59,18 @@
             </div>
 
             <div class="home" id="home">
-              <div class="home-time" id="homeTime"></div>
-              <div class="home-date" id="homeDate"></div>
-              <div class="home-tile">
-                <span class="tile-eyebrow"><span class="orb sm" aria-hidden="true"></span>Mandat</span>
-                <span class="tile-title">Give Alexa a budget,<br>not a to-do list.</span>
-                <span class="tile-hint" id="homeHint">Try “Alexa, my in-laws land Saturday…”</span>
+              <div class="home-clock">
+                <div class="home-time" id="homeTime"></div>
+                <div class="home-date" id="homeDate"></div>
               </div>
+              <div class="home-side">
+              <div class="home-widget" id="homeMemory" hidden></div>
+              <div class="home-widget" id="homeWidget" aria-live="polite">
+                <p class="hw-context">Mandat</p>
+                <p class="hw-title">Checking your household…</p>
+              </div>
+              </div>
+              <p class="home-hint" id="homeHint">Try “Alexa, my in-laws land Saturday…”</p>
             </div>
 
             <div class="card-slot" id="cardSlot"></div>
@@ -64,7 +78,7 @@
             <div class="s-bottom">
               <div class="s-row">
                 <ol class="trail" id="trail" aria-label="What Alexa did"></ol>
-                <div class="ask" id="ask" hidden><span class="ask-dot" aria-hidden="true"></span><span id="askText">Say “yes” to confirm</span></div>
+                <div class="ask" id="ask" hidden><svg aria-hidden="true"><use href="#i-mic"/></svg><span id="askText">Say “yes” to confirm</span></div>
               </div>
               <p class="reply" id="reply" aria-live="polite"></p>
             </div>
@@ -78,9 +92,9 @@
       <!-- Echo Dot: no screen at all, only the light ring -->
       <div class="dot" id="dot">
         <div class="sphere" aria-hidden="true"><div class="ring"></div></div>
-        <div class="dot-glow" aria-hidden="true"></div>
+        <div class="dot-shadow" aria-hidden="true"></div>
         <figure class="dot-cc">
-          <figcaption>Captions for this demo · the Echo Dot has no screen</figcaption>
+          <figcaption>Captions for this demo. The Echo Dot has no screen.</figcaption>
           <p class="cc-you" id="dotYou"></p>
           <p class="cc-alexa" id="dotSub" aria-live="polite"></p>
         </figure>
@@ -88,30 +102,35 @@
     </section>
 
     <aside class="talk" aria-label="Talk to Alexa">
-      <div class="voice">
-        <button class="mic" id="mic" aria-label="Talk to Alexa (Space)">
-          <span class="mic-orb" aria-hidden="true"></span>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6.5a3.5 3.5 0 1 0-7 0V11a3.5 3.5 0 0 0 3.5 3.5ZM18 11a6 6 0 0 1-12 0M12 17v3.5"/></svg>
-        </button>
-        <div class="voice-text">
-          <b id="micLabel">Tap and talk</b>
-          <span class="hint" id="micHint">Space to talk · or type below</span>
+      <div class="ui-voice talk-voice" id="voice" data-state="idle">
+        <button class="mic" id="mic" type="button" aria-label="Talk to Alexa"><svg class="ui-icon"><use href="#i-mic"/></svg></button>
+        <div class="talk-voice__body">
+          <div class="talk-voice__row">
+            <b id="micLabel" aria-live="polite">Tap to talk</b>
+            <div class="ui-voice__wave" id="wave" aria-hidden="true"></div>
+          </div>
+          <span class="talk-hint" id="micHint">Or press <kbd>Space</kbd>. Voice works in Chrome; typing works everywhere.</span>
         </div>
       </div>
+
       <form id="typeForm" class="type" autocomplete="off">
-        <input id="typeInput" placeholder="Type what you would say…" aria-label="What you would say">
-        <button class="send" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
+        <label class="ui-field__label" for="typeInput">Or type what you would say</label>
+        <div class="type-row">
+          <input class="ui-input" id="typeInput" enterkeyhint="send" placeholder="Alexa, how much is left?">
+          <button class="send" id="send" type="submit" aria-label="Send" disabled><svg class="ui-icon"><use href="#i-up"/></svg></button>
+        </div>
       </form>
-      <div class="script" id="script" aria-label="Demo script"></div>
-      <p class="fine">Unofficial Alexa+ simulator · PayPal sandbox · no real money</p>
+
+      <nav class="script" id="script" aria-label="Demo script"></nav>
+      <p class="fine">Unofficial Alexa+ simulator. PayPal sandbox, no real money.</p>
     </aside>
   </main>
 
   <aside class="drawer" id="drawer" hidden aria-label="MCP traffic">
     <div class="drawer-head">
       <div class="dh-title"><b>MCP traffic</b><span id="sessionInfo"></span></div>
-      <button class="pill-btn" id="clearLog">Clear</button>
-      <button class="icon" id="closeDrawer" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <button class="ui-button" id="clearLog" type="button">Clear</button>
+      <button class="ui-icon-button" id="closeDrawer" type="button" aria-label="Close MCP traffic"><svg class="ui-icon"><use href="#i-close"/></svg></button>
     </div>
     <ol class="log" id="log"></ol>
   </aside>

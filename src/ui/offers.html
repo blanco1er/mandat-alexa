@@ -1,44 +1,82 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mandat offers</title>
 <style>/*SHARED_CSS*/
-.rail { display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 2 * var(--gap)) / 3); gap: var(--gap); overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; margin: 0 calc(var(--pad) * -1); padding: 2px var(--pad); scroll-padding: 0 var(--pad); }
+.rail { display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 2 * var(--gap)) / 3); gap: var(--gap); overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none;
+  margin: 0 calc(var(--pad) * -1); padding: .2em var(--pad); scroll-padding: 0 var(--pad); }
+.rail.two { grid-auto-columns: calc((100% - var(--gap)) / 2); }
 .rail::-webkit-scrollbar { display: none; }
-.offer { scroll-snap-align: start; position: relative; display: grid; align-content: start; gap: .5em; text-align: left; padding: 1em 1.05em 1.05em; border-radius: calc(var(--radius) * .62); border: 1.5px solid var(--line); background: var(--surface-2); cursor: pointer; font: inherit; color: inherit; transition: border-color .2s, transform .2s var(--ease), background .2s; }
-.offer:hover { transform: translateY(-1px); }
-.offer[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--surface-2)); }
-.offer .top { display: flex; align-items: center; gap: .6em; min-width: 0; }
-.offer .top b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.offer .price { font-size: var(--t-title); font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1; }
-.offer .price s { font-size: var(--t-small); color: var(--faint); font-weight: 450; margin-left: .45em; letter-spacing: 0; }
-.offer .when { font-size: var(--t-small); color: var(--ink); }
-.offer .quote { font-size: var(--t-small); color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.offer .tag { display: inline-flex; align-items: center; gap: .4em; font-size: var(--t-eyebrow); font-weight: 650; color: var(--good); }
-.offer .tag svg { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
-.offer .best { position: absolute; top: .9em; right: .9em; font-size: var(--t-eyebrow); font-weight: 650; color: var(--accent); }
+.offer { scroll-snap-align: start; position: relative; display: grid; align-content: start; gap: .38em; text-align: left; padding: .85em .95em .95em; border-radius: var(--radius-in);
+  border: 0; background: var(--surface-2); cursor: pointer; min-width: 0;
+  box-shadow: inset 0 0 0 var(--hair) transparent; transition: box-shadow var(--dur-snappy) var(--ease-snappy), background-color var(--dur-fade) var(--ease-out), transform var(--dur-bouncy) var(--ease-bouncy); }
+.offer:active { transform: scale(.98); }
+.offer[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 8%, var(--surface-2)); box-shadow: inset 0 0 0 max(2px, .18vw) var(--accent); }
+.offer:focus-visible { outline: max(3px, .25vw) solid color-mix(in srgb, #0088ff 70%, transparent); outline-offset: 2px; }
+.offer .top { display: flex; align-items: center; gap: .55em; min-width: 0; }
+.offer .top b { font-weight: 590; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.offer .price { font-size: var(--t-title); font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1.05; }
+.offer .price s { font-size: var(--t-meta); color: var(--label-2); font-weight: 400; margin-left: .5em; letter-spacing: 0; }
+.offer .when { font-size: var(--t-meta); color: var(--label); font-weight: 510; }
+.offer .quote { font-size: var(--t-meta); color: var(--label-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.offer .sel { position: absolute; top: .8em; right: .8em; width: 1.2em; height: 1.2em; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #fff;
+  opacity: 0; transform: scale(.5); transition: opacity var(--dur-fade) var(--ease-out), transform var(--dur-bouncy) var(--ease-bouncy); }
+.offer .sel svg { width: 64%; height: 64%; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.offer[aria-pressed="true"] .sel { opacity: 1; transform: none; }
+.trust { display: inline-flex; align-items: center; gap: .4em; font-size: var(--t-meta); font-weight: 590; color: var(--ok-text); }
+.trust svg { width: 1.05em; height: 1.05em; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.trust.no { color: var(--warn-text); }
+.best { font-size: var(--t-meta); font-weight: 590; color: var(--accent-text); }
+/* one quote: the quote itself is the content */
+.single { display: grid; gap: .55em; }
+.single .said { margin: 0; font-size: var(--t-body); line-height: 1.35; text-wrap: pretty; }
+.single .said::before { content: "“"; } .single .said::after { content: "”"; }
+.facts { display: flex; flex-wrap: wrap; gap: .3em 1.2em; font-size: var(--t-meta); color: var(--label-2); align-items: center; }
+.facts b { color: var(--label); font-weight: 590; }
 </style></head>
-<body><main class="card" id="app"><p class="eyebrow">Mandat · options</p><h1>Asking the merchants…</h1></main>
+<body><main class="card" id="app" aria-live="polite"><p class="context">Asking the merchants…</p></main>
 <script>/*BRIDGE_JS*/
+showLoading('Asking the merchants’ agents…');
 const PLURAL = { catering: 'caterers', cleaning: 'cleaners', plumbing: 'plumbers', handyman: 'handymen' };
 const ONE = { catering: 'caterer', cleaning: 'cleaner', plumbing: 'plumber', handyman: 'handyman' };
+const CHECK = `<svg viewBox="0 0 24 24">${ICONS.check}</svg>`;
+const trust = (o) => o.kind !== 'service' ? (o.matches_preference ? `<span class="trust">${CHECK}Your usual</span>` : '') : o.card_verified ? `<span class="trust">${CHECK}Verified agent</span>` : '<span class="trust no">Unverified agent</span>';
 function render(result) {
   if (result.isError) return showError(result);
+  ready();
   const sc = result.structuredContent || {};
   const offers = sc.offers || sc.alternatives || [];
-  if (!offers.length) return;
+  const who = sc.category ? `${sc.asked} ${(sc.asked === 1 ? ONE : PLURAL)[sc.category] || 'pros'} asked` : sc.query ? 'Products' : 'Updated quote';
+  if (!offers.length) {
+    $('#app').innerHTML = `<div class="head"><p class="context">${esc(who)}</p>${status('wait', 'No match')}</div>
+      <h1>No one can do it at that time</h1><p class="lead">Try another day, or a higher price limit.</p>`;
+    return;
+  }
   const svc = offers[0].kind === 'service';
-  const eyebrow = sc.category ? `${sc.asked} ${(sc.asked === 1 ? ONE : PLURAL)[sc.category] || 'pros'} asked<span class="sep"></span>${sc.asked === 1 ? 'agent' : 'agents'} verified` : sc.query ? 'Products' : 'Updated quote';
+  const skipped = sc.skipped && sc.skipped.length;
+  const st = skipped ? status('info', `${sc.skipped.length} skipped for your household`) : svc ? status('ok', `${offers.length} ${offers.length === 1 ? 'quote' : 'quotes'}`) : '';
   const best = offers[0];
+  if (offers.length === 1) {
+    const o = best;
+    $('#app').innerHTML = `
+      <div class="head"><p class="context">${esc(who)}${o.kind === 'service' && o.card_verified ? ' · agent card verified' : ''}</p>${st}</div>
+      <div class="hero"><div class="stack"><h1>${esc(o.merchant)}</h1><span class="meta">${esc(o.slot_label || '')}${o.kind === 'service' && o.rating ? ` · rated ${o.rating}` : ''}</span></div>
+        <span class="num">${usd(o.total)}</span></div>
+      <div class="single">
+        ${o.kind === 'service' ? `<p class="said">${esc(o.negotiation)}</p>` : `<p class="said">${esc(o.title)}</p>`}
+        <div class="facts">${o.discount ? `<span>Was <b>${usd(o.base + (o.fees || 0))}</b></span><span>Negotiated <b style="color:var(--ok-text)">−${usd(o.discount)}</b></span>` : ''}${trust(o)}</div>
+      </div>`;
+    return;
+  }
   $('#app').innerHTML = `
-    <div class="head"><p class="eyebrow">${eyebrow}</p>${sc.skipped && sc.skipped.length ? `<span class="pill">${sc.skipped.length} skipped for your household</span>` : svc ? `<span class="pill">${offers.length} ${offers.length === 1 ? 'quote' : 'quotes'}</span>` : ''}</div>
-    <div class="hero"><h1>${svc && offers.length > 1 ? 'Best: ' : ''}${esc(best.merchant)}</h1><span class="num">${usd(best.total)}</span></div>
-    <div class="rail" role="list"${offers.length < 3 ? ' style="grid-auto-columns: calc((100% - var(--gap)) / 2)"' : ''}>${offers.slice(0, 5).map((o, i) => `
-      <button class="offer" role="listitem" aria-pressed="${i === 0}" data-id="${esc(o.id)}">
-        ${i === 0 && offers.length > 1 ? '<span class="best">Best</span>' : ''}
+    <div class="head"><p class="context">${esc(who)}${svc ? ' · every agent verified' : ''}</p>${st}</div>
+    <div class="hero"><div class="stack"><span class="best">${svc ? 'Best quote' : 'Best match'}</span><h1>${esc(best.merchant)}</h1></div><span class="num">${usd(best.total)}</span></div>
+    <div class="rail${offers.length < 3 ? ' two' : ''}" role="list" aria-label="Options">${offers.slice(0, 5).map((o, i) => `
+      <button class="offer" role="listitem" aria-pressed="${i === 0}" data-id="${esc(o.id)}" aria-label="${esc(o.merchant)}, ${esc(usd(o.total))}, ${esc(o.slot_label || '')}">
+        <span class="sel" aria-hidden="true">${CHECK}</span>
         <span class="top">${kindIcon(o)}<b>${esc(o.merchant)}</b></span>
         <span class="price">${usd(o.total)}${o.discount ? `<s>${usd(o.base + (o.fees || 0))}</s>` : ''}</span>
-        <span class="when">${esc(o.kind === 'product' ? o.slot_label : o.slot_label)}${o.kind === 'service' && o.rating ? ` · ★ ${o.rating}` : ''}</span>
-        ${o.kind === 'service' ? `<span class="quote">“${esc(o.negotiation)}”</span>${o.card_verified ? `<span class="tag"><svg viewBox="0 0 24 24">${ICONS.check}</svg>Verified agent</span>` : '<span class="tag" style="color:var(--warn)">Unverified</span>'}`
-          : `<span class="quote">${esc(o.title)}</span>${o.matches_preference ? `<span class="tag"><svg viewBox="0 0 24 24">${ICONS.check}</svg>Your usual</span>` : ''}`}
+        <span class="when">${esc(o.slot_label || '')}${o.kind === 'service' && o.rating ? ` · ${o.rating}` : ''}</span>
+        <span class="quote">${o.kind === 'service' ? `“${esc(o.negotiation)}”` : esc(o.title)}</span>
+        ${trust(o)}
       </button>`).join('')}</div>`;
   for (const b of document.querySelectorAll('.offer')) b.onclick = () => {
     for (const x of document.querySelectorAll('.offer')) x.setAttribute('aria-pressed', String(x === b));

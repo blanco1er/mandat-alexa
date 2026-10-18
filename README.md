@@ -163,7 +163,7 @@ Numbers: 55 files changed, about 4,450 lines added and 650 removed since the bas
 - `cd orchestrator && npm test`: 4 tests (Strands strict skill validation, story 1 through Strands, AgentSkills,
   app-only tool filter).
 - `npm run inspect`: MCP Inspector 2.11 CLI, 26 checks; last results in `docs/inspector/summary.txt`.
-- Screenshots of every state on every device: `docs/screenshots/`.
+- Screenshots of every state on every device, light and dark: `docs/screenshots/` (the earlier UI is kept in `docs/screenshots/archives/`).
 
 Friction we hit along the way: [FRICTION.md](FRICTION.md).
 

@@ -1,47 +1,59 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mandat plan</title>
 <style>/*SHARED_CSS*/
-.saved { font-size: var(--t-small); font-weight: 600; color: var(--good); }
-.foot { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: calc(var(--gap) * 1.4); align-items: center; }
+.foot { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: calc(var(--gap) * 1.6); align-items: center; padding-top: calc(var(--gap) * .2); }
 :root[data-display="fullscreen"] #expand, :root:not([data-display="fullscreen"]) #back { display: none; }
 :root:not([data-display="fullscreen"]) .who span.long { display: none; }
+.who span.long { white-space: normal; }
+.also { margin: 0; display: flex; align-items: baseline; gap: .8em; font-size: var(--t-meta); color: var(--label-2); padding: .55em .8em; border-radius: var(--radius-in); background: var(--surface-2); min-width: 0; }
+.also span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.also b { color: var(--label); font-weight: 590; }
+.err { flex-basis: 100%; margin: 0; font-size: var(--t-meta); color: var(--bad-text); }
 </style></head>
-<body><main class="card" id="app"><p class="eyebrow">Mandat · plan</p><h1>Preparing your plan…</h1></main>
+<body><main class="card" id="app" aria-live="polite"><p class="context">Preparing your plan…</p></main>
 <script>/*BRIDGE_JS*/
+showLoading('Preparing your plan…');
 let current = null;
-function render(result) {
+const TICK = `<span class="tick" aria-hidden="true"><svg viewBox="0 0 24 24">${ICONS.check}</svg></span>`;
+function render(result, { justBooked = false } = {}) {
   if (result.isError) return showError(result);
   const sc = result.structuredContent || {};
   const plan = sc.plan; if (!plan) return;
+  ready();
   current = sc;
   const b = plan.breakdown;
   const n = plan.lines.length;
   const booked = plan.status === 'confirmed';
-  const pill = booked ? '<span class="pill ok">Booked</span>' : plan.auto_approved ? '<span class="pill ok">Within your rule</span>' : '<span class="pill wait">Needs your yes</span>';
+  const st = booked ? status('ok', 'Booked') : plan.auto_approved ? status('ok', 'Within your rule') : status('wait', 'Needs your yes');
   const env = sc.envelope;
   $('#app').innerHTML = `
-    <div class="head"><p class="eyebrow">${esc(plan.purpose || 'Plan')}<span class="sep"></span>${booked ? 'Payment holds placed' : 'Plan to approve'}</p>${pill}</div>
+    <div class="head"><p class="context">${esc(plan.purpose || 'Plan')} · ${booked ? 'payment holds placed' : n === 1 ? 'one item' : `${n} items in one plan`}</p>${st}</div>
     <div class="hero">
-      <h1>${n} ${n === 1 ? 'item' : 'items'}, one ${booked ? 'approval' : 'yes'}</h1>
+      <h1>${booked ? (n === 1 ? 'Booked' : `${n} bookings, one approval`) : n === 1 ? esc(cap(plan.lines[0].title || plan.lines[0].merchant)) : `${n} items, one yes`}</h1>
       <span class="num">${usd(b.total)}</span>
     </div>
-    <ul class="rows">${plan.lines.map((l) => `<li>${kindIcon(l)}<span class="who"><b>${esc(l.merchant)}</b><span>${l.kind === 'product' ? `${esc(l.title)} · ${esc(l.detail || '')}` : `${esc(l.detail || '')}${l.guests ? ` · ${l.guests} guests` : ''}`}</span>${l.kind === 'product' ? '' : `<span class="long">${esc(l.title)}</span>`}</span><span class="amt">${l.discount ? `<s>${usd(l.base + (l.fees || 0))}</s>` : ''}${usd(l.total)}</span></li>`).join('')}</ul>
-    <div class="breakdown"><span>Base <b>${usd(b.base)}</b></span>${b.discount ? `<span>Negotiated <b class="good">−${usd(b.discount)}</b></span>` : ''}<span>Fees <b>${usd(b.fees)}</b></span><span>Tax <b>${usd(b.tax)}</b></span><span>Total <b>${usd(b.total)}</b></span></div>
+    <ul class="rows">${plan.lines.map((l) => `<li>${kindIcon(l)}<span class="who"><b>${esc(l.merchant)}</b><span>${l.kind === 'product' ? (n === 1 ? esc(l.detail || '') : `${esc(l.title)} · ${esc(l.detail || '')}`) : `${esc(l.detail || '')}${l.guests ? ` · ${l.guests} guests` : ''}`}</span>${l.kind === 'product' ? '' : `<span class="long">${esc(l.title)}</span>`}</span><span class="amt">${l.discount ? `<s>${usd(l.base + (l.fees || 0))}</s>` : ''}${usd(l.total)}</span></li>`).join('')}</ul>
+    ${(sc.also_bought || []).length && !booked ? `<p class="also">${status('ok', 'Already bought')}<span>${sc.also_bought.map((o) => `${esc(o.merchant)}, ${esc(o.label || '')} <b>${usd(o.amount)}</b>`).join(' · ')}, within your ${env && env.auto_approve_under ? usd(env.auto_approve_under) + ' ' : ''}rule</span></p>` : ''}
+    <p class="breakdown"><span>Base <b>${usd(b.base)}</b></span>${b.discount ? `<span>Negotiated <b class="saved">−${usd(b.discount)}</b></span>` : ''}<span>Fees <b>${usd(b.fees)}</b></span><span>Tax <b>${usd(b.tax)}</b></span><span>Total <b>${usd(b.total)}</b></span></p>
     <div class="foot">
-      <div class="actions" id="actions">${booked ? `<span class="done"><svg viewBox="0 0 24 24">${ICONS.check}</svg>Booked. Nothing is charged until it is done.</span>` :
-        `<button class="primary" id="approve">${plan.auto_approved ? 'Buy now' : 'Approve ' + usd(b.total)}</button><button class="ghost" id="expand">Details</button><button class="ghost" id="back">Back</button>`}</div>
-      ${env ? gauge(env, booked ? {} : { adding: b.total, after: plan.remaining_after ?? null }) : ''}
+      <div class="actions" id="actions">${booked ? `<span class="done">${TICK}Booked<span>Nothing is charged until it is done</span></span>` :
+        `<button class="btn primary" id="approve">${plan.auto_approved ? 'Buy now' : 'Approve ' + usd(b.total)}</button><button class="btn" id="expand">Details</button><button class="btn" id="back">Back</button>`}</div>
+      ${env ? gauge(env, booked ? {} : { adding: b.total, after: plan.remaining_after ?? null, grow: !current.__shown }) : ''}
     </div>`;
+  if (!booked) { growGauges(); current.__shown = true; }
   const a = $('#approve');
   if (a) a.onclick = async () => {
-    a.disabled = true; a.textContent = 'Placing holds…';
+    if (a.disabled) return;
+    a.disabled = true; a.setAttribute('aria-busy', 'true'); a.innerHTML = '<span class="spin" aria-hidden="true"></span>Placing holds…';
+    $('#actions .err')?.remove();
+    const fail = (msg) => { a.disabled = false; a.removeAttribute('aria-busy'); a.textContent = 'Try again'; if (msg) $('#actions').insertAdjacentHTML('beforeend', `<p class="err">${esc(msg)}</p>`); };
     try {
       const r = await mcpApp.callTool('confirm_plan', { plan_id: plan.id, confirmation_token: current.confirmation_token, user_confirmation: 'tap:approve' });
-      if (r.isError) { a.disabled = false; a.textContent = 'Try again'; $('#actions').insertAdjacentHTML('beforeend', `<p class="note">${esc((r.content || []).map((c) => c.text).join(' '))}</p>`); return; }
+      if (r.isError) return fail((r.content || []).map((c) => c.text).join(' ').replace(/\s*Next step:.*$/, ''));
       plan.status = 'confirmed';
       const env2 = r.structuredContent && r.structuredContent.receipt && r.structuredContent.receipt.envelope;
-      render({ structuredContent: { ...current, plan, envelope: env2 || current.envelope } });
-    } catch (e) { a.disabled = false; a.textContent = 'Try again'; }
+      render({ structuredContent: { ...current, plan, envelope: env2 || current.envelope } }, { justBooked: true });
+    } catch (e) { fail('Mandat could not be reached. Nothing was booked.'); }
   };
   const x = $('#expand'); if (x) x.onclick = () => mcpApp.requestDisplayMode('fullscreen').catch(() => {});
   const bk = $('#back'); if (bk) bk.onclick = () => mcpApp.requestDisplayMode('inline').catch(() => {});
