@@ -120,6 +120,8 @@ test('emergency stop: voids every hold, drops plans waiting for a yes, refuses e
   assert.equal(st.settings.paused, true);
   const yes = await c.callTool({ name: 'confirm_plan', arguments: { plan_id: waiting.plan.id, confirmation_token: waiting.confirmation_token, user_confirmation: 'Yes' } });
   assert.ok(yes.isError);
+  const replay = await c.callTool({ name: 'confirm_plan', arguments: { plan_id: p.plan.id, confirmation_token: p.confirmation_token, user_confirmation: 'Yes, book it' } });
+  assert.ok(replay.isError, 'not even a replay of the old yes says "booked" while paused');
   const p2 = await c.callTool({ name: 'propose_plan', arguments: { item_ids: [dog.id] } });
   assert.ok(p2.isError);
   assert.match(text(p2), /paused/);

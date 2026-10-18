@@ -1,0 +1,9 @@
+HTTP/1.1 401 Unauthorized
+Date: Sun, 18 Oct 2026 21:11:58 GMT
+Content-Type: application/json
+Content-Length: 135
+Connection: keep-alive
+x-amzn-RequestId: adf85986-52d3-4399-9339-44ae20ed9d2d
+x-amzn-Remapped-www-authenticate: Bearer realm="mandat", resource_metadata="https://fonzkp2f5pszfit6xmqqiw7qdm0dybyu.lambda-url.us-east-1.on.aws/.well-known/oauth-protected-resource"
+X-Amzn-Trace-Id: Root=1-6ad5361e-775f68666097a6e6350b9b9c;Parent=2d3dfe7ed4da4787;Sampled=0;Lineage=1:d5305f03:0
+

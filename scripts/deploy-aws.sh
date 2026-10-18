@@ -201,7 +201,7 @@ if [ "$DRY" != 1 ] && [ "${SKIP_SMOKE:-0}" != 1 ]; then
   S256="$(curl -fsS "$URL/.well-known/oauth-authorization-server" | jq -r '.code_challenge_methods_supported | join(",")')"
   [ "$S256" = "S256" ] || die "authorization server metadata answered '$S256' (S256 expected)"
   CODE="$(curl -s -o /dev/null -w '%{http_code}' "$URL/mcp" -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -H 'mcp-protocol-version: 2025-11-25' -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_household_status","arguments":{}}}')"
-  say "account linking: metadata S256, tool call without a token -> HTTP $CODE""
+  say "account linking: metadata S256, tool call without a token -> HTTP $CODE"
 fi
 
 say "done"

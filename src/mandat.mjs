@@ -437,15 +437,15 @@ export class Mandat {
       const plan = await this.store.get(pkOf(hid), `PLAN#${plan_id}`);
       if (!plan) throw new ToolError('I cannot find that plan.', 'Propose the plan again with propose_plan.');
       if (!sameHash(sha(confirmation_token || ''), plan.token_hash)) throw new ToolError('That confirmation does not match this plan, so I did not pay anything.', 'Use the confirmation token returned by propose_plan for this exact plan.');
+      // Emergency stop first: while paused nothing is confirmed, not even a replay of an old yes.
+      const settings = await this.settings(hid);
+      if (settings?.paused) throw new ToolError(T('e_paused'), 'Tell the user Mandat is paused; they can say "resume Mandat".');
       // Idempotency: a confirmed plan returns its receipt again, without a second hold.
       const prior = await this.store.get(pkOf(hid), `IDEMP#${plan.id}`);
       if (prior?.receipt) return { ...(await this.receipt(hid, prior.receipt.order_ids, T('already'))), duplicate: true };
       // Only the plan the user is looking at can be paid: a revised (swapped) or dropped plan is dead with its token.
       if (plan.status !== 'proposed') throw new ToolError(plan.status === 'revised' ? T('e_changed') : `That plan is ${plan.status}, so I did not pay anything.`, plan.status === 'revised' ? `Use the newer plan ${plan.revised_to} and its confirmation_token from revise_plan.` : 'Call review_plan or get_household_status.');
       if (Date.parse(plan.expires) < this.now()) throw new ToolError('This plan expired before it was confirmed.', 'Propose it again so prices are fresh.');
-      const settings = await this.settings(hid);
-      // Emergency stop: nothing is bought while Mandat is paused, not even with a yes.
-      if (settings?.paused) throw new ToolError(T('e_paused'), 'Tell the user Mandat is paused; they can say "resume Mandat".');
       const m = await this.mandate(hid, plan.mandate_id);
       // Autonomy is checked again now: the daily limit may have been used since the proposal, or the level changed.
       let alone = plan.auto_approved;

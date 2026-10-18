@@ -41,7 +41,7 @@ class ThrottleAwareRetry extends DefaultModelRetryStrategy {
 export const STATES_AMOUNT = /\$\s?\d|\d\s?\$|\b\d+\s*(dollars?|bucks|usd|dólares)(?![\p{L}])/iu; // "$150", "150 $", "150 dollars", "150 dólares"
 //  - update_settings: an amount only when the user said a number; resume_spending only when the user asked to resume
 //    (a model may never lift an emergency stop on its own); delete_my_data: the user's exact words, like confirm_plan.
-const RESUME_WORDS = /\b(resume|unpause|restart|reactivate|back on|reprends|reprendre|reactive|relance|reanuda|reanudar|reactiva)\b/;
+const RESUME_WORDS = /\b(resume|unpause|unfreeze|restart|reactivate|back on|start (buying|spending) again|reprends|reprendre|reactive|relance|degele|reanuda|reanudar|reactiva|descongela)\b/;
 export function guardToolCall(name, input, utterance) {
   if (name === 'confirm_plan') return { input: { ...input, user_confirmation: String(utterance).slice(0, 120) } };
   if (name === 'update_settings' && ['weekly_budget', 'auto_buy_under', 'daily_cap'].some((k) => input[k] !== undefined) && !/\d/.test(utterance)) {

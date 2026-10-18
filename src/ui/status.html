@@ -26,7 +26,9 @@ const time = (at) => { try { return new Intl.DateTimeFormat(LOC(), { hour: 'nume
 function rulesLine(s) {
   if (!s) return '';
   const rule = s.autonomy === 'ask' ? tx('Always asks') : s.autonomy === 'balanced' ? tx('Buys alone under {amt}', { amt: usd(s.auto_buy_under) }) : tx('Up to {amt} a day alone', { amt: usd(s.daily_cap) });
-  return `<p class="rules">${s.paused ? status('bad', tx('Paused')) : status('info', tx(LEVEL[s.autonomy] || 'Balanced'))}<span>${esc(rule)}</span>${s.autonomy !== 'ask' && !s.paused ? `<span>${esc(tx('Up to {amt} a day alone', { amt: usd(s.daily_cap) }))}</span>` : ''}</p>`;
+  // paused: the level stays visible but no rule is shown as if it applied
+  if (s.paused) return `<p class="rules">${status('bad', tx('Paused'))}<span>${esc(tx(LEVEL[s.autonomy] || 'Balanced'))}</span></p>`;
+  return `<p class="rules">${status('info', tx(LEVEL[s.autonomy] || 'Balanced'))}<span>${esc(rule)}</span>${s.autonomy === 'balanced' ? `<span>${esc(tx('Up to {amt} a day alone', { amt: usd(s.daily_cap) }))}</span>` : ''}</p>`;
 }
 function recentList(items) {
   if (!items || !items.length) return '';

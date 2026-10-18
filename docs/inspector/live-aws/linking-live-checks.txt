@@ -1,0 +1,36 @@
+Live checks on the public URL, 18 Oct 2026 (night): account linking, Nova turns, emergency stop with real PayPal sandbox holds
+
+== Nova 2 Lite turns (linked demo household; host intents marked) ==
+
+> What are my Mandat rules right now?  [200, 7.1 s, Nova]
+  tools: get_settings
+  says : Your Mandat rules are: $150 a week, balanced mode where I buy on my own under $40, up to $60 a day, and ask above that. Every category is allowed.
+
+> Switch Mandat to ask me first.  [200, 1.9 s, Nova]
+  tools: update_settings
+  says : Mandat is now set to ask you first. It will no longer buy anything on its own.
+
+> Hold off on any purchases for now.  [200, 1.4 s, Nova]
+  tools: pause_spending
+  says : Mandat is paused. Nothing will be bought until you say "resume Mandat".
+
+> Unfreeze my purchases, please.  [200, 1.4 s, Nova]
+  tools: resume_spending
+  says : Mandat is back on. It will ask you before every payment.
+
+> Alexa, open Mandat settings.  [200, 2.2 s, host intent open_settings]
+  tools: get_settings
+  says : $150 a week. Ask me first: I ask before every payment. Every category is on.
+
+> Make it 180 a week.  [200, 0.3 s, host intent settings]
+  tools: update_settings
+  says : Weekly budget: $180.
+
+Bedrock spend for these turns: $0.0212
+
+== Emergency stop (MCP, real PayPal sandbox authorization) ==
+held    BrightNest Cleaning sandbox 1UE91657XN9687419 held
+stop    Mandat is paused. I voided 1 payment hold ($85): BrightNest Cleaning is no longer booked, and nothing was charged. Nothing will be bought until you say “resume Mandat”.
+voided  BrightNest Cleaning sandbox 1UE91657XN9687419 released
+after   refused: Mandat is paused, so I will not book or buy anything. Say “resume Mandat” when y
+cleanup: household deleted

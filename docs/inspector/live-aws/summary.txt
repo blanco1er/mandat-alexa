@@ -1,13 +1,13 @@
-MCP Inspector @modelcontextprotocol/inspector@2.11.0 -> https://fonzkp2f5pszfit6xmqqiw7qdm0dybyu.lambda-url.us-east-1.on.aws/mcp (household inspector-1792348599), 2026-10-18T18:36Z
+MCP Inspector @modelcontextprotocol/inspector@2.11.0 -> https://fonzkp2f5pszfit6xmqqiw7qdm0dybyu.lambda-url.us-east-1.on.aws/mcp (account link: a fresh empty household, OAuth 2.1 + PKCE), 2026-10-18T21:10Z
 PASS  initialize: protocol 2025-11-25
 PASS  initialize: MCP Apps extension io.modelcontextprotocol/ui announced
 PASS  initialize: listChanged false (stateless, fixed lists)
-PASS  tools/list: 11 tools (10 intents + refresh_card)
+PASS  tools/list: 22 tools (20 intents + 2 app-only)
 PASS  tools/list: every tool has annotations and _meta.ui.resourceUri
 PASS  tools/list --strict: no schema portability error
-PASS  --app-info: 11/11 tools have an MCP App (text/html;profile=mcp-app)
+PASS  --app-info: 22/22 tools have an MCP App (text/html;profile=mcp-app)
 PASS  --app-info: refresh_card is app-only (visibility ["app"])
-PASS  resources/list: 5 ui:// cards with mimeType text/html;profile=mcp-app
+PASS  resources/list: 7 ui:// cards with mimeType text/html;profile=mcp-app
 PASS  resources/read: plan card is self-contained HTML with _meta.ui.csp
 PASS  tools/call set_spending_mandate
 PASS  tools/call remember_preference
@@ -25,5 +25,12 @@ PASS  tools/call get_household_status
 PASS  invalid input is rejected with an error, no crash
 PASS  foreign Origin is refused (403, MCP 2025-11-25 transport rule)
 PASS  --protocol-era auto falls back to 2025-11-25 and lists tools
+PASS  tools/call without a token: HTTP 401 + WWW-Authenticate resource_metadata
+PASS  RFC 9728 metadata: resource = MCP URL, first authorization server = this server
+PASS  RFC 8414 metadata: code only, S256 only, refresh tokens, no registration endpoint
+PASS  tools/call get_settings (first-run settings card)
+PASS  tools/call update_settings (Ask me first, $200 a week)
+PASS  tools/call pause_spending (emergency stop)
+PASS  tools/call resume_spending
 ----
-26 passed, 0 failed
+33 passed, 0 failed

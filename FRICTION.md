@@ -23,6 +23,9 @@ Severity scale: **Blocker** (could not continue) · **High** (hours lost or a de
 | 14 | Strands Agents TS 1.21 AgentSkills × Nova 2 Lite | Medium | The model called the `skills` tool before acting in only 4 of 11 turns and skipped the playbooks otherwise |
 | 15 | AWS Lambda on a new account | Medium | Account concurrency limit is 10: reserving even 1 execution is refused, so reserved concurrency cannot cap a public demo |
 | 16 | Amazon Bedrock model catalogue | Low | Listed ids that do not work: Nova Premier (profile listed, "end of its life"), Nova 2 Pro (priced and quota'd, id invalid) |
+| 17 | Alexa+ account-linking docs × MCP authorization | Medium | The page never says how Alexa sends the access token, nor names RFC 9728 / `WWW-Authenticate`, which the MCP spec relies on |
+| 18 | Alexa+ Permissions (customer data) | Medium | The Permissions page says Alexa asks for name, email, address, but not how the granted values reach an MCP add-on |
+| 19 | Alexa+ account linking, end to end | Medium | Alexa's redirect URIs live in the Alexa+ Developer Hub (Private Preview): the real linking round-trip cannot be tested without access |
 
 ---
 
@@ -170,3 +173,29 @@ Severity scale: **Blocker** (could not continue) · **High** (hours lost or a de
 - **Workaround:** picked from what answered: Nova 2 Lite (brain, native parallel tool calls, no `<thinking>` text) over Nova Pro (it writes `<thinking>` blocks into the answer, which a voice would read aloud).
 - **Suggestion:** hide end-of-life profiles from the listing, and show preview models with their access status.
 
+### 17. How does the access token reach an MCP add-on?
+- **Task attempted:** implement account linking for Mandat exactly as Amazon's *Account Linking for Alexa+ MCP add-ons* page describes (18 Oct 2026).
+- **Steps taken:** read the page end to end; built an OAuth 2.1 authorization server (code + PKCE S256, `resource` parameter, refresh tokens, static clients, the well-known metadata document, 401/403 without a token).
+- **Expected:** the page to say how the token is attached to each MCP request (the MCP 2025-11-25 authorization spec uses `Authorization: Bearer` and a `WWW-Authenticate` header pointing at the RFC 9728 document), and whether Alexa reads RFC 8414 authorization-server metadata.
+- **Actual:** it says only that Alexa "includes this access token in every request"; the header, `WWW-Authenticate`, RFC 9728 and RFC 8414 are not named, although its metadata document is RFC 9728's `oauth-protected-resource`.
+- **Severity:** Medium (we had to infer the transport from the MCP spec).
+- **Workaround:** we follow the MCP spec on both sides: `Authorization: Bearer`, HTTP 401 with `WWW-Authenticate: Bearer resource_metadata="…"`, RFC 9728 and RFC 8414 documents, and the simulator discovers everything from the 401 like a client would.
+- **Suggestion:** one sentence and one sample request on the page: the header Alexa sends, and that the 401 should carry `WWW-Authenticate` with `resource_metadata`.
+
+### 18. Customer-data permissions for MCP add-ons are not specified
+- **Task attempted:** greet the household by name and book at its address, using Alexa's customer-data permissions instead of asking again.
+- **Steps taken:** read *Supported capabilities* (Category SDK) and the *Permissions* page it links to.
+- **Expected:** the permission names (name, email, address), how they are declared, and how the granted values reach the add-on (a field in the request, an API with a consent token like classic skills…), plus what happens when one is revoked.
+- **Actual:** the Permissions page says Alexa+ asks the customer to open the Alexa app to grant permissions, and that the customer manages them under Alexa+ Store > add-on > Manage. Nothing about delivery of the values, and the page sits under the Category SDK, not the MCP toolkit.
+- **Severity:** Medium (that part of our flow has to be simulated).
+- **Workaround:** a simulated Alexa-app permission screen (one switch per item) passes the allowed values to an app-only tool; Mandat keeps only what was allowed and deletes a value when its switch is turned off. Marked "simulated" in the README and on the screen.
+- **Suggestion:** document the permission scopes and the delivery mechanism for MCP add-ons (for example a signed customer-profile block in `_meta`, or an API with a consent token), and the revocation signal.
+
+### 19. The linking round-trip cannot be tested without the Developer Hub
+- **Task attempted:** register Alexa's redirect URIs and run a real account link from an Alexa device.
+- **Steps taken:** followed Step 4 of the account-linking page ("In the Alexa+ Developer Hub, find the list of Alexa redirect URIs").
+- **Expected:** the redirect URIs (or their pattern) published, or a test redirect for developers outside the preview.
+- **Actual:** the URIs are only in the Developer Hub, which needs Private Preview access; the page's sample (`https://alexa.amazon.com/api/skill/link/<id>`) is an example, not a list.
+- **Severity:** Medium.
+- **Workaround:** the real Alexa client is configured by environment (`MANDAT_OAUTH_CLIENT_ID`, `MANDAT_OAUTH_CLIENT_SECRET`, `MANDAT_OAUTH_REDIRECT_URIS`); the demo uses a second static client (the simulator) with our own redirect page, and `scripts/link-demo.mjs` replays the full PKCE flow for tests and the MCP Inspector.
+- **Suggestion:** publish the redirect URI list per region, and an `alexa-ai` command that runs a linking round-trip against a development add-on.
