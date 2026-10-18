@@ -28,6 +28,10 @@ const SCRIPT = [
     'Remember we drink Northbeam medium roast.'] },
   { act: 'Story 1', title: 'The in-laws are coming', lines: [
     'Alexa, my in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400.',
+    'Show me the bed linen.',
+    'Other options?',
+    'Take the sateen set instead.',
+    'Compare the two caterers.',
     'Yes, book it.'] },
   { act: 'Story 2', title: 'Four days later', lines: [
     "We're almost out of dog food and coffee.",
@@ -90,6 +94,9 @@ const mcp = new McpHttpClient(new URL('/mcp', location.href).href, {
 const showSession = () => {
   $('#sessionInfo').innerHTML = `protocol <em>${esc(mcp.protocolVersion || '…')}</em> · Streamable HTTP · MCP-Session-Id <em>${esc(mcp.sessionId || 'none (stateless)')}</em> · household <em>${esc(household)}</em>`;
 };
+
+// The language the user speaks (en-US by default; the language selector sets it).
+const speechLocale = () => document.documentElement.lang === 'en' ? 'en-US' : document.documentElement.lang;
 
 // ---------- appearance: follows the system until the person picks one ----------
 const darkQuery = matchMedia('(prefers-color-scheme: dark)');
@@ -239,6 +246,11 @@ function trailLabel(s) {
     case 'find_home_services': return `${d.asked || ''} ${(d.asked === 1 ? { cleaning: 'cleaner', catering: 'caterer', plumbing: 'plumber', handyman: 'handyman' } : { cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' })[d.category] || 'pros'} asked`.trim();
     case 'find_products': return d.skipped?.length ? `Products · ${d.skipped.length} skipped` : 'Products checked';
     case 'negotiate_offer': return 'Negotiated';
+    case 'get_offer_details': return d.offer ? `Opened ${d.offer.kind === 'service' ? d.offer.merchant : d.offer.title.split(':')[0]}` : 'Details';
+    case 'list_alternatives': return `${Math.max(0, (d.offers?.length || 1) - 1)} other options`;
+    case 'compare_offers': return `Compared ${d.offers?.length || 2}`;
+    case 'revise_plan': return d.plan ? `Plan now ${usd(d.plan.breakdown.total)}` : 'Plan updated';
+    case 'review_plan': return 'Plan';
     case 'propose_plan': return d.plan ? `Plan ${usd(d.plan.breakdown.total)}${d.auto_approved ? ' · auto' : ''}` : 'Plan';
     case 'confirm_plan': { const n = d.receipt?.orders?.length || 0; return `${n} payment hold${n === 1 ? '' : 's'}`; }
     case 'change_order': { const o = d.receipt?.orders?.[0]; return o?.state === 'released' ? `${o.merchant} declined · hold voided` : `${o?.merchant || 'Merchant'} moved`; }
@@ -264,6 +276,72 @@ function showTrail(steps) {
   const t = $('#trail');
   requestAnimationFrame(() => t.classList.toggle('over', t.scrollWidth > t.clientWidth + 1));
 }
+
+// ---------- live activity: what Alexa is doing right now (real tool calls and merchant answers) ----------
+// The page sends a turn id with /turn; Mandat writes each step of that turn to its store as it happens and the page
+// reads it back (GET /activity) while the turn runs. With a real model a turn takes seconds and the list fills in as
+// merchants answer; with the scripted demo brain everything is already done, so the same real lines are revealed
+// one after the other.
+const LIVE_ICONS = { done: '<path d="M5 12.5 10 17 19 7"/>', failed: '<path d="M7 7l10 10M17 7 7 17"/>' };
+const liveShown = new Map();
+function liveRow(e) {
+  const li = document.createElement('li');
+  li.dataset.step = e.step;
+  fillLive(li, e);
+  return li;
+}
+function fillLive(li, e) {
+  li.className = e.state;
+  const st = `<span class="st ${esc(e.state)}" aria-hidden="true">${e.state === 'running' ? '' : `<svg viewBox="0 0 24 24">${LIVE_ICONS[e.state] || LIVE_ICONS.done}</svg>`}</span>`;
+  const amt = e.to != null ? `<span class="live-amt">${e.from != null && e.from !== e.to ? `<s>${usd(e.from)}</s><i>→</i>` : ''}${usd(e.to)}</span>` : '<span></span>';
+  li.innerHTML = `<span class="live-ico">${e.image_url ? `<img src="${esc(e.image_url)}" alt="">` : ''}${st}</span>
+    <span class="live-text"><b>${esc(e.text)}</b>${e.detail ? `<span>${esc(e.detail)}</span>` : ''}</span>${amt}`;
+  li.setAttribute('aria-label', `${e.text}${e.detail ? ', ' + e.detail : ''}${e.to != null ? ', ' + usd(e.to) : ''}${e.state === 'running' ? ', in progress' : e.state === 'failed' ? ', not possible' : ''}`);
+}
+function renderLive(events) {
+  const list = $('#liveList');
+  for (const e of events) {
+    const prev = liveShown.get(e.step);
+    if (!prev) { const li = liveRow(e); list.append(li); liveShown.set(e.step, { e, li }); }
+    else if (prev.e.state !== e.state || prev.e.text !== e.text) { fillLive(prev.li, e); prev.e = e; }
+  }
+  // keep the newest steps on screen: drop the oldest rows that no longer fit
+  while (list.children.length > 1 && list.scrollHeight > list.clientHeight + 2) list.firstElementChild.remove();
+}
+function startLive(turnId) {
+  liveShown.clear();
+  $('#liveList').replaceChildren();
+  $('#live').removeAttribute('data-done');
+  $('#liveTitle').textContent = 'Working on it';
+  if (device === 'dot') return () => {};
+  $('#live').hidden = false;
+  document.body.dataset.live = 'on';
+  let stop = false, timer = 0;
+  const tick = async () => {
+    if (stop) return;
+    try {
+      const r = await fetch(`/activity?household=${encodeURIComponent(household)}&turn=${turnId}`);
+      if (r.ok && !stop) renderLive((await r.json()).events || []);
+    } catch {}
+    if (!stop) timer = setTimeout(tick, 650);
+  };
+  timer = setTimeout(tick, 250);
+  return () => { stop = true; clearTimeout(timer); };
+}
+// The turn is over: show every real step (revealed one by one if they all finished at once), then the card.
+async function finishLive(turnId) {
+  if (device === 'dot') return;
+  let events = [];
+  try { events = (await (await fetch(`/activity?household=${encodeURIComponent(household)}&turn=${turnId}`)).json()).events || []; } catch {}
+  const fresh = events.filter((e) => !liveShown.has(e.step) || liveShown.get(e.step).e.state !== e.state);
+  const quick = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (fresh.length > 1 && !quick) for (const e of events) { renderLive([e]); if (fresh.includes(e)) await new Promise((r) => setTimeout(r, 170)); }
+  else renderLive(events);
+  $('#live').dataset.done = '';
+  $('#liveTitle').textContent = 'Done';
+  if (events.length) await new Promise((r) => setTimeout(r, quick ? 200 : 650));
+}
+function endLive() { $('#live').hidden = true; delete document.body.dataset.live; }
 
 // ---------- voice level: real microphone level while listening, word timing while speaking ----------
 const BARS = 14;
@@ -409,10 +487,16 @@ async function turn(text) {
   $('#trail').replaceChildren();
   setAsk(null);
   setState('thinking');
+  if (document.body.dataset.screen === 'home' && device !== 'dot') document.body.dataset.screen = 'card';
+  const turnId = (crypto.randomUUID?.() || `t-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`).toLowerCase();
+  const stopLive = startLive(turnId);
   try {
-    log('orch', 'page → /turn', { method: 'turn', params: { text, device } });
-    const r = await fetch('/turn', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, session, household, device: device === 'dot' ? 'dot' : 'show' }) });
+    log('orch', 'page → /turn', { method: 'turn', params: { text, device, turn: turnId } });
+    const r = await fetch('/turn', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, session, household, device: device === 'dot' ? 'dot' : 'show', turn: turnId, locale: speechLocale() }) });
     const out = await r.json();
+    stopLive();
+    if (r.ok) await finishLive(turnId);
+    endLive();
     if (!r.ok) throw Object.assign(new Error(out.error || 'turn failed'), { spoken: out.speech });
     for (const s of out.steps) log('orch', 'brain tools/call', { method: 'tools/call', params: { name: s.name, arguments: s.args }, result: s.result });
     session = { ...out.session, modelContext: null };
@@ -428,6 +512,7 @@ async function turn(text) {
     await speak(out.speech);
   } catch (e) {
     // Honest error: what happened, what did not, and the way out.
+    stopLive(); endLive();
     played.delete(text); store.set(`mandat.played.${household}`, [...played]); renderScript();
     if (document.body.dataset.screen === 'home') document.body.dataset.screen = 'card';
     setReply(e.spoken || 'I could not reach Mandat, so nothing was booked or charged. Try again in a moment.', { error: true });

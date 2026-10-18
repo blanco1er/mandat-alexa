@@ -9,9 +9,9 @@ import { fileURLToPath } from 'node:url';
 export const MCP_APP_MIME = 'text/html;profile=mcp-app';
 export const UI_EXTENSION = 'io.modelcontextprotocol/ui';
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'ui');
-export const CARD_NAMES = ['status', 'mandate', 'offers', 'plan', 'receipt'];
+export const CARD_NAMES = ['status', 'mandate', 'offers', 'plan', 'receipt', 'item'];
 
-const TITLES = { status: 'Household status', mandate: 'Spending budget', offers: 'Options and quotes', plan: 'Plan to approve', receipt: 'Receipt and payment timeline' };
+const TITLES = { status: 'Household status', mandate: 'Spending budget', offers: 'Options and quotes', plan: 'Plan to approve', receipt: 'Receipt and payment timeline', item: 'Item details and comparison' };
 
 let cache = null;
 export function cards() {

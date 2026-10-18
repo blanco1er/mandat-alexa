@@ -6,7 +6,7 @@ import { boot, client, inLawsPlan, rpc, sc, text } from './helpers.mjs';
 const srv = await boot();
 test.after(() => srv.close());
 
-const TOOLS = ['get_household_status', 'set_spending_mandate', 'remember_preference', 'find_home_services', 'find_products', 'negotiate_offer', 'propose_plan', 'confirm_plan', 'change_order', 'close_order'];
+const TOOLS = ['get_household_status', 'set_spending_mandate', 'remember_preference', 'find_home_services', 'find_products', 'negotiate_offer', 'propose_plan', 'confirm_plan', 'change_order', 'close_order', 'get_offer_details', 'list_alternatives', 'compare_offers', 'revise_plan', 'review_plan'];
 
 test('initialize negotiates 2025-11-25 over Streamable HTTP and announces the UI extension', async () => {
   const r = await rpc(srv.mcpUrl, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: { extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } }, clientInfo: { name: 't', version: '1' } } });
@@ -40,15 +40,17 @@ test('a request from a foreign Origin is refused with 403 (2025-11-25 transport 
   assert.equal(r.status, 403);
 });
 
-test('tools/list: 10 intent tools + 1 app-only tool, each with a schema and a ui:// resourceUri', async () => {
+test('tools/list: 15 intent tools + 1 app-only tool, each with a schema and a ui:// resourceUri', async () => {
   const c = await client(srv.mcpUrl);
   const { tools } = await c.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [...TOOLS, 'refresh_card'].sort());
   for (const t of tools) {
     assert.equal(t.inputSchema.type, 'object', t.name);
-    assert.match(t._meta.ui.resourceUri, /^ui:\/\/mandat\/(status|mandate|offers|plan|receipt)-[0-9a-f]{10}\.html$/, t.name);
+    assert.match(t._meta.ui.resourceUri, /^ui:\/\/mandat\/(status|mandate|offers|plan|receipt|item)-[0-9a-f]{10}\.html$/, t.name);
     assert.ok(t._meta.ui.invoking && t._meta.ui.invoked, t.name);
     assert.ok(t.description.length > 40, t.name);
+    // Alexa+ tool-schema guide: every parameter says what it is for
+    for (const [k, v] of Object.entries(t.inputSchema.properties || {})) assert.ok(v.description && v.description.length > 8, `${t.name}.${k} has no description`);
   }
   assert.deepEqual(tools.find((t) => t.name === 'refresh_card')._meta.ui.visibility, ['app']);
   assert.ok(tools.find((t) => t.name === 'close_order').annotations.destructiveHint);
@@ -57,10 +59,10 @@ test('tools/list: 10 intent tools + 1 app-only tool, each with a schema and a ui
   await c.close();
 });
 
-test('resources: 5 MCP Apps views, text/html;profile=mcp-app, self-contained, with _meta.ui', async () => {
+test('resources: 6 MCP Apps views, text/html;profile=mcp-app, self-contained, with _meta.ui', async () => {
   const c = await client(srv.mcpUrl);
   const { resources } = await c.listResources();
-  assert.equal(resources.length, 5);
+  assert.equal(resources.length, 6);
   for (const r of resources) {
     assert.equal(r.mimeType, 'text/html;profile=mcp-app');
     const { contents } = await c.readResource({ uri: r.uri });

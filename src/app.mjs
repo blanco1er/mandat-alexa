@@ -2,6 +2,7 @@
 // AWS Lambda behind a Function URL (src/lambda.mjs). Routes:
 //   POST|GET|DELETE /mcp   MCP Streamable HTTP, stateless, JSON responses (protocol 2025-11-25)
 //   POST /turn             one user utterance -> orchestrator (simulated, or Strands/Bedrock) -> speech + tool results
+//   GET  /activity         live activity of one voice turn (?household=&turn=), read while /turn runs
 //   POST /tts              Polly when MANDAT_TTS=polly, else 501 (the browser speaks)
 //   GET  /paypal/return    PayPal sandbox vault approval comes back here
 //   GET  /healthz          liveness + which providers are on
@@ -15,6 +16,8 @@ import { createMcpServer } from './mcp/server.mjs';
 import { createTts } from './providers/tts.mjs';
 import { MODE as PAYPAL_MODE } from './core/paypal.mjs';
 import { spendViewShared } from './core/spend.mjs';
+import { readFeed } from './core/activity.mjs';
+import { TURN_RE } from './core/context.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATIC = { '/simulator/': path.join(ROOT, 'simulator'), '/media/': path.join(ROOT, 'media') };
@@ -51,7 +54,7 @@ export function originAllowed(origin, allowed) {
 
 export function createApp({ service, brain = null, allowedOrigins, demoToken = process.env.MANDAT_DEMO_TOKEN || '', tts = createTts(), internalKey = '' }) {
   const origins = allowedOrigins || (process.env.MANDAT_ALLOWED_ORIGINS || 'http://localhost:8787,http://127.0.0.1:8787').split(',').map((s) => s.trim()).filter(Boolean);
-  const limits = { turn: createLimiter({ perHour: limitOf('MANDAT_LIMIT_TURNS', 60) }), tts: createLimiter({ perHour: limitOf('MANDAT_LIMIT_TTS', 120) }), mcp: createLimiter({ perHour: limitOf('MANDAT_LIMIT_MCP', 600) }) };
+  const limits = { turn: createLimiter({ perHour: limitOf('MANDAT_LIMIT_TURNS', 60) }), tts: createLimiter({ perHour: limitOf('MANDAT_LIMIT_TTS', 120) }), mcp: createLimiter({ perHour: limitOf('MANDAT_LIMIT_MCP', 600) }), activity: createLimiter({ perHour: limitOf('MANDAT_LIMIT_ACTIVITY', 3000) }) };
   const internal = (request) => !!internalKey && request.headers.get('x-mandat-internal') === internalKey;
 
   async function mcp(request) {
@@ -102,12 +105,22 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
         const l = limits.turn(clientIp(request));
         if (!l.ok) return tooMany(l.retryAfter, 'That is a lot of requests from here in one hour. Please try again a little later; nothing was booked or charged.');
         try {
-          const out = await brain.runTurn({ text, session: { ...(body.session || {}), device: body.device || 'show' }, household });
+          const turn = TURN_RE.test(body.turn || '') ? body.turn : undefined;
+          const locale = typeof body.locale === 'string' ? body.locale.slice(0, 12) : undefined;
+          const out = await brain.runTurn({ text, session: { ...(body.session || {}), device: body.device || 'show' }, household, turn, locale });
           return json(200, out);
         } catch (e) {
           if (e.code === 'LLM_BUDGET') return json(503, { error: 'Model budget used up', speech: e.message });
           throw e;
         }
+      }
+      // Live activity of one voice turn (what Mandat is doing right now), read by the host while /turn runs.
+      if (p === '/activity' && request.method === 'GET') {
+        if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { error: 'Forbidden origin' });
+        const l = limits.activity(clientIp(request));
+        if (!l.ok) return tooMany(l.retryAfter);
+        const household = /^[a-z0-9_-]{1,40}$/i.test(url.searchParams.get('household') || '') ? url.searchParams.get('household') : 'demo';
+        return json(200, { events: await readFeed(service.store, household, url.searchParams.get('turn')) });
       }
       if (p === '/tts' && request.method === 'POST') {
         if (!tts) return json(501, { error: 'No server TTS; the browser voice is used.' });

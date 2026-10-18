@@ -78,6 +78,9 @@ if exists dynamodb describe-table --table-name "$TABLE"; then say "table $TABLE 
     --billing-mode PAY_PER_REQUEST --tags Key=project,Value=mandat-alexa >/dev/null
   aws_ dynamodb wait table-exists --table-name "$TABLE"
 fi
+# Live-activity rows carry a "ttl" attribute (epoch seconds): let DynamoDB drop them after a day. Idempotent.
+TTL_ON=DISABLED; [ "$DRY" = 1 ] || TTL_ON="$(aws_ dynamodb describe-time-to-live --table-name "$TABLE" | jq -r '.TimeToLiveDescription.TimeToLiveStatus // "DISABLED"')"
+if [ "$TTL_ON" = DISABLED ]; then aws_ dynamodb update-time-to-live --table-name "$TABLE" --time-to-live-specification Enabled=true,AttributeName=ttl >/dev/null; fi
 
 # ---------- 3. IAM role, least privilege ----------
 cat > "$TMP/trust.json" <<'JSON'

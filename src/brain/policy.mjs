@@ -16,8 +16,19 @@ const best = (r) => (sc(r).offers || [])[0];
 
 export function classify(u, session = {}) {
   const t = u.toLowerCase();
-  if (session.pending && /^\s*(yes|yeah|yep|sure|ok|okay|go ahead|do it|book it|buy it|confirm)/.test(t)) return 'confirm';
-  if (session.pending && /^\s*(no|nope|don't|cancel|not now|stop)/.test(t)) return 'decline';
+  if (session.pending && /^\s*(yes|yeah|yep|sure|ok|okay|go ahead|do it|book it|buy it|confirm)\b/.test(t)) return 'confirm';
+  if (session.pending && /^\s*(no|nope|don't|cancel|not now|stop)\b(?!.*\b(cheaper|instead|other)\b)/.test(t)) return 'decline';
+  // Looking closer, comparing and swapping need something on the table: a plan waiting for a yes, or recent options.
+  if (session.pending || Object.keys(session.offers || {}).length) {
+    if (/\b(show me|see|back to|open)\b.*\bthe plan\b|^\s*(go )?back\b/.test(t) && session.pending) return 'show_plan';
+    if (/\bcompare\b/.test(t)) return 'compare';
+    if (/\b(remove|drop|take out)\b/.test(t) && session.pending) return 'remove';
+    if (/\b(instead|swap|replace|switch to|go with)\b/.test(t)) return 'swap';
+    if (/\bplan\b.*\bfor me\b|\b(choose|pick)\b/.test(t) && !session.pending) return 'choose';
+    if (/\b(other options?|alternatives?|something else|what else|cheaper)\b/.test(t)) return 'alternatives';
+    if (/\bwhy\b/.test(t)) return 'why';
+    if (/\b(show me|look at|closer|details|tell me more|zoom)\b/.test(t)) return 'inspect';
+  }
   if (/\bremember\b/.test(t)) return 'remember';
   if (/(weekly|monthly|a week|a month|per week|per month)/.test(t) && /budget|\$/.test(t)) return 'set_budget';
   if (/(moved|move|changed|postponed|delayed).*(sunday|monday|tuesday|wednesday|thursday|friday|saturday)/.test(t)) return 'plans_change';
@@ -52,13 +63,56 @@ function purposeOf(u) {
   return 'This plan';
 }
 
+// ---- what the user points at ("the bed linen", "the caterer", "Olive & Thyme", "the sateen set", "that") ----
+const CATEGORY_WORDS = { cleaning: /\bclean(er|ers|ing)?\b|\bmaid/, catering: /\b(cater(er|ers|ing)?|dinner|food for|chef)\b/, plumbing: /\bplumb/, handyman: /\bhandy/ };
+const PRODUCT_WORDS = { bedding: /\b(bed ?linen|linens?|bedding|sheets?|pillow\w*|sateen|percale|duvet|towels?)\b/, dog: /\b(dog|kibble)\b/, coffee: /\b(coffee|beans|roast|espresso|decaf)\b/ };
+const words = (x) => String(x || '').toLowerCase().split(/[^a-z0-9&]+/).filter((w) => w.length > 2 && !['the', 'and', 'for', 'with', 'set', 'from'].includes(w));
+const familyOf = (o) => (o.kind === 'product' ? (/(sheet|bed|duvet|towel|pillow)/i.test(o.title) ? 'bedding' : /dog/i.test(o.title) ? 'dog' : /coffee|roast|decaf/i.test(o.title) ? 'coffee' : 'other') : o.category);
+function known(session) {
+  const out = new Map();
+  for (const o of Object.values(session.offers || {})) out.set(o.id, { ...o, inPlan: false });
+  for (const l of session.pending?.lines || []) out.set(l.offer_id, { ...(out.get(l.offer_id) || {}), id: l.offer_id, kind: l.kind, category: l.category, merchant: l.merchant, title: l.title, total: l.total, search_id: l.search_id, inPlan: true });
+  return [...out.values()];
+}
+// Best match for the words of the utterance; ties go to `prefer` (in the plan, or not in the plan).
+function pointAt(u, session, { prefer } = {}) {
+  const t = u.toLowerCase();
+  const ws = new Set(words(t));
+  const all = known(session);
+  const score = (o) => {
+    let s = 0;
+    for (const w of words(`${o.merchant} ${o.title}`)) if (ws.has(w)) s += 3;
+    const fam = familyOf(o);
+    if (o.kind === 'service' && CATEGORY_WORDS[fam]?.test(t)) s += 2;
+    if (o.kind === 'product' && PRODUCT_WORDS[fam]?.test(t)) s += 2;
+    if (prefer === 'plan' && o.inPlan) s += 0.5;
+    if (prefer === 'other' && !o.inPlan) s += 0.5;
+    return s;
+  };
+  const ranked = all.map((o) => ({ o, s: score(o) })).filter((x) => x.s >= 2).sort((a, b) => b.s - a.s || a.o.total - b.o.total);
+  if (ranked.length) return ranked[0].o;
+  if (/\b(that|this|it|this one|that one)\b/.test(t) && session.focus) return all.find((o) => o.id === session.focus) || null;
+  return null;
+}
+const sameSearch = (a, b) => (a.search_id && b.search_id ? a.search_id === b.search_id : familyOf(a) === familyOf(b) && a.kind === b.kind);
+const label = (o) => (o.kind === 'service' ? o.merchant : String(o.title || '').split(':')[0]);
+
 // Absorb a tool result into the session (pending plan, last alternatives). Pure: returns a new session.
 export function absorb(session, name, result) {
   const s = { ...session };
   const d = sc(result);
   if (failed(result)) return s;
-  if (name === 'propose_plan') s.pending = d.needs_user_yes ? { plan_id: d.plan.id, token: d.confirmation_token, total: d.plan.breakdown.total } : null;
-  if (name === 'confirm_plan') s.pending = null;
+  const lines = (p) => p.lines.map((l) => ({ offer_id: l.offer_id, kind: l.kind, category: l.category, merchant: l.merchant, title: l.title, total: l.total, search_id: l.search_id || null }));
+  if (name === 'propose_plan' || name === 'revise_plan') s.pending = d.needs_user_yes ? { plan_id: d.plan.id, token: d.confirmation_token, total: d.plan.breakdown.total, lines: lines(d.plan) } : null;
+  if (name === 'confirm_plan') { s.pending = null; s.focus = null; }
+  // options seen recently (for "show me", "other options", "take X instead"): the last 15, light
+  const seen = d.offers || (d.offer ? [d.offer] : []);
+  if (seen.length && ['find_home_services', 'find_products', 'list_alternatives', 'negotiate_offer', 'get_offer_details', 'compare_offers'].includes(name)) {
+    const keep = Object.values({ ...(s.offers || {}) });
+    for (const o of seen) keep.push({ id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, title: o.title, total: o.total, search_id: o.search_id || null });
+    s.offers = Object.fromEntries(keep.slice(-15).map((o) => [o.id, o]));
+  }
+  if (name === 'get_offer_details' && d.offer) s.focus = d.offer.id;
   return s;
 }
 
@@ -76,6 +130,59 @@ export function decide({ utterance, session = {}, steps = [] }) {
       return say(said(last.result));
     case 'decline':
       return say('Okay, I will not buy it. The plan stays unpaid.');
+
+    case 'show_plan':
+      if (n === 0) return tool('review_plan', { plan_id: session.pending.plan_id });
+      return say(said(last.result) + (dot ? ' Say yes to confirm.' : ''));
+
+    case 'inspect': case 'why': {
+      const o = pointAt(u, session, { prefer: 'plan' }) || (session.focus && known(session).find((x) => x.id === session.focus));
+      if (!o) return say('Which one? You can say the cleaner, the caterer or the bedding.');
+      if (n === 0) return tool('get_offer_details', { offer_id: o.id });
+      return say(said(last.result));
+    }
+
+    case 'alternatives': {
+      const o = pointAt(u, session, { prefer: 'plan' }) || (session.focus && known(session).find((x) => x.id === session.focus)) || (session.pending?.lines?.length === 1 ? known(session).find((x) => x.inPlan) : null);
+      if (!o) return say('Other options for which one? The cleaner, the caterer or the bedding?');
+      if (n === 0) return tool('list_alternatives', { offer_id: o.id, cheaper_only: /cheaper|less expensive/i.test(u) });
+      return say(said(last.result) + (session.pending ? ' Say which one you want instead.' : ''));
+    }
+
+    case 'compare': {
+      const all = known(session);
+      const anchor = pointAt(u, session, { prefer: 'plan' }) || all.find((x) => x.id === session.focus);
+      if (!anchor) return say('Compare which ones? For example, the two caterers.');
+      const group = all.filter((x) => sameSearch(x, anchor)).sort((a, b) => (b.inPlan - a.inPlan) || a.total - b.total);
+      const howMany = /\b(two|2|both)\b/i.test(u) ? 2 : 3;
+      const ids = group.slice(0, howMany).map((x) => x.id);
+      if (ids.length < 2) return say(`I only have one option for that. Want me to search again?`);
+      if (n === 0) return tool('compare_offers', { offer_ids: ids });
+      return say(said(last.result));
+    }
+
+    case 'swap': {
+      if (!session.pending) return say('There is no plan waiting for your yes, so there is nothing to swap.');
+      const add = pointAt(u, session, { prefer: 'other' });
+      if (!add || add.inPlan) return say('Which option should I take instead? Say its name, or ask for other options.');
+      const out = known(session).find((x) => x.inPlan && sameSearch(x, add)) || known(session).find((x) => x.inPlan && familyOf(x) === familyOf(add));
+      if (n === 0) return tool('revise_plan', { plan_id: session.pending.plan_id, remove_offer_ids: out ? [out.id] : [], add_offer_ids: [add.id] });
+      return say(said(last.result) + (dot ? ' Say yes to confirm.' : ''));
+    }
+
+    case 'remove': {
+      const o = pointAt(u, session, { prefer: 'plan' });
+      if (!o || !o.inPlan) return say('Which item should I take out of the plan?');
+      if (n === 0) return tool('revise_plan', { plan_id: session.pending.plan_id, remove_offer_ids: [o.id] });
+      return say(said(last.result) + (dot ? ' Say yes to confirm.' : ''));
+    }
+
+    case 'choose': {
+      const o = pointAt(u, session, {}) || known(session).find((x) => x.id === session.focus);
+      if (!o) return say('Which one should I plan?');
+      if (n === 0) return tool('propose_plan', { item_ids: [o.id] });
+      return say(said(last.result) + (dot && sc(last.result).needs_user_yes ? ' Say yes to confirm.' : ''));
+    }
 
     case 'remember': {
       if (n === 0) {

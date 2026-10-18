@@ -17,14 +17,16 @@ export async function connectMcp(url, { household = 'demo', name = 'mandat-alexa
 
 export class SimulatedBrain {
   constructor({ mcpUrl, headers = {} }) { this.mcpUrl = mcpUrl; this.headers = headers; this.name = 'simulated'; }
-  async runTurn({ text, session = {}, household = 'demo', maxSteps = 12 }) {
-    const { client, transport } = await connectMcp(this.mcpUrl, { household, headers: this.headers });
+  async runTurn({ text, session = {}, household = 'demo', maxSteps = 12, turn, locale }) {
+    // The turn id ties every tool call of this utterance to the live activity feed; the locale shapes the speech.
+    const extra = { ...(turn ? { 'X-Mandat-Turn': turn } : {}), ...(locale ? { 'X-Mandat-Locale': locale } : {}) };
+    const { client, transport } = await connectMcp(this.mcpUrl, { household, headers: { ...this.headers, ...extra } });
     const steps = [];
     let s = { ...session };
     try {
       for (let i = 0; i < maxSteps; i++) {
         // the turn's intent is read with the session as it was when the user spoke
-        const action = decide({ utterance: text, session: { ...session, closeTokens: s.closeTokens }, steps });
+        const action = decide({ utterance: text, session: { ...session, closeTokens: s.closeTokens }, steps, locale });
         if (action.type === 'say') return { speech: action.text, steps, session: s, protocolVersion: transport.protocolVersion };
         const result = await client.callTool({ name: action.name, arguments: action.args });
         steps.push({ name: action.name, args: action.args, result });

@@ -1,4 +1,4 @@
-// The Mandat MCP server: 10 intent tools + 1 app-only tool + 5 MCP Apps views, on @modelcontextprotocol/sdk 1.32.1.
+// The Mandat MCP server: 15 intent tools + 1 app-only tool + 6 MCP Apps views, on @modelcontextprotocol/sdk 1.32.1.
 // Stateless: one McpServer per HTTP request (Lambda-friendly); state lives in the store under explicit ids
 // (mandate_id, offer_id, plan_id, order_id), which is the pattern AWS recommends for stateless MCP servers.
 // Every tool result carries:
@@ -11,11 +11,14 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { ToolError } from '../mandat.mjs';
+import { header, runWith } from '../core/context.mjs';
+import { note } from '../core/activity.mjs';
 import { cards, CARD_NAMES, MCP_APP_MIME, resourceUiMeta, UI_EXTENSION } from './ui.mjs';
 
 export const SERVER_INFO = { name: 'mandat-for-alexa-plus', title: 'Mandat for Alexa+', version: '0.1.0' };
 export const INSTRUCTIONS = `Mandat runs household errands inside a spending budget the user set once.
 Flow: find_home_services / find_products -> (negotiate_offer) -> propose_plan -> read the total aloud -> the user says yes -> confirm_plan with user_confirmation set to the user's words.
+Before the yes, the user may look closer (get_offer_details), ask for other options (list_alternatives), compare (compare_offers) or swap and remove items (revise_plan, which returns a new plan and a new confirmation_token). review_plan shows the plan waiting for a yes.
 Never call confirm_plan for a plan that needs a yes before the user has said it. Never invent ids: use the ones in the results.
 Speak content[0] only. Offer at most 5 options (3 on screenless devices). After an error, propose the one next step it gives.`;
 
@@ -37,7 +40,12 @@ function idsFor(tool, d) {
     case 'find_home_services': case 'find_products': case 'negotiate_offer':
       // offers come best first (cheapest verified service; for products, the household's usual brand first)
       return { recommended_offer_id: d.offers?.[0]?.id, offers: (d.offers || []).map((o) => ({ offer_id: o.id, merchant: o.merchant, title: o.title, total: o.total, when: o.slot_label })) };
-    case 'propose_plan': return { plan_id: d.plan?.id, mandate_id: d.plan?.mandate_id, total: d.plan?.breakdown?.total, needs_user_yes: d.needs_user_yes, confirmation_token: d.confirmation_token };
+    case 'get_offer_details': return { offer_id: d.offer?.id, in_plan: d.in_plan, plan_id: d.plan_id || undefined, other_options: d.alternatives };
+    case 'list_alternatives': return { current_offer_id: d.current_offer_id, offers: (d.offers || []).map((o) => ({ offer_id: o.id, merchant: o.merchant, title: o.title, total: o.total, when: o.slot_label })) };
+    case 'compare_offers': return { cheapest_offer_id: d.cheapest_id, best_rated_offer_id: d.best_rated_id, difference: d.difference, plan_id: d.plan_id || undefined };
+    case 'revise_plan': return { plan_id: d.plan?.id, replaces_plan_id: d.revised?.from_plan_id, mandate_id: d.plan?.mandate_id, total: d.plan?.breakdown?.total, needs_user_yes: d.needs_user_yes, confirmation_token: d.confirmation_token, lines: d.plan?.lines?.map((l) => ({ offer_id: l.offer_id, merchant: l.merchant, total: l.total })) };
+    case 'review_plan': return { plan_id: d.plan?.id, total: d.plan?.breakdown?.total, needs_user_yes: d.needs_user_yes, lines: d.plan?.lines?.map((l) => ({ offer_id: l.offer_id, merchant: l.merchant, title: l.title, total: l.total })) };
+    case 'propose_plan': return { plan_id: d.plan?.id, mandate_id: d.plan?.mandate_id, total: d.plan?.breakdown?.total, needs_user_yes: d.needs_user_yes, confirmation_token: d.confirmation_token, lines: d.plan?.lines?.map((l) => ({ offer_id: l.offer_id, merchant: l.merchant, total: l.total })) };
     case 'confirm_plan': case 'change_order': case 'close_order':
       return { orders: d.receipt?.orders?.map((o) => ({ order_id: o.id, merchant: o.merchant, state: o.state, amount: o.amount, captured: o.captured || undefined, mandate_id: o.mandate_id, close_token: o.close_token })), alternatives: d.alternatives?.map((o) => ({ offer_id: o.id, merchant: o.merchant, total: o.total, when: o.slot_label })), replacement: d.alternatives?.length ? `propose_plan with item_ids ["${d.alternatives[0].id}"] and mandate_id "${d.receipt?.orders?.[0]?.mandate_id}"` : undefined };
     default: return {};
@@ -55,8 +63,57 @@ const UI_TEXT = {
   confirm_plan: ['Placing payment holds…', 'Booked'],
   change_order: ['Contacting the merchant…', 'Merchant answered'],
   close_order: ['Updating the payment…', 'Payment updated'],
+  get_offer_details: ['Opening the details…', 'Details ready'],
+  list_alternatives: ['Looking at other options…', 'Options ready'],
+  compare_offers: ['Comparing…', 'Comparison ready'],
+  revise_plan: ['Updating the plan…', 'Plan updated'],
+  review_plan: ['Opening the plan…', 'Plan ready'],
   refresh_card: ['Refreshing…', 'Up to date'],
 };
+
+// Live activity lines for each tool call (the merchant-by-merchant and hold-by-hold lines come from src/mandat.mjs).
+const NOUN = { cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' };
+const $ = (n) => '$' + (Math.round(n * 100) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
+export function liveStart(name, a = {}) {
+  switch (name) {
+    case 'get_household_status': return 'Checking your budget';
+    case 'set_spending_mandate': return `Setting a ${$(a.budget)} budget`;
+    case 'remember_preference': return `Remembering: ${a.subject}`;
+    case 'find_home_services': return `Asking ${NOUN[a.category] || 'pros'} near you for ${a.when}`;
+    case 'find_products': return `Searching shops for ${a.query}`;
+    case 'negotiate_offer': return 'Negotiating';
+    case 'propose_plan': return 'Building one plan';
+    case 'confirm_plan': return 'Placing payment holds';
+    case 'change_order': return `Asking the merchant: ${a.change?.field} → ${a.change?.value}`;
+    case 'close_order': return a.action === 'capture' ? 'Paying the merchant' : a.action === 'refund' ? 'Asking for a refund' : 'Cancelling';
+    case 'get_offer_details': return 'Opening the details';
+    case 'list_alternatives': return a.cheaper_only ? 'Looking for something cheaper' : 'Looking at other options';
+    case 'compare_offers': return 'Comparing side by side';
+    case 'revise_plan': return 'Updating the plan';
+    case 'review_plan': return 'Opening the plan';
+    default: return 'Working';
+  }
+}
+export function liveEnd(name, d = {}, fallback = 'Done') {
+  const env = d.envelope || d.receipt?.envelope;
+  switch (name) {
+    case 'find_home_services': return { text: `${d.asked} ${NOUN[d.category] || 'pros'} asked · ${d.offers?.length || 0} ${d.offers?.length === 1 ? 'quote' : 'quotes'}`, to: d.offers?.[0]?.total ?? null, detail: d.offers?.[0] ? `best ${d.offers[0].merchant}` : undefined };
+    case 'find_products': {
+      const best = d.offers?.[0];
+      const skipped = d.skipped || [];
+      return { text: `${d.offers?.length || 0} ${d.offers?.length === 1 ? 'option' : 'options'} for ${d.query}`, detail: skipped.length ? `${skipped.length} skipped: ${[...new Set(skipped.map((x) => x.ingredient))].join(', ')}` : best ? `${best.matches_preference ? 'your usual: ' : 'best: '}${best.merchant}` : undefined, to: best?.total ?? null, image_url: best?.image_url };
+    }
+    case 'propose_plan': case 'revise_plan': return { text: `Plan ${$(d.plan?.breakdown?.total || 0)}`, detail: d.plan?.auto_approved ? 'under your auto-buy rule' : `${$(d.plan?.remaining_after ?? 0)} left · needs your yes` };
+    case 'confirm_plan': return { text: `${d.receipt?.orders?.length || 0} payment ${d.receipt?.orders?.length === 1 ? 'hold' : 'holds'} placed`, detail: env ? `${$(env.remaining)} left · nothing charged yet` : undefined };
+    case 'set_spending_mandate': return { text: `Budget ${$(d.mandate?.budget || 0)} set`, detail: d.mandate?.auto_approve_under ? `buys on its own under ${$(d.mandate.auto_approve_under)}` : 'asks before every payment' };
+    case 'get_household_status': return { text: env || d.envelopes?.[0] ? `${$((d.envelopes?.[0] || env).remaining)} left` : 'No budget yet', detail: d.envelopes?.[0]?.purpose };
+    case 'get_offer_details': return { text: d.offer ? (d.offer.kind === 'service' ? d.offer.merchant : d.offer.title) : fallback, to: d.offer?.total ?? null };
+    case 'compare_offers': return { text: `${d.offers?.length || 0} options compared`, detail: d.difference ? `${$(d.difference)} apart` : undefined };
+    case 'list_alternatives': return { text: `${Math.max(0, (d.offers?.length || 1) - 1)} other ${d.offers?.length === 2 ? 'option' : 'options'}` };
+    case 'close_order': case 'change_order': return { text: fallback, detail: env ? `${$(env.remaining)} left` : undefined };
+    default: return { text: fallback };
+  }
+}
 
 export function createMcpServer({ service, household = householdFrom }) {
   const server = new McpServer(SERVER_INFO, {
@@ -78,8 +135,15 @@ export function createMcpServer({ service, household = householdFrom }) {
     const uiMeta = { resourceUri: ui[card].uri, invoking, invoked, ...(visibility ? { visibility } : {}) };
     server.registerTool(name, { title, description, inputSchema: input, annotations: { title, ...annotations }, _meta: { ui: uiMeta } }, async (args, extra) => {
       const hid = household(extra);
+      // The voice turn this call belongs to (live activity feed) and the user's locale, from the host's headers.
+      return runWith({ household: hid, turn: header(extra, 'x-mandat-turn'), locale: header(extra, 'x-mandat-locale') }, () => call(hid, args));
+    });
+    const call = async (hid, args) => {
+      const step = `t-${name}-${Math.random().toString(36).slice(2, 7)}`;
+      if (!visibility) await note(service.store, { step, tool: name, state: 'running', text: liveStart(name, args) });
       try {
         const out = await run(hid, args);
+        if (!visibility) await note(service.store, { step, tool: name, state: 'done', ...liveEnd(name, out.data || {}, invoked) });
         const cardName = out.card || card;
         const data = { ...out.data, ...(out.duplicate ? { duplicate: true } : {}) };
         return {
@@ -91,11 +155,12 @@ export function createMcpServer({ service, household = householdFrom }) {
           _meta: { ui: { resourceUri: ui[cardName].uri, invoking, invoked } },
         };
       } catch (e) {
+        if (!visibility) await note(service.store, { step, tool: name, state: 'failed', text: e instanceof ToolError ? e.message : 'Something went wrong' });
         if (e instanceof ToolError) return { isError: true, content: [{ type: 'text', text: `${e.message} Next step: ${e.next}` }] };
         console.error(`[mcp] ${name} failed:`, e);
         return { isError: true, content: [{ type: 'text', text: `Something went wrong on Mandat's side. Next step: call get_household_status to see what was done before trying again.` }] };
       }
-    });
+    };
   };
 
   const money = z.number().positive().max(5000);
@@ -195,19 +260,63 @@ export function createMcpServer({ service, household = householdFrom }) {
     title: 'Pay, cancel or refund an order',
     description: 'Use when a service is done (capture: pays the merchant, a lower final bill captures less and releases the rest), when the user cancels before it happens (cancel: voids the hold), or for money back (refund, full or partial: on an order still on hold, a part refund first pays the rest). To settle up after an event, capture every held order of that event, with the final bill as amount when the user gives one. Needs the order\'s close_token from its receipt.',
     input: {
-      order_id: z.string().min(3).max(40),
-      action: z.enum(['capture', 'cancel', 'refund']),
+      order_id: z.string().min(3).max(40).describe('order_id from a receipt or get_household_status.'),
+      action: z.enum(['capture', 'cancel', 'refund']).describe('capture: the service is done, pay the merchant; cancel: call it off before it happens (voids the hold); refund: money back on a paid order.'),
       amount: z.number().positive().max(5000).optional().describe('For capture: the final bill if lower than the hold. For refund: the amount back; omit for a full refund.'),
       confirmation_token: z.string().min(8).max(64).describe('close_token of this order, from its receipt.'),
     },
     card: 'receipt', annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   }, (hid, a) => service.closeOrder(hid, a));
 
+  const offerId = z.string().min(3).max(40);
+  tool('get_offer_details', {
+    title: 'Show one option up close',
+    description: 'Use when the user wants to look closer at one option or item ("show me the bed linen", "show me that closer", "why this one?"). Returns the photo gallery, price, merchant, key details, time slot or delivery, the negotiation so far, why Mandat picked it, and whether it is under the auto-buy rule or needs a yes. Changes nothing.',
+    input: { offer_id: offerId.describe('offer_id from a search result or from the plan lines.') },
+    card: 'item', annotations: { readOnlyHint: true, openWorldHint: false },
+  }, (hid, a) => service.getOfferDetails(hid, a));
+
+  tool('list_alternatives', {
+    title: 'Other options for one item',
+    description: 'Use when the user asks for other options or something cheaper for one item ("other options?", "not this one, cheaper"). Returns the other quotes or products from the same search, cheapest first. Changes nothing; to swap, call revise_plan.',
+    input: { offer_id: offerId.describe('The option the user is looking at or wants to replace.'), cheaper_only: z.boolean().default(false).describe('true when the user asked for something cheaper.') },
+    card: 'offers', annotations: { readOnlyHint: true, openWorldHint: false },
+  }, (hid, a) => service.listAlternatives(hid, a));
+
+  tool('compare_offers', {
+    title: 'Compare options side by side',
+    description: 'Use when the user wants to compare two or three options ("compare the two caterers"). Returns them side by side with price, time, rating and savings, and says which is cheaper. Changes nothing.',
+    input: { offer_ids: z.array(offerId).min(2).max(3).describe('Two or three offer_ids, usually from the same search.') },
+    card: 'item', annotations: { readOnlyHint: true, openWorldHint: false },
+  }, (hid, a) => service.compareOffers(hid, a));
+
+  tool('revise_plan', {
+    title: 'Swap or remove items in a plan',
+    description: 'Use when the user changes a plan before saying yes ("take the sateen set instead", "swap the caterer", "remove the bedding"). Builds a new plan from the old one minus remove_offer_ids plus add_offer_ids, checks the budget again and returns a new plan_id and a new confirmation_token (the old plan can no longer be confirmed). Moves no money; ask for a yes again.',
+    input: {
+      plan_id: z.string().min(3).max(40).describe('The plan waiting for a yes.'),
+      remove_offer_ids: z.array(offerId).max(5).default([]).describe('offer_ids of plan lines to take out.'),
+      add_offer_ids: z.array(offerId).max(5).default([]).describe('offer_ids to put in, from list_alternatives or a search.'),
+    },
+    card: 'plan', annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  }, (hid, a) => service.revisePlan(hid, a));
+
+  tool('review_plan', {
+    title: 'Show the plan waiting for a yes',
+    description: 'Use when the user wants to see the plan again ("show me the plan", "go back") before deciding. Returns the current plan with its lines and total. Changes nothing.',
+    input: { plan_id: z.string().max(40).optional().describe('Omit for the latest plan waiting for a yes.') },
+    card: 'plan', annotations: { readOnlyHint: true, openWorldHint: false },
+  }, (hid, a) => service.reviewPlan(hid, a));
+
   // App-only: the cards call it to refresh themselves; hidden from the model (MCP Apps visibility).
   tool('refresh_card', {
     title: 'Refresh a Mandat card',
     description: 'Used by Mandat cards to refresh their content. Not for the assistant.',
-    input: { card: z.enum(['status', 'plan', 'receipt']), plan_id: z.string().max(40).optional(), order_ids: z.array(z.string().max(40)).max(10).optional() },
+    input: {
+      card: z.enum(['status', 'plan', 'receipt']).describe('Which card refreshes itself.'),
+      plan_id: z.string().max(40).optional().describe('For the plan card: the plan to show.'),
+      order_ids: z.array(z.string().max(40)).max(10).optional().describe('For the receipt card: the orders to show.'),
+    },
     card: 'status', annotations: { readOnlyHint: true, openWorldHint: false }, visibility: ['app'],
   }, (hid, a) => service.refreshCard(hid, a));
 

@@ -12,8 +12,9 @@ import * as envelope from './core/envelope.mjs';
 import * as defaultPaypal from './core/paypal.mjs';
 import { searchProducts, shopEnabled } from './core/shop.mjs';
 import { searchCatalog } from './core/catalog.mjs';
-import { mediaFor } from './core/media.mjs';
-import { DAY_NAMES, guardQuote, identityCard, merchant as merchantById, MERCHANTS, normalizeCategory, parseGuests, parseWhen, search, verifyCard } from './core/merchants.mjs';
+import { galleryFor, mediaFor } from './core/media.mjs';
+import { note } from './core/activity.mjs';
+import { DAY_NAMES, guardQuote, identityCard, merchant as merchantById, MERCHANTS, normalizeCategory, parseGuests, parseWhen, search, usTime, verifyCard } from './core/merchants.mjs';
 import { pkOf } from './store/index.mjs';
 
 export class ToolError extends Error {
@@ -29,6 +30,7 @@ const id = (p) => `${p}_${crypto.randomBytes(5).toString('hex')}`;
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const sameHash = (a, b) => typeof a === 'string' && typeof b === 'string' && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const spokenSlot = (slot) => String(slot || '').replace(/^(\w+day) (\d)/, '$1 at $2');
+const firstSentence = (t) => String(t || '').split(/(?<=[.!?])\s/)[0].slice(0, 90);
 const listWords = (xs) => (xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);
 // An explicit yes: what the user said, or the Approve tap of the plan card.
 const AFFIRMATIVE = /^(\s*(yes|yeah|yep|yup|sure|ok|okay|confirm(ed)?|approve(d)?|go ahead|do it|book it|buy it|pay|sounds good|tap:approve)\b)/i;
@@ -61,6 +63,8 @@ export class Mandat {
     await prev;
     try { return await fn(); } finally { release(); if (this.locks.get(hid) === next) this.locks.delete(hid); }
   }
+  // One line on the live activity screen (real progress of this voice turn; a no-op outside a turn).
+  live(ev) { return note(this.store, ev); }
   async event(hid, type, detail = {}) {
     const at = new Date(this.now()).toISOString();
     await this.store.put(pkOf(hid), `EVENT#${at}#${crypto.randomBytes(3).toString('hex')}`, { type, at, ...detail });
@@ -205,9 +209,17 @@ export class Mandat {
     // Caterers price per guest: never quote a dinner for "one" because the number was lost on the way.
     if (cat === 'catering' && !guests) throw new ToolError('How many guests should the caterer plan for?', 'Ask the user, or reuse the guest count of the booking being replaced, then search again with guests.');
     const merchants = search({ category: cat, area }).map((p) => merchantById(p.id));
+    const sid = id('srch');
+    // Each merchant agent answers on its own: the screen shows every answer the moment it lands.
     const answers = await Promise.all(merchants.map(async (m) => {
+      await this.live({ step: `q-${sid}-${m.id}`, state: 'running', text: `Asking ${m.name}…`, image_url: mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl).image_url });
       const r = await this.provider.merchantAgent({ merchant: m, when, ask: need, guests });
-      return { m, r, quote: guardQuote(m, r.quote, guests) };
+      const quote = guardQuote(m, r.quote, guests);
+      const verified = verifyCard(identityCard(m));
+      await this.live(quote
+        ? { step: `q-${sid}-${m.id}`, state: 'done', text: m.name, detail: `${quote.slotLabel ? usTime(quote.slotLabel) : ''}${verified ? ' · verified agent' : ''}`, from: quote.discount ? round(quote.base) : null, to: round(quote.total), image_url: mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl).image_url }
+        : { step: `q-${sid}-${m.id}`, state: 'failed', text: m.name, detail: firstSentence(r.reply), image_url: mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl).image_url });
+      return { m, r, quote };
     }));
     const now = this.now();
     const offers = [];
@@ -221,7 +233,8 @@ export class Mandat {
         title: m.label, slot_label: quote.slotLabel, guests: quote.guests, when: when || '',
         base: round(quote.base), discount: round(quote.discount), fees: 0, tax: 0, total: round(quote.total), currency: 'USD',
         negotiation: r.reply, conditions: quote.conditions || '',
-        card_verified: verifyCard(card), agent: card.agent, card_issuer: card.issuedBy,
+        card_verified: verifyCard(card), agent: card.agent, card_issuer: card.issuedBy, search_id: sid,
+        history: [{ from: 'merchant', list: round(quote.base), total: round(quote.total), text: r.reply }],
         ...mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl),
         created: new Date(now).toISOString(), expires: new Date(now + OFFER_TTL).toISOString(),
       });
@@ -233,6 +246,7 @@ export class Mandat {
       throw new ToolError(`No ${cat} service can do ${d ? DAY_NAMES[d] : 'that'}${max_price ? ` under ${usd(max_price)}` : ''}.`, 'Suggest another day or a higher limit to the user.');
     }
     for (const o of top) await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
+    await this.store.put(pkOf(hid), `SEARCH#${sid}`, { id: sid, kind: 'service', category: cat, when: when || '', guests: guests || null, asked: answers.length, offer_ids: top.map((o) => o.id), declined: declined.length, at: new Date(now).toISOString() });
     const label = { cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' }[cat];
     const one = { cleaning: 'cleaner', catering: 'caterer', plumbing: 'plumber', handyman: 'handyman' }[cat];
     const spoken = top.slice(0, 3).map((o, i) => `${top.length === 1 ? '' : i === 0 ? 'Best: ' : 'Then: '}${o.merchant}, ${usd(o.total)} ${spokenSlot(o.slot_label)}${o.discount ? `, down from ${usd(o.base)}` : ''}`);
@@ -270,14 +284,16 @@ export class Mandat {
     ok.sort((a, b) => Number(liked(b)) - Number(liked(a)));
     if (!ok.length) throw new ToolError(`I found nothing for ${query}${skipped.length ? ' that fits your household preferences' : ''}.`, 'Ask the user for another product or a higher price limit.');
     const now = this.now();
+    const sid = id('srch');
     const offers = ok.slice(0, 5).map((p) => ({
       id: id('off'), kind: 'product', merchant_id: p.shop, merchant: p.shopName, product_id: p.id, title: p.title, quantity,
       base: round(p.price * quantity), discount: 0, fees: round(p.delivery || 0), tax: 0, total: round(p.price * quantity + (p.delivery || 0)), currency: 'USD',
-      matches_preference: liked(p), slot_label: 'Delivery in 2 days',
+      matches_preference: liked(p), slot_label: 'Delivery in 2 days', search_id: sid, contains: p.contains || [], unit_price: round(p.price),
       ...mediaFor({ kind: 'product', product_id: p.id }, this.publicUrl),
       created: new Date(now).toISOString(), expires: new Date(now + OFFER_TTL).toISOString(),
     }));
     for (const o of offers) await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
+    await this.store.put(pkOf(hid), `SEARCH#${sid}`, { id: sid, kind: 'product', query, asked: found.length, offer_ids: offers.map((o) => o.id), skipped, at: new Date(now).toISOString() });
     const best = offers[0];
     const skip = skipped.length ? ` I skipped ${skipped.length} with ${[...new Set(skipped.map((x) => x.ingredient))].join(', ')}, because ${skipped[0].because}.` : '';
     return {
@@ -297,6 +313,8 @@ export class Mandat {
     if (!quote) return { speech: `${m.name} says: ${r.reply}`, data: { offer: o, merchant_reply: r.reply, changed: false }, card: 'offers' };
     const before = o.total;
     Object.assign(o, { base: round(quote.base), discount: round(quote.discount), total: round(quote.total), slot_label: quote.slotLabel, negotiation: r.reply, conditions: quote.conditions || '', expires: new Date(this.now() + OFFER_TTL).toISOString() });
+    o.history = [...(o.history || []), { from: 'mandat', text: ask }, { from: 'merchant', list: round(quote.base), total: round(quote.total), text: r.reply }];
+    await this.live({ step: `n-${o.id}-${(o.history || []).length}`, state: 'done', text: `Negotiated with ${m.name}`, from: before, to: o.total, image_url: o.image_url });
     if (quote.slotLabel) o.when = quote.slotLabel;
     await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
     const delta = before - o.total;
@@ -321,7 +339,7 @@ export class Mandat {
     for (const oid of ids) offers.push(await this.offer(hid, oid));
     const m = await this.mandate(hid, mandate_id);
     const env = await this.envelopeOf(hid, m);
-    const lines = offers.map((o) => ({ offer_id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, merchant_id: o.merchant_id, title: o.title, detail: o.slot_label, guests: o.guests ?? null, quantity: o.quantity ?? null, base: o.base, discount: o.discount, fees: o.fees, tax: o.tax, total: o.total, ...(o.image_url ? { image_url: o.image_url, image_alt: o.image_alt } : {}) }));
+    const lines = offers.map((o) => ({ offer_id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, merchant_id: o.merchant_id, title: o.title, detail: o.slot_label, guests: o.guests ?? null, quantity: o.quantity ?? null, base: o.base, discount: o.discount, fees: o.fees, tax: o.tax, total: o.total, search_id: o.search_id || null, ...(o.image_url ? { image_url: o.image_url, image_alt: o.image_alt } : {}) }));
     const sum = (k) => round(lines.reduce((s, l) => s + (l[k] || 0), 0));
     const breakdown = { base: sum('base'), discount: sum('discount'), fees: sum('fees'), tax: sum('tax'), total: sum('total'), currency: m.currency };
     const verdict = envelope.check(env, breakdown.total);
@@ -360,6 +378,8 @@ export class Mandat {
       // Idempotency: a confirmed plan returns its receipt again, without a second hold.
       const prior = await this.store.get(pkOf(hid), `IDEMP#${plan.id}`);
       if (prior?.receipt) return { ...(await this.receipt(hid, prior.receipt.order_ids, `Already booked: nothing new was charged.`)), duplicate: true };
+      // Only the plan the user is looking at can be paid: a revised (swapped) or dropped plan is dead with its token.
+      if (plan.status !== 'proposed') throw new ToolError(plan.status === 'revised' ? 'That plan was changed since, so I did not pay anything.' : `That plan is ${plan.status}, so I did not pay anything.`, plan.status === 'revised' ? `Use the newer plan ${plan.revised_to} and its confirmation_token from revise_plan.` : 'Call review_plan or get_household_status.');
       if (Date.parse(plan.expires) < this.now()) throw new ToolError('This plan expired before it was confirmed.', 'Propose it again so prices are fresh.');
       if (!plan.auto_approved && !isExplicitYes(user_confirmation)) {
         throw new ToolError(`I need your explicit yes before paying ${usd(plan.breakdown.total)}.`, 'Read the total aloud, ask the user to say yes, then call confirm_plan with their words in user_confirmation.');
@@ -379,6 +399,7 @@ export class Mandat {
           const oid = id('ord');
           const pp = await this.paypal.hold({ paymentTokenId: m.paypal.paymentTokenId, amount: l.total, currency: m.currency, merchant: l.merchant, description: `${l.title} (${l.detail})`, reference: `${plan.id}-${i}` });
           envelope.hold(env, { id: oid, merchant: l.merchant, label: l.title, amount: l.total, paypal: pp });
+          await this.live({ step: `h-${oid}`, state: 'done', text: `Holding ${usd(l.total)} for ${l.merchant}`, detail: 'not charged until it is done', image_url: l.image_url });
           const at = new Date(this.now()).toISOString();
           orders.push({
             id: oid, plan_id: plan.id, mandate_id: m.id, kind: l.kind, category: l.category ?? null, merchant_id: l.merchant_id, merchant: l.merchant, label: l.title, slotLabel: l.detail,
@@ -445,10 +466,13 @@ export class Mandat {
         o.timeline.push({ state: 'changed', note: `${change.field}: ${change.value}`, at });
         await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
         await this.event(hid, 'order.changed', { order_id: o.id, change });
+        await this.live({ step: `c-${o.id}`, state: 'done', text: `${mer.name} moved it`, detail: usTime(o.slotLabel || ''), image_url: o.image_url });
         return { ...(await this.receipt(hid, [o.id], `${mer.name} agreed: ${spokenSlot(o.slotLabel)}, same hold of ${usd(o.amount)}.`)), accepted: true };
       }
       // Declined: void the hold so the money is free again, then line up a replacement.
+      await this.live({ step: `c-${o.id}`, state: 'failed', text: `${mer.name} can't move it`, detail: firstSentence(r.reply), image_url: o.image_url });
       const pp = await this.paypal.release({ authorizationId: o.paypal.authorizationId });
+      await this.live({ step: `r-${o.id}`, state: 'done', text: `Released the ${usd(o.amount)} hold`, detail: 'nothing was charged' });
       envelope.release(env, o.id, pp);
       o.state = 'released';
       o.timeline.push({ state: 'released', amount: o.amount, note: `${mer.name} declined: ${r.reply}`, at });
@@ -527,6 +551,130 @@ export class Mandat {
       const t = envelope.totals(env);
       return this.receipt(hid, [o.id], `${speech} ${usd(t.remaining)} left in ${m.purpose}.`);
     });
+  }
+
+  // ---------- 11. get_offer_details ("show me the bed linen", "why this one?") ----------
+  async siblings(hid, o) {
+    if (!o.search_id) return [o];
+    const rows = (await this.store.query(pkOf(hid), 'OFFER#')).map((r) => r.value).filter((x) => x.search_id === o.search_id && Date.parse(x.expires) > this.now());
+    return rows.sort((a, b) => a.total - b.total || (b.rating || 0) - (a.rating || 0));
+  }
+  async pendingPlan(hid, plan_id) {
+    const plans = (await this.store.query(pkOf(hid), 'PLAN#')).map((r) => r.value).filter((p) => p.status === 'proposed' && Date.parse(p.expires) > this.now());
+    if (plan_id) return plans.find((p) => p.id === plan_id) || null;
+    return plans.sort((a, b) => b.created.localeCompare(a.created))[0] || null;
+  }
+  // Why Mandat picked this option, in facts the household can check (no marketing).
+  whyOf(o, sibs, search) {
+    const why = [];
+    const n = sibs.length;
+    const rank = sibs.findIndex((x) => x.id === o.id);
+    const noun = o.kind === 'service' ? ({ cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' }[o.category] || 'pros') : 'products';
+    if (n > 1 && rank === 0) why.push(`Cheapest of the ${n} ${noun} I asked`);
+    else if (n > 1 && rank > 0) why.push(`${usd(o.total - sibs[0].total)} more than the cheapest of ${n}`);
+    if (o.discount) why.push(`${usd(o.discount)} off${o.conditions ? ': ' + o.conditions.replace(/^Includes /, '').replace(/\.$/, '') : ''}`);
+    if (o.kind === 'service' && n > 1 && o.rating && o.rating >= Math.max(...sibs.map((x) => x.rating || 0))) why.push(`Best rated, ${o.rating}`);
+    if (o.matches_preference) why.push('Your usual brand');
+    const skipped = search?.skipped || [];
+    if (skipped.length) why.push(`Skipped ${skipped.length} with ${[...new Set(skipped.map((x) => x.ingredient))].join(', ')}: ${skipped[0].because}`);
+    if (o.kind === 'service' && o.card_verified) why.push('Agent identity verified');
+    return why;
+  }
+  async ruleFor(hid, o, plan) {
+    let m = null;
+    try { m = await this.mandate(hid, plan?.mandate_id); } catch { return null; }
+    const env = this.envelopeView(m, await this.envelopeOf(hid, m));
+    const auto = Number(m.auto_approve_under) || 0;
+    const under = auto > 0 && o.total <= auto;
+    return { auto_approve_under: auto, buys_on_its_own: under, text: under ? `Buys on its own: under your ${usd(auto)} rule` : auto > 0 ? `Needs your yes: above your ${usd(auto)} rule` : 'Needs your yes before paying', envelope: env };
+  }
+  async getOfferDetails(hid, { offer_id }) {
+    const o = await this.offer(hid, offer_id);
+    const sibs = await this.siblings(hid, o);
+    const search = o.search_id ? await this.store.get(pkOf(hid), `SEARCH#${o.search_id}`) : null;
+    const plan = await this.pendingPlan(hid);
+    const inPlan = !!plan?.lines.some((l) => l.offer_id === o.id);
+    const why = this.whyOf(o, sibs, search);
+    const rule = await this.ruleFor(hid, o, plan);
+    const m = o.kind === 'service' ? merchantById(o.merchant_id) : null;
+    const specs = o.kind === 'service'
+      ? [{ k: 'What', v: o.title }, { k: 'When', v: o.slot_label }, ...(o.guests ? [{ k: 'Guests', v: `${o.guests} (${usd(m.price)} per guest)` }] : []), { k: 'Where', v: `${o.area}, rated ${o.rating}` }, { k: 'About', v: m.pitch }]
+      : [{ k: 'What', v: o.title }, { k: 'Delivery', v: `${o.slot_label}${o.fees ? `, ${usd(o.fees)} delivery` : ', free delivery'}` }, ...(o.contains?.length ? [{ k: 'Made with', v: o.contains.join(', ') }] : []), ...(o.quantity > 1 ? [{ k: 'Quantity', v: String(o.quantity) }] : [])];
+    const history = (o.history || []).map((h) => ({ ...h }));
+    const lead = o.kind === 'service'
+      ? `${o.merchant}: ${usd(o.total)} for ${o.title.charAt(0).toLowerCase() + o.title.slice(1)}, ${spokenSlot(o.slot_label)}.`
+      : `${o.title}, ${usd(o.total)} from ${o.merchant}, delivered in 2 days.`;
+    const speech = `${lead} ${why.length ? why[0] + '.' : ''}${o.discount && why[0] && !why[0].includes(' off') ? ` ${usd(o.discount)} off.` : ''}${inPlan ? ' It is in your plan.' : ''}`.replace(/\s+/g, ' ').trim();
+    return { speech, data: { mode: 'detail', offer: o, images: galleryFor(o, this.publicUrl), specs, why, rule, history, in_plan: inPlan, plan_id: plan?.id || null, alternatives: sibs.filter((x) => x.id !== o.id).length }, card: 'item' };
+  }
+
+  // ---------- 12. list_alternatives ("other options?", "something cheaper") ----------
+  async listAlternatives(hid, { offer_id, cheaper_only = false }) {
+    const o = await this.offer(hid, offer_id);
+    const sibs = await this.siblings(hid, o);
+    const others = sibs.filter((x) => x.id !== o.id && (!cheaper_only || x.total < o.total));
+    const noun = o.kind === 'service' ? ({ cleaning: 'cleaners', catering: 'caterers', plumbing: 'plumbers', handyman: 'handymen' }[o.category] || 'pros') : 'products';
+    if (!others.length) {
+      const speech = cheaper_only ? `${o.kind === 'service' ? o.merchant : o.title} is already the cheapest of the ${sibs.length} ${noun} I found.` : `There is no other option from that search. I can search again with another day or price.`;
+      return { speech, data: { offers: sibs, current_offer_id: o.id, category: o.category, asked: sibs.length }, card: 'offers' };
+    }
+    const said = others.slice(0, 3).map((x) => `${x.kind === 'service' ? x.merchant : x.title}, ${usd(x.total)}${x.kind === 'service' ? ' ' + spokenSlot(x.slot_label) : ''}`);
+    return { speech: `${others.length === 1 ? 'One other option' : `${others.length} other options`}: ${said.join('; ')}.`, data: { offers: [o, ...others], current_offer_id: o.id, category: o.category, asked: sibs.length }, card: 'offers' };
+  }
+
+  // ---------- 13. compare_offers ("compare the two caterers") ----------
+  async compareOffers(hid, { offer_ids }) {
+    const ids = [...new Set(offer_ids || [])].slice(0, 3);
+    if (ids.length < 2) throw new ToolError('I need two or three options to compare.', 'Pass two or three offer_ids from the same search.');
+    const offers = [];
+    for (const x of ids) offers.push(await this.offer(hid, x));
+    const plan = await this.pendingPlan(hid);
+    const cheapest = [...offers].sort((a, b) => a.total - b.total)[0];
+    const best = [...offers].sort((a, b) => (b.rating || 0) - (a.rating || 0))[0];
+    const diff = round(Math.max(...offers.map((x) => x.total)) - cheapest.total);
+    const name = (x) => (x.kind === 'service' ? x.merchant : x.title);
+    const parts = offers.map((x) => `${name(x)}: ${usd(x.total)}${x.kind === 'service' ? `, ${spokenSlot(x.slot_label)}, rated ${x.rating}` : ''}${x.discount ? `, ${usd(x.discount)} off` : ''}`);
+    const verdict = diff > 0 ? `${name(cheapest)} is ${usd(diff)} cheaper${best.id !== cheapest.id && best.rating ? `; ${name(best)} is rated higher` : ''}.` : 'Same price.';
+    const cols = offers.map((x) => ({ ...x, images: galleryFor(x, this.publicUrl).slice(0, 1), in_plan: !!plan?.lines.some((l) => l.offer_id === x.id) }));
+    return { speech: `${parts.join('. ')}. ${verdict}`, data: { mode: 'compare', offers: cols, cheapest_id: cheapest.id, best_rated_id: best.id, difference: diff, plan_id: plan?.id || null }, card: 'item' };
+  }
+
+  // ---------- 14. revise_plan ("take the sateen set instead", "remove the bedding") ----------
+  async revisePlan(hid, { plan_id, remove_offer_ids = [], add_offer_ids = [] }) {
+    const old = await this.store.get(pkOf(hid), `PLAN#${plan_id}`);
+    if (!old) throw new ToolError('I cannot find that plan.', 'Call review_plan to get the plan waiting for a yes.');
+    if (old.status !== 'proposed') throw new ToolError(`That plan is already ${old.status}, so it cannot change.`, old.status === 'confirmed' ? 'Use change_order or close_order on its orders.' : 'Call review_plan for the current plan.');
+    if (Date.parse(old.expires) < this.now()) throw new ToolError('That plan expired.', 'Propose it again so prices are fresh.');
+    const removing = new Set(remove_offer_ids);
+    const kept = old.lines.map((l) => l.offer_id).filter((x) => !removing.has(x));
+    const ids = [...new Set([...kept, ...add_offer_ids])];
+    if (!ids.length) throw new ToolError('Removing that leaves nothing in the plan.', 'Keep at least one item, or tell the user the plan is dropped and nothing was paid.');
+    if (ids.length === old.lines.length && ids.every((x) => old.lines.some((l) => l.offer_id === x))) throw new ToolError('That would not change the plan.', 'Use offer_ids from the plan (to remove) or from list_alternatives (to add).');
+    const next = await this.proposePlan(hid, { item_ids: ids, mandate_id: old.mandate_id, note: old.note });
+    old.status = 'revised';
+    old.revised_to = next.data.plan.id;
+    await this.store.put(pkOf(hid), `PLAN#${old.id}`, old);
+    const removed = old.lines.filter((l) => removing.has(l.offer_id));
+    const added = next.data.plan.lines.filter((l) => !old.lines.some((x) => x.offer_id === l.offer_id));
+    const label = (l) => (l.kind === 'service' ? l.merchant : l.title.split(':')[0]);
+    const change = removed.length && added.length ? `Swapped ${listWords(removed.map(label))} for ${listWords(added.map(label))}.`
+      : removed.length ? `Removed ${listWords(removed.map(label))}.` : `Added ${listWords(added.map(label))}.`;
+    const p = next.data.plan;
+    const env = next.data.envelope;
+    const tail = p.auto_approved ? `New total ${usd(p.breakdown.total)}, under your auto-approve rule.` : `New total ${usd(p.breakdown.total)}, ${usd(p.remaining_after)} left of your ${usd(env.budget)}. Should I book it?`;
+    await this.live({ step: `v-${p.id}`, state: 'done', text: change.replace(/\.$/, ''), from: old.breakdown.total, to: p.breakdown.total });
+    return { speech: `${change} ${tail}`, data: { ...next.data, revised: { from_plan_id: old.id, previous_total: old.breakdown.total, removed: removed.map((l) => l.offer_id), added: added.map((l) => l.offer_id) } }, card: 'plan' };
+  }
+
+  // ---------- 15. review_plan ("show me the plan", Back) ----------
+  async reviewPlan(hid, { plan_id } = {}) {
+    const plan = await this.pendingPlan(hid, plan_id);
+    if (!plan) throw new ToolError('No plan is waiting for your yes right now.', 'Ask the user what they need, or call get_household_status for what is booked.');
+    const m = await this.mandate(hid, plan.mandate_id);
+    const env = this.envelopeView(m, await this.envelopeOf(hid, m));
+    const items = plan.lines.map((l) => `${l.merchant} ${usd(l.total)}`);
+    const { token_hash, ...pub } = plan;
+    return { speech: `The plan: ${listWords(items)}. Total ${usd(plan.breakdown.total)}, ${usd(plan.remaining_after)} left of your ${usd(env.budget)}.${plan.auto_approved ? '' : ' Should I book it?'}`, data: { plan: pub, needs_user_yes: !plan.auto_approved, envelope: env, reviewed: true }, card: 'plan' };
   }
 
   // ---------- app-only: refresh a card ----------

@@ -140,16 +140,46 @@ body[data-screen="home"] .card-slot { display: none; }
 .hw-line b { color: var(--sc-label); font-weight: var(--weight-semibold); }
 .home-hint { grid-column: 1 / -1; margin: calc(var(--u) * 40) 0 0; font-size: calc(var(--u) * 24); color: var(--sc-label-2); }
 
-/* the card (MCP App iframe) */
-.card-slot { min-height: 0; overflow: hidden auto; border-radius: calc(var(--u) * 30); scrollbar-width: none; }
+/* the card (MCP App iframe); explicit cell, shared with the live activity panel (never pushed to another row) */
+.card-slot { grid-row: 2; grid-column: 1; min-height: 0; overflow: hidden auto; border-radius: calc(var(--u) * 30); scrollbar-width: none; }
 .card-slot::-webkit-scrollbar { display: none; }
 .app-frame { width: 100%; height: 300px; border: 0; display: block; background: transparent; color-scheme: normal; opacity: 0; transition: opacity var(--dur-fade) var(--ease-out); }
 .app-frame.in { opacity: 1; }
 body.fullscreen .s-top .heard { visibility: hidden; }
 body.fullscreen .s-bottom { display: none; }
 
+/* live activity: what Alexa is doing right now, step by step, from the real tool calls (GET /activity).
+   Glanceable from across the room: one line per step, a photo for each merchant, the price change on the right. */
+.screen > .live { position: relative; z-index: 1; grid-row: 2; grid-column: 1; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: calc(var(--u) * 18); padding: calc(var(--u) * 6) calc(var(--u) * 4) 0; }
+.live[hidden] { display: none; }
+body[data-live="on"] .card-slot { visibility: hidden; }
+.live-title { margin: 0; font-size: calc(var(--u) * 24); font-weight: var(--weight-semibold); color: var(--sc-label-2); display: flex; align-items: center; gap: calc(var(--u) * 12); }
+.live-title::before { content: ""; width: calc(var(--u) * 12); height: calc(var(--u) * 12); border-radius: 50%; background: var(--alexa-cyan); box-shadow: 0 0 calc(var(--u) * 12) var(--alexa-cyan); animation: breathe 1.4s ease-in-out infinite; }
+.live[data-done] .live-title::before { animation: none; background: var(--sc-accent); box-shadow: none; }
+.live-list { list-style: none; margin: 0; padding: 0; display: grid; align-content: start; gap: calc(var(--u) * 8); min-height: 0; overflow: hidden; -webkit-mask-image: linear-gradient(180deg, transparent, #000 calc(var(--u) * 18)); mask-image: linear-gradient(180deg, transparent, #000 calc(var(--u) * 18)); }
+.live-list li { display: grid; grid-template-columns: calc(var(--u) * 54) minmax(0, 1fr) auto; align-items: center; column-gap: calc(var(--u) * 18); min-height: calc(var(--u) * 62);
+  padding: calc(var(--u) * 6) calc(var(--u) * 22) calc(var(--u) * 6) calc(var(--u) * 6); border-radius: calc(var(--u) * 19);
+  background: color-mix(in srgb, var(--sc-surface) 72%, transparent); -webkit-backdrop-filter: blur(calc(var(--u) * 20)); backdrop-filter: blur(calc(var(--u) * 20));
+  animation: live-in var(--dur-smooth) var(--ease-smooth) both; }
+@keyframes live-in { from { opacity: 0; transform: translateY(calc(var(--u) * 14)) scale(.985); } }
+.live-ico { position: relative; width: calc(var(--u) * 54); height: calc(var(--u) * 54); border-radius: calc(var(--u) * 14); display: grid; place-items: center; overflow: hidden; background: var(--sc-fill); color: var(--sc-label-2); }
+.live-ico img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.live-ico .st { position: absolute; right: calc(var(--u) * 3); bottom: calc(var(--u) * 3); width: calc(var(--u) * 24); height: calc(var(--u) * 24); border-radius: 50%; display: grid; place-items: center; background: var(--sc-surface); box-shadow: 0 0 0 calc(var(--u) * 2) var(--sc-surface); }
+.live-ico:not(:has(img)) .st { position: static; width: calc(var(--u) * 34); height: calc(var(--u) * 34); background: transparent; box-shadow: none; }
+.st svg { width: 70%; height: 70%; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.st.done { color: var(--status-ok-text); } .st.failed { color: var(--status-critical-text, #d70015); }
+.st.running { border-radius: 50%; border: calc(var(--u) * 3) solid var(--sc-accent); border-right-color: transparent; animation: spin .8s linear infinite; background: transparent; box-sizing: border-box; }
+.live-ico:has(img) .st.running { background: var(--sc-surface); }
+.live-text { min-width: 0; display: grid; gap: calc(var(--u) * 2); }
+.live-text b { font-size: calc(var(--u) * 28); font-weight: var(--weight-semibold); letter-spacing: -0.016em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live-text span { font-size: calc(var(--u) * 21); color: var(--sc-label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live-amt { font-size: calc(var(--u) * 30); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: -0.02em; }
+.live-amt s { font-size: .74em; font-weight: var(--weight-regular); color: var(--sc-label-2); margin-right: .2em; }
+.live-amt i { font-style: normal; color: var(--sc-label-2); font-weight: var(--weight-regular); margin-right: .2em; }
+li.failed .live-text b { color: var(--sc-label-2); }
+
 /* bottom: what Alexa did, what she says, and the confirm prompt */
-.s-bottom { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: calc(var(--u) * 10); min-height: calc(var(--u) * 40); }
+.s-bottom { grid-row: 3; grid-column: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: calc(var(--u) * 10); min-height: calc(var(--u) * 40); }
 body[data-screen="home"] .s-bottom { display: none; }
 .s-row { display: flex; align-items: center; gap: calc(var(--u) * 16); min-height: calc(var(--u) * 40); }
 .trail { flex: 1; min-width: 0; display: flex; flex-wrap: nowrap; gap: calc(var(--u) * 22); margin: 0; padding: 0; list-style: none; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
@@ -314,5 +344,6 @@ body[data-state="listening"] .mic { background: color-mix(in srgb, var(--accent)
 @media (prefers-reduced-motion: reduce) {
   .trail li, .ask, .drawer { animation: none; }
   .wall-img { transition: opacity .6s linear; transform: none !important; }
+  .live-list li, .live-title::before { animation: none !important; }
   body[data-state="thinking"] .lightbar span, .ring { animation: none !important; }
 }

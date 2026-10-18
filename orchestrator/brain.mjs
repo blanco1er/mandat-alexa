@@ -81,7 +81,8 @@ next step the error gives.`;
 // server), so a "yes" works even when this turn lands on another Lambda container than the proposal.
 export function contextLine(session = {}) {
   const parts = [`device: ${session.device === 'dot' ? 'dot' : 'show'}`];
-  if (session.pending?.plan_id) parts.push(`pending plan_id: ${session.pending.plan_id}, confirmation_token: ${session.pending.token}, total: $${session.pending.total}`);
+  if (session.pending?.plan_id) parts.push(`pending plan_id: ${session.pending.plan_id}, confirmation_token: ${session.pending.token}, total: $${session.pending.total}${session.pending.lines?.length ? `, lines (merchant: offer_id): ${session.pending.lines.map((l) => `${l.merchant}${l.kind === 'product' ? ` (${String(l.title).split(':')[0]})` : ''}: ${l.offer_id}`).join('; ')}` : ''}`);
+  if (session.focus) parts.push(`last item shown: ${session.focus}`);
   const close = Object.entries(session.closeTokens || {});
   if (close.length) parts.push(`close tokens (order_id=close_token): ${close.slice(-12).map(([o, t]) => `${o}=${t}`).join(', ')}`);
   return `[${parts.join('; ')}]`;
@@ -132,7 +133,10 @@ export async function createStrandsBrain({ mcpUrl, model = BRAIN_MODEL, headers 
     if (agents.has(household)) { const e = agents.get(household); agents.delete(household); agents.set(household, e); return e; }
     if (agents.size >= MAX_AGENTS) { const [oldest, e] = agents.entries().next().value; agents.delete(oldest); e.mcp.disconnect().catch(() => {}); }
     const trace = [];
-    const mcp = new RecordingMcpClient({ url: mcpUrl, headers: { 'X-Mandat-Household': household, ...headers }, applicationName: 'mandat-alexa-brain', toolFilters: { rejected: APP_ONLY_TOOLS } }, trace);
+    // One headers object per household: the MCP transport re-reads it on every request, so the turn id and locale
+    // set before each turn reach every tool call of that turn (live activity feed, spoken language).
+    const hdrs = { 'X-Mandat-Household': household, ...headers };
+    const mcp = new RecordingMcpClient({ url: mcpUrl, headers: hdrs, applicationName: 'mandat-alexa-brain', toolFilters: { rejected: APP_ONLY_TOOLS } }, trace);
     const llm = model === 'bedrock' ? bedrockBrain().model : new ScriptedModel({ trace });
     const skills = new AgentSkills({ skills: [path.join(SKILLS_DIR, 'mandat-household-errands')], strict: true });
     const agent = new Agent({
@@ -141,7 +145,7 @@ export async function createStrandsBrain({ mcpUrl, model = BRAIN_MODEL, headers 
       // every turn's input (and bill) flat on a warm Lambda container.
       ...(model === 'bedrock' ? { retryStrategy: new ThrottleAwareRetry({ maxAttempts: 4 }), conversationManager: new SlidingWindowConversationManager({ windowSize: 20 }) } : {}),
     });
-    const entry = { agent, trace, llm, mcp, skills, utterance: '' };
+    const entry = { agent, trace, llm, mcp, skills, utterance: '', hdrs };
     agent.addHook(BeforeToolCallEvent, (ev) => {
       const g = guardToolCall(ev.toolUse.name, ev.toolUse.input || {}, entry.utterance);
       if (g.cancel) ev.cancel = g.cancel; else ev.toolUse.input = g.input;
@@ -151,8 +155,10 @@ export async function createStrandsBrain({ mcpUrl, model = BRAIN_MODEL, headers 
   }
   return {
     name: model === 'bedrock' ? `strands+bedrock(${BEDROCK_BRAIN_ID})` : 'strands+scripted',
-    async runTurn({ text, session = {}, household = 'demo' }) {
+    async runTurn({ text, session = {}, household = 'demo', turn, locale }) {
       const e = await agentFor(household);
+      if (turn) e.hdrs['X-Mandat-Turn'] = turn; else delete e.hdrs['X-Mandat-Turn'];
+      if (locale) e.hdrs['X-Mandat-Locale'] = locale; else delete e.hdrs['X-Mandat-Locale'];
       const start = e.trace.length;
       const scripted = e.llm instanceof ScriptedModel;  // e.llm is a BedrockModel or a ModelRouter otherwise
       e.utterance = text;

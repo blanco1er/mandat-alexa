@@ -30,7 +30,7 @@ Severity scale: **Blocker** (could not continue) · **High** (hours lost or a de
 - **Task attempted:** see our MCP Apps cards and our voice flow the way an Echo Show would render them, before recording the demo.
 - **Steps taken:** read the Alexa+ add-on docs (design guide, functional requirements, client lifecycle); looked for the Web Simulator / Local Inspector they mention.
 - **Expected:** a public simulator (even a reduced one) where any developer can point an MCP server URL and see cards, voice and device sizes.
-- **Actual:** the Alexa+ add-on tooling is available to partners only. Nothing to run as an independent developer.
+- **Actual:** the Alexa+ add-on tooling (Web Simulator and Local Inspector) is in Private Preview only. Nothing to run as an independent developer without an invitation.
 - **Severity:** High (it shaped the project: a full simulator had to be built before the product could be judged visually).
 - **Workaround:** we wrote our own voice-first MCP client and MCP Apps host (`simulator/`): Echo Show 15 (1920×1080) and Show 8 (1280×800) canvases at device resolution, Echo Dot screenless mode, `hostContext` with theme / display mode / container dimensions, and a JSON-RPC drawer.
 - **Suggestion:** publish a minimal public Alexa+ add-on simulator, or at least the exact `hostContext` an Echo Show sends to an MCP App (theme, device class, container size, safe areas) so third-party hosts can reproduce it.

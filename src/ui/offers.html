@@ -52,7 +52,8 @@ function render(result) {
   ready();
   const sc = result.structuredContent || {};
   const offers = sc.offers || sc.alternatives || [];
-  const who = sc.category ? `${sc.asked} ${(sc.asked === 1 ? ONE : PLURAL)[sc.category] || 'pros'} asked` : sc.query ? 'Products' : 'Updated quote';
+  const cur = sc.current_offer_id ? offers.find((o) => o.id === sc.current_offer_id) : null;
+  const who = cur ? `Other options than ${cur.kind === 'service' ? cur.merchant : cur.title.split(':')[0]}` : sc.category ? `${sc.asked} ${(sc.asked === 1 ? ONE : PLURAL)[sc.category] || 'pros'} asked` : sc.query ? 'Products' : 'Updated quote';
   if (!offers.length) {
     $('#app').innerHTML = `<div class="head"><p class="context">${esc(who)}</p>${status('wait', 'No match')}</div>
       <h1>No one can do it at that time</h1><p class="lead">Try another day, or a higher price limit.</p>`;
@@ -61,7 +62,7 @@ function render(result) {
   const svc = offers[0].kind === 'service';
   const skipped = sc.skipped && sc.skipped.length;
   const st = skipped ? status('info', `${sc.skipped.length} skipped for your household`) : svc ? status('ok', `${offers.length} ${offers.length === 1 ? 'quote' : 'quotes'}`) : '';
-  const best = offers[0];
+  const best = cur || offers[0];
   if (offers.length === 1) {
     const o = best;
     $('#app').innerHTML = `
@@ -76,17 +77,28 @@ function render(result) {
   }
   $('#app').innerHTML = `
     <div class="head"><p class="context">${esc(who)}${svc ? ' · every agent verified' : ''}</p>${st}</div>
-    <div class="hero"><div class="stack"><span class="best">${svc ? 'Best quote' : 'Best match'}</span><h1>${esc(best.merchant)}</h1></div><span class="num">${usd(best.total)}</span></div>
+    <div class="hero"><div class="stack"><span class="best">${cur ? 'Now in your plan' : svc ? 'Best quote' : 'Best match'}</span><h1>${esc(cur && cur.kind === 'product' ? cur.title.split(':')[0] : best.merchant)}</h1></div><span class="num">${usd(best.total)}</span></div>
     <div class="rail${offers.length < 3 ? ' two' : ''}" role="list" aria-label="Options">${offers.slice(0, 5).map((o, i) => `
-      <button class="offer" role="listitem" aria-pressed="${i === 0}" data-id="${esc(o.id)}" aria-label="${esc(o.merchant)}, ${esc(usd(o.total))}, ${esc(o.slot_label || '')}">
+      <button class="offer" role="listitem" aria-pressed="${cur ? o.id === cur.id : i === 0}" data-id="${esc(o.id)}" aria-label="${esc(o.kind === 'product' ? o.title : o.merchant)}, ${esc(usd(o.total))}, ${esc(o.slot_label || '')}${cur && o.id !== cur.id ? '. Tap to take it instead' : ''}">
         <span class="sel" aria-hidden="true">${CHECK}</span>
         ${o.image_url ? `<span class="ph"><img src="${esc(o.image_url)}" alt="${esc(o.image_alt || o.title)}" loading="lazy" decoding="async"></span>` : ''}
-        <span class="top">${o.image_url ? '' : kindIcon(o)}<b>${esc(o.merchant)}</b></span>
+        <span class="top">${o.image_url ? '' : kindIcon(o)}<b>${esc(cur && o.kind === 'product' ? o.title.split(/[:,(]/)[0].trim() : o.merchant)}</b></span>
         <span class="price">${usd(o.total)}${o.discount ? `<s>${usd(o.base + (o.fees || 0))}</s>` : ''}</span>
         <span class="when">${esc(o.slot_label || '')}${o.kind === 'service' && o.rating ? ` · ${o.rating}` : ''}</span>
         <span class="quote">${o.kind === 'service' ? `“${esc(o.negotiation)}”` : esc(o.title)}</span>
         ${trust(o)}
       </button>`).join('')}</div>`;
+  // Alternatives to a plan line: a tap on another option is "take this one instead" (said to Alexa, same guardrails).
+  if (cur) {
+    for (const b of document.querySelectorAll('.offer')) b.onclick = () => {
+      const o = offers.find((x) => x.id === b.dataset.id);
+      if (o.id === cur.id || b.getAttribute('aria-busy')) return;
+      for (const x of document.querySelectorAll('.offer')) x.setAttribute('aria-pressed', String(x === b));
+      b.setAttribute('aria-busy', 'true');
+      mcpApp.say(`Take ${o.kind === 'service' ? o.merchant : o.title.split(/[:,(]/)[0].trim()} instead.`).catch(() => b.removeAttribute('aria-busy'));
+    };
+    return;
+  }
   for (const b of document.querySelectorAll('.offer')) b.onclick = () => {
     for (const x of document.querySelectorAll('.offer')) x.setAttribute('aria-pressed', String(x === b));
     const o = offers.find((x) => x.id === b.dataset.id);
