@@ -14,7 +14,8 @@
     "test": "node --test test/*.test.mjs",
     "test:orchestrator": "cd orchestrator && npm test",
     "package": "sh scripts/package-lambda.sh",
-    "inspect": "bash scripts/inspector-check.sh"
+    "inspect": "bash scripts/inspector-check.sh",
+    "deploy:aws": "bash scripts/deploy-aws.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
