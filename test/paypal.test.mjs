@@ -82,3 +82,13 @@ test('with the demo buyer: real sandbox hold per item with the vault token, then
   const ref = pp.calls.find(([k]) => k === 'refund')[1];
   assert.equal(ref.mode, 'sandbox'); assert.equal(ref.amount, 20); assert.match(ref.captureId, /^CAP-/);
 });
+
+test('the real PayPal module never labels a simulated hold "sandbox", and never sends a fake id to PayPal', async () => {
+  const pp = await import('../src/core/paypal.mjs');
+  const h = await pp.hold({ mode: 'offline', paymentTokenId: 'PTOKEN-ABCDEF123456', amount: 85, currency: 'USD', merchant: 'BrightNest', description: 'x', reference: 'r' });
+  assert.equal(h.mode, 'offline');
+  assert.match(h.authorizationId, /^AUTH-[0-9A-F]{12}$/);
+  // even an order wrongly flagged "sandbox" with a fake id stays local
+  assert.equal((await pp.release({ mode: 'sandbox', authorizationId: h.authorizationId })).mode, 'offline');
+  assert.equal((await pp.capture({ mode: 'sandbox', authorizationId: h.authorizationId, amount: 80, currency: 'USD' })).mode, 'offline');
+});

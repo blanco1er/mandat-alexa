@@ -122,9 +122,11 @@ export async function activateMandate(setupTokenId) {
 
 // --- 2. Hold ---------------------------------------------------------------------------------------
 // Authorize funds for a merchant with the vaulted mandate, no user interaction.
-const live = (mode) => MODE === 'sandbox' && mode === 'sandbox';
+// A real sandbox call needs the keys, a sandbox mandate or order, and a real PayPal id (never one of our fake ids).
+const FAKE = /^(AUTH|CAPTURE|ORDER|PTOKEN|REFUND|SETUP)-[0-9A-F]{12}$/;
+const live = (mode, id) => MODE === 'sandbox' && mode === 'sandbox' && !(id && FAKE.test(String(id)));
 export async function hold({ paymentTokenId, amount, currency, merchant, description, reference, mode = MODE }) {
-  if (!live(mode)) return { orderId: fakeId('ORDER'), authorizationId: fakeId('AUTH'), status: 'AUTHORIZED', mode: MODE };
+  if (!live(mode, paymentTokenId)) return { orderId: fakeId('ORDER'), authorizationId: fakeId('AUTH'), status: 'AUTHORIZED', mode: 'offline' };
   const rid = crypto.randomUUID();
   const order = await call('create order', () => orders.createOrder({
     paypalRequestId: rid,
@@ -147,7 +149,7 @@ export async function hold({ paymentTokenId, amount, currency, merchant, descrip
 
 // --- 3. Capture / 4. Release / 5. Refund ----------------------------------------------------------
 export async function capture({ authorizationId, amount, currency, mode = MODE }) {
-  if (!live(mode)) return { captureId: fakeId('CAPTURE'), status: 'COMPLETED', mode: MODE };
+  if (!live(mode, authorizationId)) return { captureId: fakeId('CAPTURE'), status: 'COMPLETED', mode: 'offline' };
   const rid = crypto.randomUUID();
   const data = await call('capture', () => payments.captureAuthorizedPayment({
     authorizationId,
@@ -159,14 +161,14 @@ export async function capture({ authorizationId, amount, currency, mode = MODE }
 }
 
 export async function release({ authorizationId, mode = MODE }) {
-  if (!live(mode)) return { status: 'VOIDED', mode: MODE };
+  if (!live(mode, authorizationId)) return { status: 'VOIDED', mode: 'offline' };
   const rid = crypto.randomUUID();
   await call('void', () => payments.voidPayment({ authorizationId, paypalRequestId: rid }));
   return { status: 'VOIDED', mode: MODE };
 }
 
 export async function refund({ captureId, amount, currency, note, mode = MODE }) {
-  if (!live(mode)) return { refundId: fakeId('REFUND'), status: 'COMPLETED', mode: MODE };
+  if (!live(mode, captureId)) return { refundId: fakeId('REFUND'), status: 'COMPLETED', mode: 'offline' };
   const rid = crypto.randomUUID();
   const data = await call('refund', () => payments.refundCapturedPayment({
     captureId,
