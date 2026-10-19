@@ -19,7 +19,8 @@ kbd { font: var(--weight-medium) 11px/1 var(--font-sans); padding: 3px 5px; bord
 
 /* ---------- toolbar: identity · device · tools ---------- */
 .sim-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 16px; max-width: var(--stage-max); margin: 0 auto; width: 100%; }
-.sim-id { display: grid; gap: 1px; min-width: 0; }
+.sim-id { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; row-gap: 1px; align-items: center; min-width: 0; }
+.sim-id .sim-logo { grid-row: span 2; }
 .sim-id b { font: var(--weight-bold) var(--text-title3)/1.15 var(--font-display); letter-spacing: -0.02em; }
 .sim-id span { font-size: var(--text-footnote); color: var(--label-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sim-devices { margin: 0; border: 0; min-inline-size: 0; }
@@ -90,7 +91,7 @@ body[data-screen="home"] .s-top .clock, body[data-screen="home"] .s-top .env { v
    Home: the photo stays sharp under a soft dark scrim weighted to the bottom-left, where the clock sits, so white text
    stays legible on any photo. During a story the photo blurs and sits under a veil in the screen's appearance,
    so the card stays the only sharp thing on screen, as on Alexa+. */
-.screen { --sc-veil: light-dark(rgba(242, 242, 247, .8), rgba(0, 0, 0, .62)); }
+.screen { --sc-veil: light-dark(rgba(242, 242, 247, .55), rgba(0, 0, 0, .5)); } /* the home photo stays visible behind a story */
 .wall { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; background: #1d1a16; transition: background-color .5s var(--ease-out); }
 .wall-img { position: absolute; inset: 0; background: center / cover no-repeat; opacity: 0;
   transition: opacity 2.4s var(--ease-out), filter .8s var(--ease-out), transform .8s var(--ease-out); }
@@ -102,7 +103,7 @@ body[data-screen="home"] .s-top .clock, body[data-screen="home"] .s-top .env { v
 .screen > .s-top, .screen > .home, .screen > .card-slot, .screen > .s-bottom { position: relative; z-index: 1; }
 .screen > .lightbar { z-index: 2; }
 body:not([data-screen="home"]) .wall { background: var(--sc-bg); }
-body:not([data-screen="home"]) .wall-img { filter: blur(calc(var(--u) * 40)) saturate(1.2); transform: scale(1.12); }
+body:not([data-screen="home"]) .wall-img { filter: blur(calc(var(--u) * 14)) saturate(1.15); transform: scale(1.06); }
 body:not([data-screen="home"]) .wall-scrim { background: var(--sc-veil); }
 /* text drawn on the veil: secondary labels one step stronger than on a plain background, so they stay ≥ 4.5:1 */
 body:not([data-screen="home"]) .screen { --sc-label-2: light-dark(#4f4f54, rgba(242, 242, 247, .86)); --sc-fill: light-dark(rgba(255, 255, 255, .62), rgba(0, 0, 0, .3)); }
@@ -296,7 +297,7 @@ body[data-state="listening"] .mic { background: color-mix(in srgb, var(--accent)
 .line.next::after { content: attr(data-next); position: absolute; right: 10px; top: 10px; font-size: var(--text-footnote); font-weight: var(--weight-semibold); color: var(--accent-text); }
 .line.next .t { padding-right: 38px; }
 .fine { margin: 0; font-size: var(--text-footnote); color: var(--label-secondary); text-align: center; }
-.fine a { color: inherit; text-decoration: underline; text-underline-offset: 2px; display: inline-block; padding: 12px 4px; margin: -12px -4px; }
+.fine a { color: inherit; text-decoration: underline; text-underline-offset: 2px; display: inline-block; padding: 14px 6px; margin: -14px -6px; min-height: 44px; box-sizing: border-box; }
 
 /* ---------- account linking: Alexa's own panel on the Echo Show (not an add-on card) ---------- */
 .link-card { display: grid; gap: calc(var(--u) * 30); align-content: start; padding: calc(var(--u) * 44) calc(var(--u) * 48); border-radius: calc(var(--u) * 30);
@@ -392,3 +393,4 @@ body[data-state="listening"] .mic { background: color-mix(in srgb, var(--accent)
   .live-list li, .live-title::before { animation: none !important; }
   body[data-state="thinking"] .lightbar span, .ring { animation: none !important; }
 }
+.sim-logo { width: 30px; height: 30px; border-radius: 7px; flex: none; }

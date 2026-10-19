@@ -16,6 +16,7 @@
 .field.pulse { animation: pulse 1.1s var(--ease-smooth); }
 @keyframes pulse { 0% { background: var(--accent-tint); } 100% { background: transparent; } }
 .field.asking.pulse { animation: none; }
+@media (pointer: coarse) { #range { display: none; } }
 /* steppers: a big number between two round buttons */
 .stepper { display: flex; align-items: center; gap: .55em; }
 .round { appearance: none; border: 0; cursor: pointer; width: max(48px, 1.9em); height: max(48px, 1.9em); border-radius: 50%; display: grid; place-items: center; flex: none;
@@ -128,7 +129,7 @@ function draw() {
         <div class="actions"><button class="btn" id="no">${tx('Cancel')}</button><button class="btn danger" id="yes" data-label="${tx('Delete')}">${tx('Delete')}</button></div></div>`
       : `<div class="foot">
         <div class="actions">
-          ${first ? `<button class="btn primary" id="done" data-label="${tx('Done')}">${tx('Done')}</button>` : `<span class="saved">${TICK}${tx('Saved')}</span>`}
+          <button class="btn primary" id="done" data-label="${tx('Done')}">${tx('Done')}</button>${first ? '' : `<span class="saved">${TICK}${tx('Saved')}</span>`}
           <button class="btn" id="pause" data-label="${tx(s.paused ? 'Resume spending' : 'Pause spending')}">${tx(s.paused ? 'Resume spending' : 'Pause spending')}</button>
         </div>
         <p class="hint">${first ? esc(tx('Say “200 a week”, “Balanced” or “that’s all”.')) : `<button class="link-danger" id="del">${tx('Delete my data')}</button>`}</p>
@@ -151,8 +152,10 @@ async function send() {
 function wire() {
   for (const b of document.querySelectorAll('[data-step]')) b.onclick = () => {
     const k = b.dataset.step, s = view();
-    const step = k === 'weekly_budget' ? 10 : k === 'auto_buy_under' ? 5 : 10;
-    const next = Math.max(0, Math.round((s[k] + step * Number(b.dataset.dir)) / step) * step);
+    // logical steps: $10 under $100, $25 up to $500, $50 above (weekly); $5 for the auto-buy amount; $10 a day
+    const v = Number(s[k]) || 0, dir = Number(b.dataset.dir);
+    const step = k === 'weekly_budget' ? (v + (dir < 0 ? -1 : 0) < 100 ? 10 : v + (dir < 0 ? -1 : 0) < 500 ? 25 : 50) : k === 'auto_buy_under' ? 5 : 10;
+    const next = Math.max(0, Math.round((v + step * dir) / step) * step);
     queue({ [k]: k === 'weekly_budget' ? Math.max(10, next) : next });
   };
   const r = $('#range');
@@ -166,7 +169,11 @@ function wire() {
     queue(on ? { categories_off: [c.dataset.cat] } : { categories_on: [c.dataset.cat] }, true);
   };
   const busy = (b) => { b.disabled = true; b.setAttribute('aria-busy', 'true'); b.innerHTML = `<span class="spin" aria-hidden="true"></span>${esc(b.dataset.label)}`; };
-  const done = $('#done'); if (done) done.onclick = async () => { busy(done); clearTimeout(timer); try { render(await mcpApp.callTool('update_settings', { ...local, onboarded: true })); } catch { draw(); } };
+  // Done: what was changed is saved, then it is said to Alexa ("That's all."), which closes the card and goes home
+  const done = $('#done'); if (done) done.onclick = async () => {
+    busy(done); clearTimeout(timer);
+    try { if (Object.keys(local).length) await mcpApp.callTool('update_settings', { ...local }); await mcpApp.say(tx('That’s all.')); } catch { draw(); }
+  };
   const pause = $('#pause'); if (pause) pause.onclick = async () => { busy(pause); try { await mcpApp.callTool(view().paused ? 'resume_spending' : 'pause_spending', {}); S.settings.paused = !view().paused; draw(); } catch { draw(); } };
   const del = $('#del'); if (del) del.onclick = () => { confirming = true; draw(); $('#no')?.focus(); };
   const no = $('#no'); if (no) no.onclick = () => { confirming = false; draw(); };

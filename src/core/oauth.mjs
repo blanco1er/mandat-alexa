@@ -120,8 +120,8 @@ const CSS = `
 :root { color-scheme: light dark; }
 body { margin: 0; min-height: 100vh; background: var(--bg-grouped); color: var(--label); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; display: grid; place-items: start center; }
 main { width: min(100%, 440px); padding: 28px 20px 32px; box-sizing: border-box; display: grid; gap: 22px; }
-.mark { width: 56px; height: 56px; border-radius: 14px; background: #000; display: grid; place-items: center; box-shadow: 0 0 0 .5px rgba(255,255,255,.18); }
-.mark svg { width: 34px; height: 34px; fill: none; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.mark { width: 56px; height: 56px; border-radius: 14px; display: block; overflow: hidden; box-shadow: 0 0 0 .5px rgba(255,255,255,.18); flex: none; }
+.mark svg { width: 100%; height: 100%; display: block; }
 h1 { font: 700 var(--text-title1)/1.15 var(--font-display); letter-spacing: var(--tracking-title1); margin: 0; }
 .lead { margin: 6px 0 0; color: var(--label-secondary); font-size: var(--text-body); line-height: 1.35; }
 .group { background: var(--bg-grouped-secondary); border-radius: 14px; padding: 4px 16px; }
@@ -143,12 +143,12 @@ footer { font-size: var(--text-footnote); color: var(--label-secondary); line-he
 footer a { color: var(--accent-text); }
 button[aria-busy="true"] { opacity: .6; pointer-events: none; }
 `;
-const MARK = `<span class="mark" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M18 44V20l14 15 14-15v24"/></svg></span>`;
+const MARK = `<span class="mark" aria-hidden="true"><svg viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="114" fill="#141519"/><circle cx="238" cy="238" r="98" fill="none" stroke="#f4f1ec" stroke-width="50"/><circle cx="362" cy="362" r="49" fill="#ffc439"/></svg></span>`; // Mandat's own logo (media/brand/icon.svg)
 function page(lang, body, { formAction = "'self'" } = {}) {
   const t = PAGE[lang];
   return new Response(`<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>${esc(t.title)} · Mandat</title><meta name="robots" content="noindex">
-<link rel="stylesheet" href="/simulator/design-system/tokens.css"><style>${CSS}</style></head>
+<link rel="icon" href="/media/brand/icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/media/brand/icon-180.png"><link rel="stylesheet" href="/simulator/design-system/tokens.css"><style>${CSS}</style></head>
 <body><main>${body}</main></body></html>`, {
     headers: {
       'content-type': 'text/html; charset=utf-8', ...noStore,
@@ -363,7 +363,7 @@ export function withQuery(uri, params) {
 // Minimal privacy policy (Amazon: "A publicly accessible privacy policy that covers account data usage").
 export function privacyPage() {
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Privacy · Mandat for Alexa+</title>
-<link rel="stylesheet" href="/simulator/design-system/tokens.css"><style>body{margin:0;background:var(--bg-grouped);color:var(--label);font:17px/1.5 var(--font-sans)}main{max-width:680px;margin:0 auto;padding:40px 20px}h1{font:700 28px/1.2 var(--font-display)}h2{font:590 17px/1.3 var(--font-sans);margin-top:28px}p,li{color:var(--label-secondary)}</style></head><body><main>
+<link rel="icon" href="/media/brand/icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/media/brand/icon-180.png"><link rel="stylesheet" href="/simulator/design-system/tokens.css"><style>body{margin:0;background:var(--bg-grouped);color:var(--label);font:17px/1.5 var(--font-sans)}main{max-width:680px;margin:0 auto;padding:40px 20px}h1{font:700 28px/1.2 var(--font-display)}h2{font:590 17px/1.3 var(--font-sans);margin-top:28px}p,li{color:var(--label-secondary)}</style></head><body><main>
 <h1>Mandat for Alexa+ privacy</h1>
 <p>This is a hackathon demo. It uses PayPal <b>sandbox</b> test money only; no real payment is ever made.</p>
 <h2>What Mandat keeps</h2><ul><li>Your household's budgets, settings, orders and the preferences you ask it to remember.</li><li>The details you allow in the Alexa app (name, email, address), only to greet you, send receipts and book at your address.</li><li>Hashes of the access and refresh tokens Alexa uses; never your Amazon password.</li></ul>

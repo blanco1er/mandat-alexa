@@ -12,7 +12,7 @@ import { ScriptedModel } from './scripted-model.mjs';
 import { absorb, absorbTokens } from '../src/brain/policy.mjs';
 import { checkBudget, recordUsage } from '../src/core/spend.mjs';
 import { normLocale, tr } from '../src/core/i18n.mjs';
-import { norm } from '../src/brain/host-intents.mjs';
+import { norm, parseSettings } from '../src/brain/host-intents.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const SKILLS_DIR = path.join(HERE, '..', 'skill');
@@ -42,11 +42,20 @@ export const STATES_AMOUNT = /\$\s?\d|\d\s?\$|\b\d+\s*(dollars?|bucks|usd|dólar
 //  - update_settings: an amount only when the user said a number; resume_spending only when the user asked to resume
 //    (a model may never lift an emergency stop on its own); delete_my_data: the user's exact words, like confirm_plan.
 const SETTLE_WORDS = /\b(settle|settled|billed|bill|bills|invoice|paid|pay them|pay the|done|went well|finished|capture|refund|money back|cancel|call off|rembourse|remboursement|annule|annuler|regle|solde|facture|reembolsa|reembolso|cancela|liquida|cobro|cobrado|terminado|salio bien|tout s'est bien passe)\b/;
+const SETTINGS_WORDS = /\b(that'?s (all|it)|done|c'est tout|termine|eso es todo|listo|settings|reglages|ajustes|autonomy|autonomie|autonomia)\b/;
 const RESUME_WORDS = /\b(resume|unpause|unfreeze|restart|reactivate|back on|start (buying|spending) again|reprends|reprendre|reactive|relance|degele|reanuda|reanudar|reactiva|descongela)\b/;
 export function guardToolCall(name, input, utterance) {
   if (name === 'confirm_plan') return { input: { ...input, user_confirmation: String(utterance).slice(0, 120) } };
   if (name === 'update_settings' && ['weekly_budget', 'auto_buy_under', 'daily_cap'].some((k) => input[k] !== undefined) && !/\d/.test(utterance)) {
     return { cancel: 'Refused by the host: the user did not say an amount. Never change a budget or a limit on your own; ask the user.' };
+  }
+  // settings change only when the user's own words are a setting (seen live: "we're almost out of dog food and
+  // laundry detergent" said right after the first run became update_settings with a $420 weekly budget)
+  if (name === 'update_settings') {
+    const said = parseSettings(utterance);
+    if (!Object.keys(said).length && !SETTINGS_WORDS.test(norm(utterance))) return { cancel: 'Refused by the host: the user did not change a setting in this request. Handle what they asked (an errand, a question) with the other tools.' };
+    const allowed = Object.fromEntries(Object.entries(input).filter(([k]) => said[k] !== undefined || ['answered', 'onboarded'].includes(k) && SETTINGS_WORDS.test(norm(utterance))));
+    return { input: { ...allowed, ...said } };
   }
   // close_order moves money (capture, cancel, refund): only when the user asked to settle, cancel or refund
   if (name === 'close_order' && !SETTLE_WORDS.test(norm(utterance))) {

@@ -71,7 +71,8 @@ test('units: estimate rules, hours, the usual brand, the kind of thing asked for
 test('Channel3: only the kind asked for comes back (no canister for sheets), US market, cached, capped per person', async () => {
   const r = await shop.searchProducts({ query: 'queen sheet set', userId: 'u1' });
   assert.deepEqual(r.products.map((p) => p.id), ['c3_sheet_a', 'c3_sheet_b']);
-  assert.equal(r.products[1].retailer, 'linenstore.example', 'cheapest in-stock offer first');
+  assert.equal(r.products[1].retailer, 'Linenstore', 'cheapest in-stock offer first; the store named, not its domain');
+  assert.equal(r.products[1].retailer_domain, 'linenstore.example');
   assert.equal(r.products[0].was, 49.99);
   await shop.searchProducts({ query: 'queen sheet set', userId: 'u1' });
   assert.equal(calls.filter((c) => c.includes('trychannel3')).length, 1, 'the second identical search comes from the cache');
@@ -91,7 +92,7 @@ test('find_products (live): real products, photos through /img, allergen found i
   assert.equal(d.source, 'channel3');
   assert.deepEqual(d.offers.map((o) => o.product_id), ['c3_dog_salmon'], 'the chicken in the description is caught');
   assert.equal(d.skipped[0].title, 'Complete Adult Dry Dog Food');
-  assert.match(text(dog), /^Best match: Salmon Recipe Dry Dog Food, \$36\.50 at pets\.example\. I skipped 1 with chicken.*Real product; I pay with simulated payments and place no order with the store\.$/);
+  assert.match(text(dog), /^Best match: Salmon Recipe Dry Dog Food, \$36\.50 at Pets\. I skipped 1 with chicken.*Real product; I pay with simulated payments and place no order with the store\.$/);
   const bed = sc(await c.callTool({ name: 'find_products', arguments: { query: 'queen sheet set', max_price: 80 } }));
   const o = bed.offers[0];
   assert.equal(o.live, true);
@@ -108,15 +109,15 @@ test('find_products (live): real products, photos through /img, allergen found i
   assert.equal((await fetch(`${srv.url}/img?src=${encodeURIComponent('https://evil.example/x.png')}&s=abc`)).status, 404);
   const det = await c.callTool({ name: 'get_offer_details', arguments: { offer_id: o.id } });
   const dd = sc(det);
-  assert.deepEqual(dd.link, { url: 'https://buy.trychannel3.com/test-a', label: 'examplehome.com' });
-  assert.ok(dd.specs.some((s) => s.k === 'Price' && /\$39\.99 · was \$49\.99 · examplehome\.com/.test(s.v)));
+  assert.deepEqual(dd.link, { url: 'https://buy.trychannel3.com/test-a', label: 'Examplehome' });
+  assert.ok(dd.specs.some((s) => s.k === 'Price' && /\$39\.99 · was \$49\.99 · Examplehome/.test(s.v)));
   assert.ok(dd.specs.some((s) => s.k === 'Delivery' && /no order placed in this demo/.test(s.v)));
-  assert.ok(dd.why.some((w) => /^Real product and price at examplehome\.com\. Paid with simulated payments; no order is placed with the store$/.test(w.text)));
+  assert.ok(dd.why.some((w) => /^Real product and price at Examplehome\. Paid with simulated payments; no order is placed with the store$/.test(w.text)));
   assert.match(text(det), /A real product; I pay with simulated payments and place no order with the store\./);
   // "can it come tomorrow?" about a real product: the store sets the date, nothing promised
   await c.callTool({ name: 'set_spending_mandate', arguments: { budget: 300, period: 'once', purpose: 'Test' } });
   await c.callTool({ name: 'propose_plan', arguments: { item_ids: [o.id] } });
-  assert.match(text(await c.callTool({ name: 'swap_item', arguments: { wanted: 'tomorrow', item: 'sheets' } })), /^examplehome\.com sets the delivery date .* cannot promise tomorrow\./);
+  assert.match(text(await c.callTool({ name: 'swap_item', arguments: { wanted: 'tomorrow', item: 'sheets' } })), /^Examplehome sets the delivery date .* cannot promise tomorrow\./);
   // coffee: nothing that is really coffee -> said plainly, nothing offered
   const coffee = await c.callTool({ name: 'find_products', arguments: { query: 'coffee beans' } });
   assert.ok(coffee.isError);
@@ -179,10 +180,10 @@ test('a mixed plan, booked, moved and settled: honest from start to end (voice a
   const p = sc(plan.steps.at(-1).result).plan;
   assert.deepEqual(p.lines.map((l) => l.source), ['local', 'channel3', 'partner']);
   assert.equal(p.breakdown.total, 100 + 39.99 + 195);
-  assert.match(plan.speech, /Sparkly Test Maids, about \$100 estimated, Brushed Microfiber Queen Sheet Set from examplehome\.com, \$39\.99 and Hearth Table Catering, a demo partner, \$195\./);
+  assert.match(plan.speech, /Sparkly Test Maids, about \$100 estimated, Brushed Microfiber Queen Sheet Set from Examplehome, \$39\.99 and Hearth Table Catering, a demo partner, \$195\./);
   assert.match(plan.speech, /It is all paid with simulated payments; the real business only gets a booking request at an estimated price; no order is placed with the store; demo partners are simulated\. Should I book it\?$/);
   const yes = await say('Yes, book it.');
-  assert.match(yes.speech, /Sparkly Test Maids has a booking request at an estimated price, not confirmed by them\. No order is placed with examplehome\.com\./);
+  assert.match(yes.speech, /Sparkly Test Maids has a booking request at an estimated price, not confirmed by them\. No order is placed with Examplehome\./);
   const orders = sc(yes.steps[0].result).receipt.orders;
   assert.deepEqual(orders.map((o) => o.source), ['local', 'channel3', 'partner']);
   const moved = await say('Their flight moved to Sunday.');

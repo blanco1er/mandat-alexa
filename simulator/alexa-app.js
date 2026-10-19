@@ -33,7 +33,7 @@ const T = {
     name: 'Name', email: 'Email', address: 'Address', whyName: 'To greet you', whyEmail: 'For receipts (this demo sends no email)', whyAddress: 'To book services at home and deliver',
     allow: 'Allow', notNow: 'Not now', doneTitle: 'You’re all set', doneShow: 'Continue on your Echo Show.', doneDot: 'Alexa will ask you a few questions.',
     failTitle: 'Linking did not finish', failSub: 'Nothing was shared. Try again from the Echo Show.', back: 'Back', close: 'Close',
-    manage: 'Manage', linked: 'Linked', notLinked: 'Not linked', unlink: 'Unlink Mandat', unlinkQ: 'Unlink Mandat? Alexa stops using your Mandat account and every access token is revoked. Your Mandat data stays until you delete it.', del: 'Delete my Mandat data', delQ: 'Delete everything Mandat knows about this household? Open payment holds are voided first. This cannot be undone.', cancel: 'Cancel', confirmUnlink: 'Unlink', confirmDel: 'Delete', shared: 'Shared with Mandat', account: 'Account', since: 'Linked {d}', unlinked: 'Mandat is unlinked', enableAgain: 'Say “Alexa, enable Mandat” to link it again.',
+    manage: 'Manage', checking: 'Checking the link…', expired: 'Link expired', relink: 'Link again', unknownState: 'Link state unknown: try again in a moment', linked: 'Linked', notLinked: 'Not linked', unlink: 'Unlink Mandat', unlinkQ: 'Unlink Mandat? Alexa stops using your Mandat account and every access token is revoked. Your Mandat data stays until you delete it.', del: 'Delete my Mandat data', delQ: 'Delete everything Mandat knows about this household? Open payment holds are voided first. This cannot be undone.', cancel: 'Cancel', confirmUnlink: 'Unlink', confirmDel: 'Delete', shared: 'Shared with Mandat', account: 'Account', since: 'Linked {d}', unlinked: 'Mandat is unlinked', enableAgain: 'Say “Alexa, enable Mandat” to link it again.',
   },
   fr: {
     sim: 'App Alexa · simulée', now: 'maintenant', notifTitle: 'Lier Mandat', notifBody: 'Terminez la configuration de Mandat : liez votre compte et choisissez ce que vous partagez.', tapHint: 'Touchez la notification',
@@ -45,7 +45,7 @@ const T = {
     name: 'Nom', email: 'E-mail', address: 'Adresse', whyName: 'Pour vous saluer', whyEmail: 'Pour les reçus (cette démo n’envoie aucun e-mail)', whyAddress: 'Pour réserver à domicile et livrer',
     allow: 'Autoriser', notNow: 'Plus tard', doneTitle: 'C’est prêt', doneShow: 'Continuez sur votre Echo Show.', doneDot: 'Alexa va vous poser quelques questions.',
     failTitle: 'La liaison n’a pas abouti', failSub: 'Rien n’a été partagé. Réessayez depuis l’Echo Show.', back: 'Retour', close: 'Fermer',
-    manage: 'Gérer', linked: 'Lié', notLinked: 'Non lié', unlink: 'Délier Mandat', unlinkQ: 'Délier Mandat ? Alexa n’utilise plus votre compte Mandat et tous les jetons sont révoqués. Vos données Mandat restent jusqu’à leur suppression.', del: 'Supprimer mes données Mandat', delQ: 'Supprimer tout ce que Mandat sait de ce foyer ? Les paiements réservés sont d’abord annulés. C’est définitif.', cancel: 'Annuler', confirmUnlink: 'Délier', confirmDel: 'Supprimer', shared: 'Partagé avec Mandat', account: 'Compte', since: 'Lié {d}', unlinked: 'Mandat est délié', enableAgain: 'Dites « Alexa, active Mandat » pour le lier à nouveau.',
+    manage: 'Gérer', checking: 'Vérification du lien…', expired: 'Lien expiré', relink: 'Relier', unknownState: 'État du lien inconnu : réessayez dans un instant', linked: 'Lié', notLinked: 'Non lié', unlink: 'Délier Mandat', unlinkQ: 'Délier Mandat ? Alexa n’utilise plus votre compte Mandat et tous les jetons sont révoqués. Vos données Mandat restent jusqu’à leur suppression.', del: 'Supprimer mes données Mandat', delQ: 'Supprimer tout ce que Mandat sait de ce foyer ? Les paiements réservés sont d’abord annulés. C’est définitif.', cancel: 'Annuler', confirmUnlink: 'Délier', confirmDel: 'Supprimer', shared: 'Partagé avec Mandat', account: 'Compte', since: 'Lié {d}', unlinked: 'Mandat est délié', enableAgain: 'Dites « Alexa, active Mandat » pour le lier à nouveau.',
   },
   es: {
     sim: 'App de Alexa · simulada', now: 'ahora', notifTitle: 'Vincular Mandat', notifBody: 'Termina de configurar Mandat: vincula tu cuenta y elige qué compartes.', tapHint: 'Toca la notificación',
@@ -57,11 +57,11 @@ const T = {
     name: 'Nombre', email: 'Correo', address: 'Dirección', whyName: 'Para saludarte', whyEmail: 'Para los recibos (esta demo no envía correos)', whyAddress: 'Para reservar en casa y hacer envíos',
     allow: 'Permitir', notNow: 'Ahora no', doneTitle: 'Todo listo', doneShow: 'Sigue en tu Echo Show.', doneDot: 'Alexa te hará unas preguntas.',
     failTitle: 'La vinculación no terminó', failSub: 'No se compartió nada. Vuelve a intentarlo desde el Echo Show.', back: 'Volver', close: 'Cerrar',
-    manage: 'Gestionar', linked: 'Vinculado', notLinked: 'No vinculado', unlink: 'Desvincular Mandat', unlinkQ: '¿Desvincular Mandat? Alexa deja de usar tu cuenta de Mandat y se revocan todos los tokens. Tus datos de Mandat siguen hasta que los borres.', del: 'Borrar mis datos de Mandat', delQ: '¿Borrar todo lo que Mandat sabe de este hogar? Primero se anulan las retenciones. No se puede deshacer.', cancel: 'Cancelar', confirmUnlink: 'Desvincular', confirmDel: 'Borrar', shared: 'Compartido con Mandat', account: 'Cuenta', since: 'Vinculado {d}', unlinked: 'Mandat está desvinculado', enableAgain: 'Di «Alexa, activa Mandat» para vincularlo de nuevo.',
+    manage: 'Gestionar', checking: 'Comprobando el vínculo…', expired: 'Vínculo caducado', relink: 'Volver a vincular', unknownState: 'Estado del vínculo desconocido: inténtalo en un momento', linked: 'Vinculado', notLinked: 'No vinculado', unlink: 'Desvincular Mandat', unlinkQ: '¿Desvincular Mandat? Alexa deja de usar tu cuenta de Mandat y se revocan todos los tokens. Tus datos de Mandat siguen hasta que los borres.', del: 'Borrar mis datos de Mandat', delQ: '¿Borrar todo lo que Mandat sabe de este hogar? Primero se anulan las retenciones. No se puede deshacer.', cancel: 'Cancelar', confirmUnlink: 'Desvincular', confirmDel: 'Borrar', shared: 'Compartido con Mandat', account: 'Cuenta', since: 'Vinculado {d}', unlinked: 'Mandat está desvinculado', enableAgain: 'Di «Alexa, activa Mandat» para vincularlo de nuevo.',
   },
 };
 const t = (k, v = {}) => (T[lang]?.[k] ?? T.en[k] ?? k).replace(/\{(\w+)\}/g, (_, x) => v[x] ?? '');
-const MARK = '<span class="mark" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M18 44V20l14 15 14-15v24"/></svg></span>';
+const MARK = '<span class="mark" aria-hidden="true"><svg viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="114" fill="#141519"/><circle cx="238" cy="238" r="98" fill="none" stroke="#f4f1ec" stroke-width="50"/><circle cx="362" cy="362" r="49" fill="#ffc439"/></svg></span>'; // Mandat's own logo (media/brand/icon.svg)
 const BUBBLE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 1 4.2 7l-3.7 1 1-3.4A8 8 0 0 1 4 12Z"/></svg>';
 const CHECK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 10 17 19 7"/></svg>';
 const bar = (back) => `<header class="bar">${back ? `<button class="ui-button ui-button--plain" id="back" type="button">‹ ${esc(t(back))}</button>` : ''}<span class="sim">${esc(t('sim'))}</span></header>`;
@@ -144,6 +144,25 @@ function done(device) {
   setTimeout(() => post('close'), 1400);
 }
 
+// The real state of the link: an authenticated call; an expired access token is renewed once (one refresh at a time
+// across tabs, the shared copy read again first); a refused refresh means the link is gone.
+async function checkLink(link) {
+  const probe = (l) => fetch(`/activity?turn=check-${Date.now()}`, { headers: { authorization: `Bearer ${l.access_token}` }, cache: 'no-store' }).then((r) => r.status);
+  try {
+    if ((await probe(link)) === 200) return 'linked';
+    const renew = async () => {
+      const cur = store.get('mandat.link', null) || link;
+      if (cur.access_token !== link.access_token && (await probe(cur)) === 200) return 'linked';
+      const r = await fetch('/oauth/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: cur.refresh_token, client_id: CLIENT }) });
+      if (!r.ok) return r.status === 400 ? 'expired' : 'unknown';
+      const tok = await r.json();
+      store.set('mandat.link', { ...cur, access_token: tok.access_token, refresh_token: tok.refresh_token, expires_at: Date.now() + tok.expires_in * 1000, scope: tok.scope });
+      return 'linked';
+    };
+    return navigator.locks?.request ? await navigator.locks.request('mandat-refresh', renew) : await renew();
+  } catch { return 'unknown'; }
+}
+
 // Manage (Alexa app > Mandat > Manage): linked state, permissions, unlink, delete data.
 function manage(confirm = null) {
   const link = store.get('mandat.link', null);
@@ -152,7 +171,7 @@ function manage(confirm = null) {
   const when = link?.linked_at ? new Date(link.linked_at).toLocaleDateString(lang, { month: 'short', day: 'numeric' }) : '';
   show(`${bar()}<section class="view">
     <div class="app-head">${MARK}<div><b>Mandat</b><span>${esc(t('manage'))}</span></div></div>
-    <div><h2>${esc(t('account'))}</h2><div class="group"><div class="row"><b>${esc(t(link ? 'linked' : 'notLinked'))}</b><span>${esc(link ? t('since', { d: when }) : '')}</span></div></div></div>
+    <div><h2>${esc(t('account'))}</h2><div class="group"><div class="row" id="linkState"><b>${esc(t(link ? 'checking' : 'notLinked'))}</b><span></span></div></div></div>
     ${link ? `<div><h2>${esc(t('shared'))}</h2><div class="group"><button class="row" id="perms" type="button"><b>${esc(shared)}</b><span>›</span></button></div></div>
     <div class="group">${confirm === 'unlink' ? `<div class="confirm"><p>${esc(t('unlinkQ'))}</p><div class="actions"><button class="ui-button" id="no" type="button">${esc(t('cancel'))}</button><button class="ui-button ui-button--destructive" id="yes" type="button">${esc(t('confirmUnlink'))}</button></div></div>`
       : `<button class="row" id="unlink" type="button"><b class="danger">${esc(t('unlink'))}</b></button>`}</div>
@@ -161,6 +180,13 @@ function manage(confirm = null) {
     <div class="actions"><button class="ui-button" id="close" type="button">${esc(t('close'))}</button></div>
   </section>`);
   const on = (id, fn) => { const e = $('#' + id); if (e) e.onclick = fn; };
+  // never "Linked" on trust: ask the server with the link (and renew it if its access token just expired)
+  if (link) checkLink(link).then((state) => {
+    const row = $('#linkState'); if (!row) return;
+    if (state === 'linked') row.innerHTML = `<b>${esc(t('linked'))}</b><span>${esc(when ? t('since', { d: when }) : '')}</span>`;
+    else if (state === 'expired') { row.innerHTML = `<b class="danger">${esc(t('expired'))}</b><button class="ui-button ui-button--filled relink" id="relink" type="button">${esc(t('relink'))}</button>`; on('relink', () => post('relink')); }
+    else row.innerHTML = `<b>${esc(t('unknownState'))}</b>`;
+  });
   on('perms', () => permissions());
   on('unlink', () => manage('unlink'));
   on('delete', () => manage('delete'));

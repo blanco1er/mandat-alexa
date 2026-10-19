@@ -18,6 +18,8 @@ const RESUME = /\b(resume|unpause|restart|reactivate)\b.*\b(mandat|spending|buyi
 const OPEN = /\b(open|show|change|edit)\b.*\bmandat\b.*\bsettings\b|\bmandat settings\b|\bsettings (for|of) mandat\b|\b(ouvre|affiche|montre|modifie)\b.*\b(reglages|parametres)\b.*\bmandat\b|\b(reglages|parametres) de mandat\b|\b(abre|muestra|ensena|cambia)\b.*\b(ajustes|configuracion)\b.*\bmandat\b|\b(ajustes|configuracion) de mandat\b/;
 const DELETE = /\b(delete|erase|wipe)\b.*\bdata\b|\b(delete|erase)\b.*\bmandat\b.*\b(account|everything)\b|\b(supprime|supprimer|efface|effacer)\b.*\bdonnees\b|\b(borra|borrar|elimina|eliminar)\b.*\bdatos\b/;
 const DONE = /^(alexa,? )?(that'?s (all|it|fine|good)|done|all set|all good|save( it)?|looks good|perfect|c'est (tout|bon|parfait)|termine|parfait|ca me va|eso es todo|listo|ya esta|perfecto|guardar|guarda)\b/;
+// Not household errands (weather, time, a joke, music, news): a polite answer in the user's language, no model, no tool
+const OFF_TOPIC = /\b(weather|forecast|temperature|what time|time is it|joke|play (some )?music|news|quel temps|la meteo|meteo|il fait (quel temps|beau|froid|chaud)|quelle heure|une blague|blague|mets de la musique|les infos|actualites|que tiempo|el tiempo|hace (frio|calor|sol)|que hora|un chiste|chiste|pon musica|las noticias)\b/;
 const KEEP = /^(alexa,? )?(keep( it)?|no change|that'?s fine|fine|ok(ay)?|same|garde(-le)?|on garde|ca va|d'accord|igual|esta bien|dejalo|vale)\b/;
 export const LEVEL_WORDS = [
   ['ask', /\bask (me )?first\b|\balways ask\b|\bdemande[- ]moi d'abord\b|\bme demander d'abord\b|\bdemande d'abord\b|\btoujours demander\b|\bpreguntame primero\b|\bpregunta(r)? primero\b|\bsiempre pregunta\b/],
@@ -54,7 +56,9 @@ export function parseSettings(text, step = null) {
   }
   for (const [level, re] of LEVEL_WORDS) if (re.test(t)) { patch.autonomy = level; break; }
   const off = [], on = [];
-  for (const clause of t.split(/,|;|\band\b|\bet\b|\by\b/)) {
+  // "we're almost out of dog food" / "casi no nos queda pienso para el perro" is an errand, never "no pets"
+  const errand = /\b(almost out|running (low|out)|out of|need|presque plus|n'a plus|n'y a plus|besoin|il faut|casi no (nos )?queda|se nos acaba|necesit|falta)\b/.test(t);
+  if (!errand) for (const clause of t.split(/,|;|\band\b|\bet\b|\by\b/)) {
     const cats = Object.keys(CAT_WORDS).filter((c) => CAT_WORDS[c].test(clause));
     if (!cats.length) continue;
     if (OFF.test(clause)) off.push(...cats); else if (ON.test(clause)) on.push(...cats);
@@ -71,6 +75,7 @@ export function detectHostIntent(text, session = {}) {
   if (session.pendingDelete) return isExplicitYes(text) ? { kind: 'delete_confirm' } : { kind: 'delete_cancel' };
   if (DELETE.test(t)) return { kind: 'delete_ask' };
   if (OPEN.test(t)) return { kind: 'open_settings' };
+  if (OFF_TOPIC.test(t) && !/\$|\d|budget|mandat|book|buy|order|plan|reserv|achet|commande|presupuesto|compra|clean|menage|limpieza|cater|traiteur|dinner|diner|cena|deliver|livr|entrega|plumb|plomb|fontaner|dog|chien|perro|sheet|drap|sabana|linge|ropa/.test(t)) return { kind: 'off_topic' };
   // a bare yes with no plan waiting (too early, or said twice): nothing to pay, and no model gets the chance to
   // invent something to pay (seen live: Nova captured two orders on a repeated "Yes, book it")
   if (!session.pending && !session.settingsOpen && !session.onboarding && isExplicitYes(text) && t.split(' ').length <= 6) return { kind: 'nothing_waiting' };
@@ -111,6 +116,7 @@ export async function runHostIntent({ text, session = {}, locale, household, tur
       }
       case 'resume': { speech = said(await call('resume_spending')); return out(); }
       case 'nothing_waiting': { speech = tr(locale, 'p_nothing_waiting'); return out(); }
+      case 'off_topic': { speech = tr(locale, 'off_topic'); return out(); }
       case 'delete_ask': {
         const r = await call('get_household_status', { section: 'orders' });
         const open = sc(r).open_orders || [];
@@ -139,7 +145,7 @@ export async function runHostIntent({ text, session = {}, locale, household, tur
         if (intent.step && intent.kind === 'settings_keep') answered.push(intent.step);
         if (answered.length) patch.answered = answered;
         if (intent.kind === 'settings_done') {
-          if (!session.onboarding) { s = { ...s, settingsOpen: false }; speech = tr(locale, 'settings_closed'); return out(); }
+          if (!session.onboarding) { s = { ...s, settingsOpen: false }; speech = tr(locale, 'settings_closed'); return out({ settings_closed: true }); }
           patch.onboarded = true;
         }
         let r = await call('update_settings', patch);
@@ -151,8 +157,11 @@ export async function runHostIntent({ text, session = {}, locale, household, tur
           if (d.onboarding_step) speech += ' ' + tr(locale, 'ask_' + d.onboarding_step, askVars(d.settings, locale));
           else { r = await call('update_settings', { onboarded: true }); d = sc(r); speech += ' ' + said(r); }
         }
-        s = { ...s, settingsOpen: true, onboarding: d.settings?.onboarded ? null : d.onboarding_step ? { step: d.onboarding_step } : null };
-        return out();
+        // the first run is finished ("that's all"): the card closes, the household can start right away
+        const finished = !!session.onboarding && !!d.settings?.onboarded;
+        s = { ...s, settingsOpen: !finished, onboarding: d.settings?.onboarded ? null : d.onboarding_step ? { step: d.onboarding_step } : null };
+        if (finished) speech += ' ' + tr(locale, 'settings_ready');
+        return out(finished ? { settings_closed: true } : {});
       }
       default: return null;
     }

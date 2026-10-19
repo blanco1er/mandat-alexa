@@ -261,7 +261,7 @@ export async function googlePhoto(ref) {
   const hit = await recall(k);
   if (hit) return { type: hit.type, bytes: Buffer.from(hit.b64, 'base64') };
   if (!room('photo')) return null;
-  const r = await doFetch(`https://places.googleapis.com/v1/${name}/media?maxWidthPx=640&skipHttpRedirect=true`, { headers: { 'X-Goog-Api-Key': key }, signal: AbortSignal.timeout(6000) });
+  const r = await doFetch(`https://places.googleapis.com/v1/${name}/media?maxWidthPx=1200&skipHttpRedirect=true`, { headers: { 'X-Goog-Api-Key': key }, signal: AbortSignal.timeout(6000) });
   if (!r.ok) return null;
   const uri = (await r.json()).photoUri;
   if (!/^https:\/\/[\w.-]+\.googleusercontent\.com\//.test(uri || '')) return null;

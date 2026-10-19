@@ -204,6 +204,7 @@ window.addEventListener('message', async (e) => {
   if (m.type === 'step') return;
   if (m.type === 'failed') { closePhone(); const said = t('Linking did not finish. Nothing was shared.'); setReply(said, { error: true }); showLinkCard(null); return speak(said); }
   if (m.type === 'linked') { useLink(store.get('mandat.link', null)); log('orch', 'Alexa app → page', { method: 'linked', result: { token_type: 'Bearer', scope: link?.scope } }); return showLinkCard('share'); }
+  if (m.type === 'relink') { closePhone(); forgetLink(); return enableFlow(FIRST_LINE[lang()]); }
   if (m.type === 'unlinked') { forgetLink(); document.body.dataset.screen = 'home'; renderHome(null); const said = t('Mandat is unlinked. Say “Alexa, enable Mandat” to link it again.'); setReply(said); return speak(said); }
   if (m.type === 'permissions') {
     try {
@@ -635,23 +636,59 @@ async function truthAfterError(pendingBefore) {
 
 // ---------- voice in ----------
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null;
+// iPhone / iPad (also iPadOS that says "Macintosh"): Safari's recognition loses the microphone when the page holds a
+// second audio stream, so the level meter stays off there.
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+let rec = null, recTimer = 0;
+const micHint = (key) => { const h = $('#micHint'); h.textContent = t(key); h.classList.add('err'); };
+function stopListening(r = rec, { abort = false } = {}) {
+  clearTimeout(recTimer);
+  if (!r) return;
+  r.onresult = r.onend = r.onerror = null;
+  try { abort ? r.abort() : r.stop(); } catch {}
+  if (rec === r) rec = null;
+  closeMicLevel();
+}
+// Every tap starts a NEW recognition, from the tap itself (Safari iOS keeps a used one dead): the previous one is
+// aborted first, whatever state it is in. A tap while listening stops and sends what was heard.
 function listen() {
-  if (!SR) { $('#typeInput').focus(); const h = $('#micHint'); h.textContent = t('This browser cannot hear you. Type instead, or open the page in Chrome.'); h.classList.add('err'); return; }
-  if (rec) { rec.stop(); return; }
+  if (!SR) { $('#typeInput').focus(); micHint('This browser cannot hear you. Type what you would say below.'); return; }
+  if (rec) { const r = rec; const heard = r.__final || ''; stopListening(r, { abort: !heard }); setState(session.pending ? 'confirming' : 'idle'); if (heard.trim()) turn(heard.trim()); return; }
   speechSynthesis?.cancel?.();
-  rec = new SR();
-  rec.lang = locale; rec.interimResults = true; rec.maxAlternatives = 1;
-  let final = '';
-  rec.onresult = (e) => { final = [...e.results].map((r) => r[0].transcript).join(' '); showHeard(final); };
-  rec.onend = () => { rec = null; closeMicLevel(); setState(session.pending ? 'confirming' : 'idle'); if (final.trim()) turn(final.trim()); };
-  rec.onerror = (e) => {
-    rec = null; closeMicLevel(); setState('idle');
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { const h = $('#micHint'); h.textContent = t('Microphone blocked. Allow it in the address bar, or type below.'); h.classList.add('err'); }
+  const r = new SR();
+  rec = r;
+  r.lang = locale; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
+  r.__final = '';
+  const input = $('#typeInput');
+  // nothing heard after 6 s: say so and offer the keyboard
+  const quiet = () => { if (rec !== r) return; stopListening(r, { abort: true }); setState(session.pending ? 'confirming' : 'idle'); micHint('I did not hear anything. Tap the microphone and speak, or type below.'); input.focus(); };
+  recTimer = setTimeout(quiet, 6000);
+  r.onresult = (e) => {
+    clearTimeout(recTimer); recTimer = setTimeout(quiet, 6000);
+    r.__final = [...e.results].map((x) => x[0].transcript).join(' ');
+    showHeard(r.__final);
+    input.value = r.__final; // the words appear in the field as they are recognised
+    $('#send').disabled = !r.__final.trim();
+  };
+  r.onend = () => {
+    if (rec !== r) return;
+    const heard = r.__final.trim();
+    stopListening(r);
+    setState(session.pending ? 'confirming' : 'idle');
+    if (heard) { input.value = ''; turn(heard); }
+  };
+  r.onerror = (e) => {
+    if (rec !== r) return;
+    stopListening(r, { abort: true });
+    setState(session.pending ? 'confirming' : 'idle');
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') micHint(IOS ? 'Microphone or speech recognition is off for Safari: turn them on in Settings › Safari (and Siri & Dictation), or type below.' : 'Microphone blocked. Allow it in the address bar, or type below.');
+    else if (e.error === 'no-speech') { micHint('I did not hear anything. Tap the microphone and speak, or type below.'); input.focus(); }
+    else if (e.error === 'audio-capture') micHint('No microphone was found. Type what you would say below.');
+    else if (e.error !== 'aborted') micHint('Voice did not work this time. Tap the microphone again, or type below.');
   };
   setState('listening');
-  openMicLevel().then(kickLevel);
-  rec.start();
+  if (!IOS) openMicLevel().then(kickLevel); else kickLevel();
+  try { r.start(); } catch { stopListening(r, { abort: true }); setState('idle'); micHint('Voice did not work this time. Tap the microphone again, or type below.'); }
 }
 
 // ---------- one turn ----------
@@ -737,6 +774,8 @@ async function turn(text) {
     setReply(out.speech);
     setAsk(session.pending);
     if (shown) await render(shown.name, shown.args, mergeReceipts(shown, out.steps));
+    // "that's all" / Done: the settings card closes and the home screen is back, ready for the first errand
+    if (out.settings_closed && device !== 'dot') { document.body.dataset.screen = 'home'; renderHome(lastStatus); }
     setBusy(false);
     await speak(out.speech);
   } catch (e) {
@@ -764,7 +803,8 @@ function applyLanguage() {
   for (const el of document.querySelectorAll('[data-i18n-aria]')) el.setAttribute('aria-label', t(el.dataset.i18nAria));
   for (const el of document.querySelectorAll('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle);
   for (const el of document.querySelectorAll('[data-i18n-ph]')) el.placeholder = t(el.dataset.i18nPh);
-  $('#micHint').innerHTML = esc(t('Or press {kbd}. Voice works in Chrome; typing works everywhere.', { kbd: '\u0001' })).replace('\u0001', '<kbd>Space</kbd>');
+  $('#micHint').classList.remove('err');
+  $('#micHint').innerHTML = SR ? esc(t(IOS || matchMedia('(pointer: coarse)').matches ? 'Tap the microphone and speak, or type.' : 'Tap the microphone or press {kbd}, or type.', { kbd: '\u0001' })).replace('\u0001', '<kbd>Space</kbd>') : esc(t('Type what you would say below.'));
   $('#askText').textContent = session.pending ? t('Say “yes” to confirm the plan · {amt}', { amt: usd(session.pending.total) }) : t('Say “yes” to confirm');
   $('#micLabel').textContent = label(document.body.dataset.state || 'idle');
   $('#fine').textContent = fineText();
@@ -853,7 +893,7 @@ renderScript();
 setDevice(device);
 visit('page');
 window.addEventListener('resize', fit);
-new ResizeObserver(fit).observe($('#room'));
+new ResizeObserver(() => requestAnimationFrame(fit)).observe($("#room"));
 let slotRaf = 0;
 new ResizeObserver(() => { cancelAnimationFrame(slotRaf); slotRaf = requestAnimationFrame(() => host.setContext({ containerDimensions: slotSize() })); }).observe($('#cardSlot'));
 

@@ -6,6 +6,7 @@
 <title>Alexa app (simulated) · Mandat</title>
 <meta name="robots" content="noindex">
 <meta name="color-scheme" content="light dark">
+<link rel="icon" href="/media/brand/icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/media/brand/icon-180.png">
 <link rel="stylesheet" href="design-system/tokens.css">
 <link rel="stylesheet" href="design-system/components.css">
 <style>
@@ -16,9 +17,11 @@
 html, body { margin: 0; min-height: 100%; }
 body { background: var(--bg-grouped); color: var(--label); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
 main { min-height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr); }
-.bar { display: flex; align-items: center; gap: 8px; padding: 14px 16px 6px; min-height: 44px; }
+button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.bar { display: flex; align-items: center; gap: 8px; padding: 14px 64px 6px 16px; min-height: 44px; } /* right: room for the sheet's close button */
 .bar button { min-height: 44px; }
-.bar .sim { margin-left: auto; font-size: var(--text-caption1); color: var(--label-secondary); }
+.bar .sim { margin-left: auto; font-size: var(--text-caption1); color: var(--label-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.row .relink { margin-left: auto; }
 .view { padding: 6px 20px 28px; display: grid; align-content: start; gap: 22px; animation: in var(--dur-smooth) var(--ease-smooth) both; }
 @keyframes in { from { opacity: 0; transform: translateY(10px); } }
 h1 { font: 700 var(--text-title1)/1.15 var(--font-display); letter-spacing: var(--tracking-title1); margin: 0; }
@@ -26,8 +29,8 @@ h2 { font: 590 var(--text-footnote)/1.3 var(--font-sans); color: var(--label-sec
 p { margin: 0; }
 .lead { color: var(--label-secondary); font-size: var(--text-body); line-height: 1.35; margin-top: 4px; }
 .app-head { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 14px; align-items: center; }
-.mark { width: 64px; height: 64px; border-radius: 16px; background: #000; display: grid; place-items: center; box-shadow: 0 0 0 .5px rgba(255, 255, 255, .2); }
-.mark svg { width: 38px; height: 38px; fill: none; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.mark { width: 64px; height: 64px; border-radius: 16px; display: block; overflow: hidden; box-shadow: 0 0 0 .5px rgba(255, 255, 255, .2); flex: none; }
+.mark svg { width: 100%; height: 100%; display: block; }
 .app-head b { font: 700 var(--text-title2)/1.15 var(--font-display); display: block; }
 .app-head span { color: var(--label-secondary); font-size: var(--text-subhead); }
 .group { background: var(--bg-grouped-secondary); border-radius: 14px; overflow: hidden; }

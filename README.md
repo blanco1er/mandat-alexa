@@ -1,3 +1,5 @@
+<img src="media/brand/icon-512.png" width="96" height="96" alt="Mandat logo">
+
 # Mandat for Alexa+
 
 **Give Alexa a budget, not a to-do list.**

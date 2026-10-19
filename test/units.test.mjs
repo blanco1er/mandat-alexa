@@ -84,3 +84,21 @@ test('en-US voice: merchant times are spoken the American way (Sunday at 7:30 PM
   assert.equal(usTime('We only have 09:00, 12:30, 18:00.'), 'We only have 9 AM, 12:30 PM, 6 PM.');
   assert.equal(usTime('at 7:30 pm'), 'at 7:30 pm');
 });
+
+test('settings never swallow an errand; off-topic questions get a polite answer; Done closes the settings', async () => {
+  const { detectHostIntent } = await import('../src/brain/host-intents.mjs');
+  const open = { settingsOpen: true };
+  for (const t of ["We're almost out of dog food and laundry detergent.", 'On n’a presque plus de croquettes ni de lessive.', 'Casi no nos queda pienso para el perro ni detergente.']) {
+    assert.equal(detectHostIntent(t, open), null, `${t}: the model's turn, not a setting`);
+    assert.equal(detectHostIntent(t, { onboarding: { step: 'daily_cap' } }), null, `${t}: not a setting during the first run either`);
+  }
+  assert.deepEqual(detectHostIntent('Mets 200 par semaine.', open).patch, { weekly_budget: 200 });
+  for (const t of ["That's all.", 'C’est tout.', 'Eso es todo.', 'Terminé', 'Done', 'Listo']) assert.equal(detectHostIntent(t, open)?.kind, 'settings_done', t);
+  for (const t of ['Il fait quel temps actuellement', 'What’s the weather like?', '¿Qué tiempo hace?', 'Quelle heure est-il ?', 'What time is it?', 'Tell me a joke', 'Raconte-moi une blague', 'Cuéntame un chiste']) assert.equal(detectHostIntent(t, {})?.kind, 'off_topic', t);
+  for (const t of ['À quelle heure vient le ménage ?', 'What time does the cleaner come?']) assert.notEqual(detectHostIntent(t, {})?.kind, 'off_topic', t);
+  const { guardToolCall } = await import('../orchestrator/brain.mjs').catch(() => ({}));
+  if (guardToolCall) {
+    assert.ok(guardToolCall('update_settings', { weekly_budget: 420, onboarded: true }, 'On n’a presque plus de croquettes ni de lessive.').cancel);
+    assert.deepEqual(guardToolCall('update_settings', { weekly_budget: 420, autonomy: 'hands_off' }, 'Mets 200 par semaine.').input, { weekly_budget: 200 });
+  }
+});

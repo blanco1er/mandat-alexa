@@ -41,6 +41,16 @@ export const TYPES = [
 ];
 export const typeOf = (query = '') => TYPES.find((t) => t.words.test(String(query))) || null;
 
+// A store's name as people say it: known US retailers by name, otherwise the domain without "www", its ending and
+// the odd numbers ("madisonpark2010.com" -> "Madisonpark"). Channel3 gives only the domain.
+const STORES = { 'ashleyfurniture.com': 'Ashley', 'target.com': 'Target', 'walmart.com': 'Walmart', 'amazon.com': 'Amazon', 'chewy.com': 'Chewy', 'petsmart.com': 'PetSmart', 'petco.com': 'Petco', 'wayfair.com': 'Wayfair', 'macys.com': 'Macy’s', 'kohls.com': 'Kohl’s', 'homedepot.com': 'The Home Depot', 'lowes.com': 'Lowe’s', 'bedbathandbeyond.com': 'Bed Bath & Beyond', 'qvc.com': 'QVC', 'marshalls.com': 'Marshalls', 'tjmaxx.tjx.com': 'T.J. Maxx', 'nautica.com': 'Nautica', 'roomstogo.com': 'Rooms To Go', '1stopbedrooms.com': '1StopBedrooms', 'grove.co': 'Grove', 'cvs.com': 'CVS', 'costco.com': 'Costco', 'staples.com': 'Staples', 'jcpenney.com': 'JCPenney', 'nordstrom.com': 'Nordstrom', 'potterybarn.com': 'Pottery Barn', 'westelm.com': 'West Elm', 'crateandbarrel.com': 'Crate & Barrel', 'tractorsupply.com': 'Tractor Supply', '1800petmeds.com': '1-800-PetMeds', 'petflow.com': 'PetFlow', 'entirelypets.com': 'EntirelyPets', 'farmandfleet.com': 'Farm & Fleet', 'murdochs.com': 'Murdoch’s', 'dollargeneral.com': 'Dollar General', 'attitudeliving.com': 'ATTITUDE', 'cpooutlets.com': 'CPO Outlets', 'overstock.com': 'Overstock', 'bestbuy.com': 'Best Buy', 'brooklinen.com': 'Brooklinen', 'parachutehome.com': 'Parachute', 'boll-and-branch.com': 'Boll & Branch', 'llbean.com': 'L.L.Bean' };
+export function storeName(domain = '') {
+  const d = String(domain).toLowerCase().replace(/^www\./, '');
+  if (STORES[d]) return STORES[d];
+  const label = d.split('.')[0].replace(/\d{2,}/g, '').replace(/[-_]+/g, ' ').trim();
+  return label ? label.replace(/\b\w/g, (c) => c.toUpperCase()) : d;
+}
+
 // The shape Mandat works with: one product, its best offer, a few facts. Cheapest in-stock offer first.
 export function shape(p) {
   const offers = (p.offers || []).filter((o) => o?.url && o.price?.price > 0).sort((a, b) => (a.availability === 'InStock' ? 0 : 1) - (b.availability === 'InStock' ? 0 : 1) || a.price.price - b.price.price);
@@ -58,10 +68,11 @@ export function shape(p) {
     price: best.price.price,
     was: best.price.compare_at_price && best.price.compare_at_price > best.price.price ? best.price.compare_at_price : null,
     currency: best.price.currency || 'USD',
-    retailer: best.domain,
+    retailer: storeName(best.domain),
+    retailer_domain: best.domain,
     url: best.url,
     inStock: best.availability === 'InStock',
-    offers: offers.slice(0, 3).map((o) => ({ retailer: o.domain, price: o.price.price, currency: o.price.currency, inStock: o.availability === 'InStock', url: o.url })),
+    offers: offers.slice(0, 3).map((o) => ({ retailer: storeName(o.domain), domain: o.domain, price: o.price.price, currency: o.price.currency, inStock: o.availability === 'InStock', url: o.url })),
     features: (p.key_features || []).slice(0, 4).map((x) => String(x).slice(0, 90)),
     materials: (p.materials || []).slice(0, 3).map(String),
     size: size ? String(size).slice(0, 30) : '',
