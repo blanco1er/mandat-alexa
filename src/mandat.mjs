@@ -711,7 +711,11 @@ export class Mandat {
     const o = await this.offer(hid, offer_id);
     const sibs = await this.siblings(hid, o);
     // "something cheaper" means the same kind of thing (sheets for sheets, not towels)
-    const others = sibs.filter((x) => x.id !== o.id && (!cheaper_only || (x.total < o.total && (o.kind !== 'product' || !o.product_type || x.product_type === o.product_type))));
+    // other options = the same kind of thing when there is any (sheets for sheets: towels are not a replacement, and a
+    // model must not call $38 towels "more expensive" than $92 sheets); "something cheaper" = cheaper and of that kind
+    const sameKind = (x) => o.kind !== 'product' || !o.product_type || x.product_type === o.product_type;
+    const pool = sibs.some((x) => x.id !== o.id && sameKind(x)) ? sibs.filter(sameKind) : sibs;
+    const others = pool.filter((x) => x.id !== o.id && (!cheaper_only || (x.total < o.total && sameKind(x))));
     const noun = nounOf(o.kind === 'service' ? o.category : 'products', sibs.length);
     if (!others.length) {
       const speech = cheaper_only ? T('alt_cheapest', { name: o.kind === 'service' ? o.merchant : P(o.title), n: sibs.length, noun }) : T('alt_none');

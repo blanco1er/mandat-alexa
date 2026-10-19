@@ -37,8 +37,12 @@ test('list_alternatives and compare_offers change nothing and say which is cheap
   const c = await client(srv.mcpUrl);
   const { bed, food, plan } = await inLawsPlan(c);
   const alts = await c.callTool({ name: 'list_alternatives', arguments: { offer_id: sc(bed).offers[0].id } });
-  assert.ok(sc(alts).offers.length >= 3);
-  assert.match(text(alts), /other options/i);
+  // Other options are the same kind of thing (sheets for sheets, never towels for sheets).
+  const altOffers = sc(alts).offers;
+  assert.ok(altOffers.length >= 2);
+  const kind = altOffers[0].product_type;
+  if (kind) for (const x of altOffers) assert.equal(x.product_type, kind);
+  assert.match(text(alts), /other option/i);
   const cheaper = await c.callTool({ name: 'list_alternatives', arguments: { offer_id: sc(food).offers[0].id, cheaper_only: true } });
   assert.match(text(cheaper), /already the cheapest of the 3 caterers/);
   const cmp = await c.callTool({ name: 'compare_offers', arguments: { offer_ids: [sc(food).offers[0].id, sc(food).offers[1].id] } });
