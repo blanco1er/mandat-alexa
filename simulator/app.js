@@ -724,7 +724,7 @@ function applyLanguage() {
   host.setContext({ locale });
 }
 $('#lang').addEventListener('change', (e) => {
-  locale = pickLocale(e.target.value); setLang(locale); store.set('mandat.lang', locale);
+  locale = pickLocale(e.target.value); setLang(locale); store.set('mandat.lang', locale); tick();
   mcp.headers['x-mandat-locale'] = locale;
   speechSynthesis?.cancel?.();
   applyLanguage();
@@ -777,7 +777,7 @@ const tick = () => {
   const hm = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/\s?[AP]M$/, '');
   $('#clock').textContent = hm;
   $('#homeTime').textContent = hm;
-  $('#homeDate').textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  $('#homeDate').textContent = now.toLocaleDateString(locale, { weekday: 'long', month: 'long', day: 'numeric' }); // the date follows the chosen language
 };
 tick(); setInterval(tick, 15000);
 const savedTheme = store.get('mandat.theme', null); if (savedTheme) document.documentElement.dataset.theme = savedTheme;
