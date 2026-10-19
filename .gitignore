@@ -7,3 +7,11 @@ data/
 .DS_Store
 coverage/
 dist/
+
+# local audit notes next to screenshots
+*-erreurs.txt
+# agent and editor scratch
+.astra*
+.claude/
+.vscode/
+.idea/

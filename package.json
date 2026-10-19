@@ -2,8 +2,18 @@
   "name": "mandat-alexa",
   "version": "0.1.0",
   "description": "Mandat for Alexa+: an MCP server that lets Alexa+ act on a budget you set once: it finds real merchants, negotiates with their AI agents, asks before paying and pays with PayPal (sandbox).",
+  "private": true,
   "type": "module",
   "license": "MIT",
+  "author": "Blanco (https://github.com/blanco1er)",
+  "homepage": "https://github.com/blanco1er/mandat-alexa#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blanco1er/mandat-alexa.git"
+  },
+  "bugs": {
+    "url": "https://github.com/blanco1er/mandat-alexa/issues"
+  },
   "engines": {
     "node": ">=22"
   },
