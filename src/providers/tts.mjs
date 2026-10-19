@@ -1,6 +1,6 @@
 // Text-to-speech interface. The simulator speaks with the browser (speechSynthesis) unless the server has a TTS
-// provider: POST /tts { text } -> audio/mpeg. Amazon Polly (neural voice) is the AWS provider, stubbed until the
-// account exists: MANDAT_TTS=polly, MANDAT_POLLY_VOICE (default "Danielle"), AWS_REGION. The SDK is imported
+// provider: POST /tts { text } -> audio/mpeg. Amazon Polly (neural voice) is the AWS provider (live on the public
+// demo): MANDAT_TTS=polly, MANDAT_POLLY_VOICE (default "Danielle"), AWS_REGION. The SDK is imported
 // lazily (@aws-sdk/client-polly, bundled in the Lambda Node.js runtime). Default: none -> 501, browser voice.
 // Neural voices per locale, checked in us-east-1 with describe-voices --engine neural (18 Oct 2026):
 // fr-FR Lea / Remi, es-ES Lucia / Sergio, es-US Lupe / Pedro. English keeps MANDAT_POLLY_VOICE (default Danielle).

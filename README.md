@@ -50,7 +50,7 @@ npx @modelcontextprotocol/inspector@2.11.0 --cli <that URL> --transport http --h
 The public demo has a hard model budget and per-address limits; if a limit is reached, Alexa says so and nothing is
 booked or charged.
 
-![Live on AWS: the in-laws plan built by Amazon Nova, waiting for a yes](docs/screenshots/live-aws-show15-story1-plan.png)
+![Live on AWS: the in-laws plan built by Amazon Nova, waiting for a yes](docs/screenshots/live/en-1b-done.png)
 
 | "Alexa, enable Mandat" (public URL) | Mandat's linking page | Alexa permissions | First-run settings, by voice or touch |
 |---|---|---|---|
@@ -69,7 +69,7 @@ Lucia), the cards (`hostContext.locale`), the live activity, the demo script, sp
 
 | Story | You say | Mandat does |
 |---|---|---|
-| **1. The in-laws are coming** | *"My in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400."* | Asks 3 cleaners and 3 caterers in parallel (signed agent cards checked), finds bedding, builds one plan: **$372, $25 negotiated off, $28 left**. You say *"Yes"*: 3 payment holds, nothing charged yet. |
+| **1. The in-laws are coming** | *"My in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400."* | Asks 3 cleaners and 3 caterers in parallel (signed agent cards checked), finds bedding, builds one plan: **$372, $25 negotiated off, $28 left** ($384 after the sateen swap in the demo script). You say *"Yes"*: 3 payment holds, nothing charged yet. |
 | **2. Four days later** | *"We're almost out of dog food and coffee."* (new session) | Remembers Max is allergic to chicken (2 products skipped) and your usual coffee. Buys the **$34 dog food on its own** (under your $40 rule), **asks before the $52 coffee**. |
 | **3. Plans change** | *"Their flight moved to Sunday."* | The cleaner moves (same hold). The caterer is closed on Sunday: **its $195 hold is voided**, a replacement at $210 is proposed. At the end: Olive billed $180 → **partial capture, $30 released**; $28 pillowcases → **refund**. |
 
@@ -130,7 +130,7 @@ Settings said aloud, the stop and "delete my data" are handled by the host witho
 | Orchestrator | Strands Agents (TypeScript) on Amazon Bedrock (**Amazon Nova 2 Lite**), `McpClient` to the server over Streamable HTTP, `AgentSkills` plugin, `ModelRouter` fallback, host guardrails on money tools | `orchestrator/` |
 | Household logic | Budgets (envelopes), negotiated quotes, plans, holds, changes, partial capture, refunds, autonomy settings, emergency stop | `src/mandat.mjs`, `src/core/` |
 | Account linking | OAuth 2.1 authorization server (code + PKCE S256, refresh rotation, revocation, RFC 9728/8414 metadata), linking page with the demo household, simulated Alexa app (notification, permissions, Manage) | `src/core/oauth.mjs`, `simulator/alexa-app.*` |
-| AWS | Lambda (Node 22, arm64) + Function URL, DynamoDB single table, Bedrock (Amazon Nova 2 Lite brain, Amazon Nova Lite merchant agents), Polly neural voice, least-privilege IAM, AWS Budgets alert | `src/lambda.mjs`, `src/store/dynamodb.mjs`, `src/providers/`, `scripts/deploy-aws.sh` |
+| AWS | Lambda (Node 22, arm64) + Function URL, DynamoDB single table, Bedrock (Amazon Nova 2 Lite brain, Amazon Nova Lite merchant agents), Polly neural voice, least-privilege IAM; plus an AWS Budgets alert set once in the console | `src/lambda.mjs`, `src/store/dynamodb.mjs`, `src/providers/`, `scripts/deploy-aws.sh` |
 
 ### Tools
 
@@ -169,8 +169,8 @@ Requirements: Node.js 22+.
 
 ```bash
 npm ci
-npm test                      # 94 tests: protocol, account linking, autonomy levels, money rules, the 3 stories in EN/FR/ES, PayPal flow, deploy (no network, no AWS)
-npm run demo                  # open http://127.0.0.1:8787/simulator/ (account linking required, as on the public demo)
+npm test                      # 97 tests: protocol, account linking, autonomy levels, money rules, the 3 stories in EN/FR/ES, PayPal flow, deploy (no network, no AWS)
+npm run demo                  # open http://127.0.0.1:8787/simulator/ (account linking required, as on the public demo; PORT=8790 npm run demo if 8787 is taken)
 ```
 
 In the simulator, click the lines of the **demo script** in order (or type / say them; Space = talk in Chrome).
@@ -185,6 +185,17 @@ AWS_PROFILE=<profile> npm run live:scenarios -- 3   # the 3 stories x3 against r
 
 Without AWS keys everything runs on local stand-ins: merchant agents answer from their own terms, the Strands agent
 uses a scripted model, payments are simulated PayPal calls clearly marked `offline`. Settings: `.env.example` (names only).
+
+| | Local (`npm run demo`, no keys) | Public demo (AWS) |
+|---|---|---|
+| Alexa+ brain | Scripted demo brain (or Strands with a scripted model) | Strands agent on Amazon Nova 2 Lite (Bedrock) |
+| Merchant agents | Answer from their own booking rules | Amazon Nova Lite, clamped to the same rules |
+| Store | JSON file in `data/` (git-ignored) | DynamoDB single table |
+| Voice | Browser speech | Amazon Polly neural |
+| Payments | Simulated, labelled `offline` on every card | PayPal sandbox (test money) once the demo buyer is linked |
+| Account linking | Same OAuth 2.1 + PKCE server | Same |
+
+The simulator follows the browser language (EN, FR or ES); add `?lang=en` to the URL or use the picker to force one.
 
 ### Deploy to AWS (one command)
 
@@ -252,8 +263,9 @@ Mandat MCP server (/mcp, stateless; AWS Lambda + Function URL; locally node :878
 
 Mandat itself is young: its first commit is dated **1 Oct 2026**, inside this hackathon's submission period
 (which opened 31 Aug 2026). It was built as a web app for a payments hackathon. This repository is a new,
-separate project that turns it into an Alexa+ add-on. Its first commit (`0f4e29f`, 17 Oct 2026) copies the core
-modules unchanged so the diff shows exactly what is new: `git diff 0f4e29f HEAD`.
+separate project that turns it into an Alexa+ add-on. Its first commit (17 Oct 2026, "Baseline: core modules copied
+from Mandat") copies the core modules unchanged so the diff shows exactly what is new:
+`git diff $(git rev-list --max-parents=0 HEAD) HEAD`.
 
 **Before (Mandat web app, as of 17 Oct 2026)**
 - A PWA with its own chat screen, Express server on Render, data mirrored to Cloudflare R2.
@@ -262,9 +274,9 @@ modules unchanged so the diff shows exactly what is new: `git diff 0f4e29f HEAD`
 - PayPal Vault + authorize / capture / void / refund, signed merchant agent cards, budget envelopes.
 
 **After (this repository, 17–23 Oct 2026)**
-- An **MCP server** (2025-11-25, Streamable HTTP, stateless, Origin check) instead of an app: 15 intent tools designed
-  from the Alexa+ tool-schema guidance, plus an app-only tool.
-- **6 MCP Apps cards** (`ui://`, `text/html;profile=mcp-app`) built for Echo Show distances, with a hand-written
+- An **MCP server** (2025-11-25, Streamable HTTP, stateless, Origin check) instead of an app: 21 intent tools designed
+  from the Alexa+ tool-schema guidance, plus two app-only tools.
+- **7 MCP Apps cards** (`ui://`, `text/html;profile=mcp-app`) built for Echo Show distances, with a hand-written
   host bridge; dark and light; auto-fit to the device.
 - An **Agent Skill** (`mandat-household-errands`) and a **Strands Agents** orchestrator on **Amazon Bedrock**.
 - A **household** product: recurring budgets with an auto-approve rule, preferences remembered across sessions,
@@ -276,17 +288,16 @@ modules unchanged so the diff shows exactly what is new: `git diff 0f4e29f HEAD`
   Bedrock (Amazon Nova 2 Lite brain, Amazon Nova Lite merchants), Polly voice, least-privilege IAM, one-command deploy,
   live on a Function URL.
 - An **Alexa+ web simulator** (MCP client + MCP Apps host) with device-true Echo Show canvases.
-- Removed from the core: the Nebius/OpenAI-compatible LLM client and the R2 store.
-
 - **Account linking** (OAuth 2.1 + PKCE S256), **Alexa permissions** (simulated Alexa app), **autonomy settings**
   enforced by the server, **emergency stop** and **delete my data**.
+- Removed from the core: the Nebius/OpenAI-compatible LLM client and the R2 store.
 
-Numbers: see `git diff --stat 0f4e29f HEAD`; 108 automated tests, 33 MCP Inspector checks, 3 stories replayed
+Numbers: see `git diff --stat $(git rev-list --max-parents=0 HEAD) HEAD`; 111 automated tests (97 + 14), 33 MCP Inspector checks, 3 stories replayed
 against real Amazon Bedrock.
 
 ## Testing
 
-- `npm test`: 94 tests (off-script turns: swap described in words, nothing-matches answers, remove without
+- `npm test`: 97 tests (off-script turns: swap described in words, nothing-matches answers, remove without
   opening, total mid-way, a yes too early or twice, a language change mid-way; account linking: PKCE, single-use codes, refresh rotation and reuse detection, revocation,
   401 + metadata, household isolation, read-only scope, permissions; autonomy: each level, daily limit, categories,
   re-check at confirmation, emergency stop, settings by voice in EN/FR/ES, delete my data; MCP protocol surface, MCP Apps resources, every tool, money rules incl. a property test,
@@ -299,7 +310,7 @@ against real Amazon Bedrock.
   in-laws plan came to exactly $372 every time. Median turn 5–6 s, slowest 19.7 s (the in-laws request: 6 model calls
   and 6 merchant agents).
 - `npm run inspect`: MCP Inspector 2.11 CLI, 33 checks (with account linking); local results in
-  `docs/inspector/summary.txt`, against the live AWS endpoint in `docs/inspector/live-aws/summary.txt` (33/33, 18 Oct).
+  `docs/inspector/summary.txt` (the battery rewrites these files on each run), against the live AWS endpoint in `docs/inspector/live-aws/summary.txt` (33/33, 18 Oct).
 - Account linking and first run in a real browser on the public URL: `docs/screenshots/live/linking-*.png`; every
   state (EN dark Show 15, FR light Show 8, ES Echo Dot, iPhone width): `docs/screenshots/linking/`.
 - Screenshots of every state on every device, light and dark: `docs/screenshots/` (the earlier UI is kept in `docs/screenshots/archives/`).

@@ -2,8 +2,8 @@
 
 ## Echo Show wallpapers (`simulator/wallpapers/`)
 
-The six ambient home-screen photos of the simulated Echo Show 15 and Echo Show 8 are original images
-generated with Astra for this project (AI image generation, briefed and selected by the author, Blanco).
+The six ambient home-screen photos of the simulated Echo Show 15 and Echo Show 8 are original
+AI-generated images made for this project (text-to-image, briefed and selected by the author, Blanco).
 They are not stock photos and contain no people, text, logos or brands.
 
 | File | Scene | Shown first from |
@@ -21,7 +21,7 @@ They are released with the rest of this repository under the MIT license (see [L
 ## Item photos (`media/items/`)
 
 The 17 thumbnails on the offers, plan and receipt cards, and the 34 extra views of the item card's photo gallery (6 home services, 4 bedding items, 4 dog foods,
-3 coffees) are original images generated with Astra for this project, matching the fictional sandbox catalogue
+3 coffees) are original AI-generated images made for this project, matching the fictional sandbox catalogue
 (`src/core/catalog.mjs`, `src/core/merchants.mjs`). Plain kraft bags, no labels, no text, no brands, no people.
 480 × 480 WebP (51 files), at most 60 KB each, served from Mandat's own origin so the MCP Apps cards' CSP lists that one
 origin only. Alt texts live in `src/core/media.mjs`. Same MIT license as the rest of the repository.
