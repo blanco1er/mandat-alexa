@@ -825,7 +825,7 @@ export class Mandat {
     }
     if (o.source === 'partner') why.push({ tone: 'info', text: T('why_partner') });
     if (o.live) {
-      if ((o.checked_for || []).length) why.push({ tone: 'info', text: T('why_checked', { ing: listWords(o.checked_for.map(P)) }) });
+      if ((o.checked_for || []).length && ['pets', 'pantry'].includes(o.product_category)) why.push({ tone: 'info', text: T('why_checked', { ing: listWords(o.checked_for.map(P)) }) });
       why.push({ tone: 'info', text: T('why_live', { m: o.merchant, mode: this.payMode() }) });
     }
     if (o.source === 'test catalogue') why.push({ tone: 'info', text: T('why_test_catalogue') });

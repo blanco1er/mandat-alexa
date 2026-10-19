@@ -3,14 +3,18 @@
 **Give Alexa a budget, not a to-do list.**
 
 Mandat is an Alexa+ add-on for household errands. You set a budget once ("keep it under $400",
-"$150 a week, buy on your own under $40"). Mandat asks local merchants' AI agents for quotes in parallel, negotiates,
-builds one plan, asks for your yes, places payment holds instead of charging, and remembers the household from one
-session to the next. When plans change, it moves, voids, captures less or refunds.
+"$150 a week, buy on your own under $40"). Mandat finds **real products** and **real local businesses** near your home,
+negotiates with merchant agents, builds one plan, asks for your yes, places payment holds instead of charging, and
+remembers the household from one session to the next. When plans change, it moves, voids, captures less or refunds.
 
 > Hackathon entry for Amazon "Build, Ship, Shape": Alexa+ track, AWS Builder mini-challenge.
 > Unofficial Alexa+ simulator. No real money moves. PayPal **sandbox** (test money): holds, captures, voids and refunds
 > are real sandbox transactions once the owner has linked the demo's sandbox buyer; until then they are simulated, and
 > every card and the page footer say which. Judges never need a PayPal account.
+> **What is real:** products and prices from US online stores (Channel3), local businesses near the demo household in
+> Capitol Hill, Seattle (Google Maps, else OpenStreetMap). **What is not:** a real business only gets a booking
+> *request* at an **estimated** price that this demo never sends; no order is placed with a store; the **demo
+> partners** that negotiate are simulated merchant agents. Every card and every spoken answer says which is which.
 
 ## Try it in 2 minutes (judges)
 
@@ -29,7 +33,7 @@ session to the next. When plans change, it moves, voids, captures less or refund
    Amazon Nova 2 Lite on Bedrock (a Strands agent) calls the Mandat MCP server, the card is an MCP App, Alexa answers
    with an Amazon Polly voice (2 to 15 s a turn). While Alexa works, the screen shows **what she is doing, live**.
 5. Before saying yes, **judge the plan**: "Show me the bed linen" (photos, why it was chosen, the rule that applies),
-   "Other options?", "Take the sateen set instead", "Compare the two caterers". Payments are **real PayPal sandbox
+   "Other options?", "Take the first one instead", "Compare the two caterers". Payments are **real PayPal sandbox
    transactions** (test money, no PayPal login for you).
 6. Anytime: *"Alexa, open Mandat settings"*, *"Alexa, pause Mandat"* (emergency stop: every open hold is voided at
    once), *"Resume Mandat"*, *"Delete my Mandat data"*. The phone icon at the top opens the Alexa app's **Manage**
@@ -50,7 +54,11 @@ npx @modelcontextprotocol/inspector@2.11.0 --cli <that URL> --transport http --h
 The public demo has a hard model budget and per-address limits; if a limit is reached, Alexa says so and nothing is
 booked or charged.
 
-![Live on AWS: the in-laws plan built by Amazon Nova, waiting for a yes](docs/screenshots/live/en-1b-done.png)
+![Live on AWS: a mixed plan built by Amazon Nova: a real cleaner at an estimated price, real sheets from a real store, a demo partner caterer](docs/screenshots/live-mixed-plan.png)
+
+| A real product (Channel3), public URL | A real business near home, estimated price | Echo Dot, voice only |
+|---|---|---|
+| ![Real product sheet](docs/screenshots/live-real-product-sheet.png) | ![Real cleaner, Google Maps rating and photo, estimated price, booking request](docs/screenshots/live-real-business-estimate.png) | ![Echo Dot](docs/screenshots/live-dot-mixed-plan.png) |
 
 | "Alexa, enable Mandat" (public URL) | Mandat's linking page | Alexa permissions | First-run settings, by voice or touch |
 |---|---|---|---|
@@ -63,21 +71,24 @@ booked or charged.
 **Languages.** English (default), French and Spanish end to end: what Alexa says (Polly neural voices Danielle, Léa,
 Lucia), the cards (`hostContext.locale`), the live activity, the demo script, speech recognition, and the money rules
 ("oui" and "sí" are a yes; "oui mais attends" is not). Prices stay in the household's currency (USD) with local formats
-("372 $", "samedi à 19 h 30"). Alexa+ availability by country is Amazon's decision; the add-on is ready for these locales.
+("380 $", "samedi à 19 h 30"). Alexa+ availability by country is Amazon's decision; the add-on is ready for these locales.
 
 ## Three stories
 
 | Story | You say | Mandat does |
 |---|---|---|
-| **1. The in-laws are coming** | *"My in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400."* | Asks 3 cleaners and 3 caterers in parallel (signed agent cards checked), finds bedding, builds one plan: **$372, $25 negotiated off, $28 left** ($384 after the sateen swap in the demo script). You say *"Yes"*: 3 payment holds, nothing charged yet. |
-| **2. Four days later** | *"We're almost out of dog food and coffee."* (new session) | Remembers Max is allergic to chicken (2 products skipped) and your usual coffee. Buys the **$34 dog food on its own** (under your $40 rule), **asks before the $52 coffee**. |
-| **3. Plans change** | *"Their flight moved to Sunday."* | The cleaner moves (same hold). The caterer is closed on Sunday: **its $195 hold is voided**, a replacement at $210 is proposed. At the end: Olive billed $180 → **partial capture, $30 released**; $28 pillowcases → **refund**. |
+| **1. The in-laws are coming** | *"My in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400."* | Finds **real cleaners near Capitol Hill** (Google rating, reviews, hours, photo; **about $100 estimated**), **real sheet sets** from US stores (kept under a fifth of the budget), real caterers *and* three **demo partner** agents that negotiate (signed cards checked). One mixed plan, e.g. **$357.99 live, $15 negotiated off**. You say *"Yes"*: 3 PayPal sandbox holds; the cleaner gets a booking request (not confirmed by them), no order goes to the store. |
+| **2. Four days later** | *"We're almost out of dog food and laundry detergent."* (new session) | Remembers Max is allergic to chicken (real products whose title, description or features mention chicken are skipped) and your usual brand (Seventh Generation). Buys what fits your **$40 rule on its own**, **asks before the rest**. |
+| **3. Plans change** | *"Their flight moved to Sunday."* | The cleaning request moves to Saturday (Mandat updates its own request; a business closed that day per its published hours is replaced). The demo partner caterer is closed on Sunday: **its $195 hold is voided**, a replacement at $210 is proposed. At the end: Olive billed $180 → **partial capture, $30 released**; $10 back on the sheets → **refund**. |
+
+Offline (tests, `npm run demo`) the same stories run on a saved OpenStreetMap snapshot of real Capitol Hill businesses
+and a labelled test catalogue, so every number is repeatable: $380 for story 1.
 
 Echo Dot mode (no screen): at most 3 options read, the price breakdown read back, "Say yes to confirm".
 
 | Echo Show 8 | Echo Dot | Receipt timeline |
 |---|---|---|
-| ![Show 8](docs/screenshots/show8-story3-replacement.png) | ![Dot](docs/screenshots/dot-story1-voice-only.png) | ![Settled](docs/screenshots/show15-07-story3-settled-timeline.png) |
+| ![Show 8](docs/screenshots/show8-story3-replacement.png) | ![Dot](docs/screenshots/live-dot-mixed-plan.png) | ![Settled](docs/screenshots/show15-07-story3-settled-timeline.png) |
 
 ## Account linking, permissions and your rules
 
@@ -139,9 +150,9 @@ Settings said aloud, the stop and "delete my data" are handled by the host witho
 | `get_household_status` | Budgets left, open orders, saved preferences, plans waiting for a yes |
 | `set_spending_mandate` | Budget + period + auto-approve rule, one-time PayPal approval |
 | `remember_preference` | Allergies, brands, notes, kept across sessions |
-| `find_home_services` | Asks every matching merchant agent in parallel, verifies signed agent cards, up to 5 quotes |
-| `find_products` | Products filtered by household preferences, usual brand first |
-| `negotiate_offer` | One more round with a merchant agent (never below its floor) |
+| `find_home_services` | Real local businesses near home (Google Maps / OpenStreetMap, estimated prices) and demo partner agents asked in parallel (signed cards verified), up to 5 options, each labelled |
+| `find_products` | Real products from US stores (Channel3), filtered by household preferences, usual brand first; no order is ever placed |
+| `negotiate_offer` | One more round with a demo partner's agent (never below its floor); real businesses have no agent, their price is an estimate |
 | `propose_plan` | Price breakdown, budget check, auto-approve or "needs your yes", confirmation token |
 | `confirm_plan` | PayPal authorization holds, idempotent on the plan |
 | `change_order` | New date, time or quantity; a declined change voids the hold and returns replacements |
@@ -150,7 +161,7 @@ Settings said aloud, the stop and "delete my data" are handled by the host witho
 | `list_alternatives` | Other options from the same search (or only cheaper ones); says plainly when nothing is cheaper |
 | `compare_offers` | Two or three options side by side, which is cheaper, which is rated higher |
 | `revise_plan` | Swap or remove items before the yes: a new plan and a new token (the old plan can no longer be paid), budget checked again |
-| `swap_item` | Off the script: "take the sateen set instead", "the cheaper one", "a king size", "another cleaner" without asking for options first; finds the match among similar options, swaps it in, shows it and says the new total; if nothing matches, says so and lists the closest options |
+| `swap_item` | Off the script: "take the cotton one instead", "the cheaper one", "a king size", "another cleaner" without asking for options first; finds the match among similar options, swaps it in, shows it and says the new total; if nothing matches, says so and lists the closest options |
 | `review_plan` | Shows the plan waiting for a yes (also "what's the total so far?") |
 | `get_settings` | The household's rules: weekly budget, autonomy level, auto-buy amount, daily limit, categories, paused or not (first-run card) |
 | `update_settings` | Changes one or more rules (by touch on the card or by voice); the weekly budget is the same envelope, changed in place |
@@ -228,22 +239,78 @@ Browser: Alexa+ simulator (MCP client + MCP Apps host, Web Speech in, Polly or b
 Mandat MCP server (/mcp, stateless; AWS Lambda + Function URL; locally node :8787)
    ├─ DynamoDB (one table: household, budgets, envelopes, offers, plans, orders, preferences, events)
    ├─ Payments: PayPal sandbox (Vault v3 demo buyer, authorize / capture / void / refund, test money); simulated until linked
-   ├─ Merchant network (signed agent cards, merchant agents on Amazon Nova Lite, prices and days from each
-   │  merchant's own booking rules)
-   └─ Products (sandbox catalogue; Channel3 when enabled)
+   ├─ Real local businesses: Google Places (New), else OpenStreetMap Overpass, else a saved OSM snapshot;
+   │  estimated prices (src/core/estimate.mjs), booking requests; photos through a signed /img proxy
+   ├─ Demo partners (simulated merchant agents on Amazon Nova Lite, signed agent cards, prices and days from each
+   │  merchant's own booking rules): the only ones that negotiate
+   └─ Real products: Channel3 (US stores, USD), kind-checked; the labelled test catalogue without a key
 ```
 
-### Where the products come from
+### Where the products and businesses come from
 
-- **The public demo uses a sandbox catalogue**: generic household products from fictional shops (`src/core/catalog.mjs`),
-  so every judge sees the same, repeatable demo and nothing is ever ordered from a real retailer.
-- **Real products are one switch away**: with `MANDAT_SHOP=live` and a `CHANNEL3_API_KEY`, Mandat searches real
-  products (photos, brands, prices) across thousands of retailers through Channel3 (`src/core/shop.mjs`). It is off in
-  the public demo.
-- **For everyone, the natural source is Amazon itself.** In a production Alexa+ add-on, Mandat would propose items
-  straight from Amazon's catalogue, where households already shop, with their usual delivery and returns. The product
-  source is a single module behind the same tools, so the mandate on top does not change: the budget, the rules, the
-  payment holds and the "yes" stay exactly as they are.
+- **Products are real.** Mandat searches real products, real prices and real photos from thousands of US online stores
+  through Channel3 (`src/core/shop.mjs`, `MANDAT_SHOP=live` + `CHANNEL3_API_KEY`). It keeps only the kind of thing
+  asked for (a search for coffee beans that finds canisters finds nothing), checks the household's allergies in the
+  title, description and features, and searches the household's usual brand first. **Mandat never orders from the
+  store**: the plan is paid with PayPal sandbox test money, and every card and answer says so. Without a key, a
+  labelled **test catalogue** of fictional shops takes over (tests, local demo).
+- **Home services are real local businesses** near the demo household (a neighbourhood, Capitol Hill, Seattle, never
+  a house address): Google Places (New) with rating, number of reviews, opening hours and a photo with its author, or
+  OpenStreetMap when Google is off or busy, or a saved OpenStreetMap snapshot (`src/core/places.mjs`). Mandat never
+  contacts them: their price is an **estimate** from one documented rule per trade, and a booking is a **request**
+  this demo does not send. Mandat never says a real business accepted, confirmed or lowered a price.
+- **Demo partners** are simulated merchant agents (`src/core/merchants.mjs`, Amazon Nova Lite with each merchant's
+  private terms, signed identity cards): they show agent-to-agent negotiation, which no real local business offers
+  yet, and are labelled "Demo partner, simulated merchant agent" on every card and in every answer.
+- **For everyone, the natural source is Amazon itself.** A production Alexa+ add-on would propose items straight from
+  Amazon's catalogue, where households already shop, with their usual delivery and returns, and book local services
+  through partners that accept agent bookings. The product and place sources are modules behind the same tools, so
+  the mandate on top does not change: the budget, the rules, the payment holds and the "yes" stay exactly as they are.
+
+### Estimated prices (real businesses)
+
+| Trade | Rule | Example |
+|---|---|---|
+| Cleaning | $50 per cleaner-hour × 2 hours (a room and its bathroom; 4 hours for a whole home) | $100 |
+| Catering | $45 per guest | 6 guests: $270 |
+| Plumbing | $150 per visit (call-out and first hour) | $150 |
+| Handyman | $75 per hour × 2 hours | $150 |
+
+Sources (2026): Housecall Pro's house-cleaning guide ($35–75 per cleaner-hour), Seattle cleaning companies ($50–90 per
+cleaner-hour); US plated full-service dinners $40–80 per guest, staffed buffets $25–45 (vendor guides). Plumbing and
+handyman rates are rough US ranges, not verified. The business sets the real price.
+
+### Cost of real data and the caps
+
+| Source | Price (2026) | Free each month | Mandat's caps | Typical demo use |
+|---|---|---|---|---|
+| Google Places Text Search (Enterprise fields: rating, reviews, hours) | $35 per 1,000 | 1,000 | 30 a day, 6 per person a day | ~4 a day: results are shared by every household for 24 h (one neighbourhood, four trades) |
+| Google Place Photos | $7 per 1,000 | 1,000 | 30 a day | ~16 a day, each photo cached 24 h |
+| OpenStreetMap (Nominatim / Overpass) | free | — | cached 24 h, identified User-Agent | fallback only |
+| Channel3 product search | see Channel3's plan [not verified] | — | 200 a day, 15 per person a day | cached 12 h |
+| Amazon Nova 2 Lite (brain) | per token | — | $15 hard budget shared by every container | one turn ≈ $0.002–0.01 |
+
+With these caps a busy month stays inside Google's free use (30 × 30 = 900 of each). Google's terms allow keeping
+place ids; the 24-hour cache of names, ratings and photos is a cost choice for this public demo
+(`MANDAT_PLACES_CACHE_HOURS=0` keeps Google data in memory for one hour only). Live check without any model turn:
+`node scripts/live-real-data-check.mjs` (about 3 Channel3 searches, 2 Google searches, up to 6 photos, or none from the cache).
+
+### Visits of the public demo (owner only)
+
+The public demo keeps an **anonymous** usage log for 120 days (DynamoDB TTL), to learn whether and how it is tested:
+page opened, device and language chosen, account linked, each turn (the sentence with e-mails and numbers masked, at
+most 200 characters, and the tools called), cards tapped, direct MCP tool calls, browser and system families, the site
+the visitor came from. A visitor is a salted one-way hash of IP and browser; **no IP, name, e-mail, password or token is
+stored**. The simulator says so in one line and `/privacy` explains it. The owner's devices and our scripts are never
+logged. Only the owner reads it, with his AWS profile; there is no public page:
+
+```bash
+AWS_PROFILE=mandat node scripts/visits-report.mjs --depuis 2026-10-23 --detail   # summary in French + every session
+AWS_PROFILE=mandat zsh scripts/visits-internal-link.sh   # once: the secret link that marks your own browsers as internal
+AWS_PROFILE=mandat zsh scripts/set-visit-alert.sh        # once: e-mail alert (SNS) on a new outside visitor, at most hourly
+```
+
+Cost: a few DynamoDB writes per visit (pennies a month) and SNS e-mail (the first 1,000 a month are free).
 
 ## Alexa+ add-on requirements we honour
 
@@ -267,7 +334,7 @@ Mandat MCP server (/mcp, stateless; AWS Lambda + Function URL; locally node :878
 - A merchant agent's quote is clamped to the merchant's floor and list price, whatever the model says; a day the
   merchant is closed is a decline, whatever the model says.
 - The host never lets the model speak for you: `confirm_plan` always receives your exact words of that turn (the model
-  tried once to buy the $52 coffee in the same turn; the server refused because you had not said yes), and a budget
+  tried once to buy a $52 item in the same turn; the server refused because you had not said yes), and a budget
   is never created or changed unless you said an amount.
 - Under an auto-approve rule each product is its own plan, so a small restock is never hidden behind a big one.
 
@@ -304,12 +371,14 @@ from Mandat") copies the core modules unchanged so the diff shows exactly what i
   enforced by the server, **emergency stop** and **delete my data**.
 - Removed from the core: the Nebius/OpenAI-compatible LLM client and the R2 store.
 
-Numbers: see `git diff --stat $(git rev-list --max-parents=0 HEAD) HEAD`; 111 automated tests (97 + 14), 33 MCP Inspector checks, 3 stories replayed
+Numbers: see `git diff --stat $(git rev-list --max-parents=0 HEAD) HEAD`; 124 automated tests (110 + 14), 34 MCP Inspector checks, 3 stories replayed
 against real Amazon Bedrock.
 
 ## Testing
 
-- `npm test`: 97 tests (off-script turns: swap described in words, nothing-matches answers, remove without
+- `npm test`: 110 tests (real data with fake Channel3, Google Places and OpenStreetMap answers: kind check, allergens
+  in descriptions, ranking by rating and reviews, closed days, caps, cache, fallbacks, the image proxy, and the rule that
+  a real business never "agreed"; the anonymous visit log: hashing, masking, internal visits, TTL, alert, report; off-script turns: swap described in words, nothing-matches answers, remove without
   opening, total mid-way, a yes too early or twice, a language change mid-way; account linking: PKCE, single-use codes, refresh rotation and reuse detection, revocation,
   401 + metadata, household isolation, read-only scope, permissions; autonomy: each level, daily limit, categories,
   re-check at confirmation, emergency stop, settings by voice in EN/FR/ES, delete my data; MCP protocol surface, MCP Apps resources, every tool, money rules incl. a property test,
@@ -321,7 +390,9 @@ against real Amazon Bedrock.
   passed on 3 runs** locally, then **22/22 on 2 runs against the deployed Lambda** (`LIVE_URL=<function URL>`); the
   in-laws plan came to exactly $372 every time. Median turn 5–6 s, slowest 19.7 s (the in-laws request: 6 model calls
   and 6 merchant agents).
-- `npm run inspect`: MCP Inspector 2.11 CLI, 33 checks (with account linking); local results in
+- `node scripts/live-real-data-check.mjs` and `node scripts/live-paypal-check.mjs`: real products, real businesses and
+  PayPal sandbox holds on the public URL over MCP, without any model turn (19 Oct: all passed).
+- `npm run inspect`: MCP Inspector 2.11 CLI, 34 checks (with account linking); local results in
   `docs/inspector/summary.txt` (the battery rewrites these files on each run), against the live AWS endpoint in `docs/inspector/live-aws/summary.txt` (33/33, 18 Oct).
 - Account linking and first run in a real browser on the public URL: `docs/screenshots/live/linking-*.png`; every
   state (EN dark Show 15, FR light Show 8, ES Echo Dot, iPhone width): `docs/screenshots/linking/`.
@@ -334,7 +405,7 @@ Friction we hit along the way: [FRICTION.md](FRICTION.md).
 MCP TypeScript SDK 1.32.1 · MCP Apps (spec 2026-01-26) · MCP Inspector 2.11 · Agent Skills · Strands Agents
 TypeScript SDK 1.21.0 · Amazon Bedrock (Amazon Nova 2 Lite, Amazon Nova Lite) · AWS Lambda · Amazon DynamoDB ·
 Amazon Polly · AWS IAM · AWS Budgets ·
-PayPal Server SDK (sandbox) · Node.js 22
+PayPal Server SDK (sandbox) · Channel3 · Google Places API (New) · OpenStreetMap (Overpass) · Amazon SNS · Node.js 22
 
 ## License
 

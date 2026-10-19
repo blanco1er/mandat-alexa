@@ -209,3 +209,19 @@ Severity scale: **Blocker** (could not continue) · **High** (hours lost or a de
 - **Severity:** High (money moved for a reason the user never gave).
 - **Workaround:** the host answers a bare yes with nothing waiting itself (no model call); a host guard refuses `close_order` unless the user's own words ask to settle, cancel or refund (EN/FR/ES); a `swap_item` tool finds an item described in words and offers the closest options when nothing matches. All three are tested; the same eight turns now behave.
 - **Suggestion:** a Strands hook or tool annotation for "requires an explicit user intent" (beyond `destructiveHint`), and guidance in the Alexa+ design guide on confirmations that arrive with nothing pending.
+
+### 21. The model drops what is real and what is not
+- **Task attempted:** keep "test money", "estimated price" and "booking request" in Alexa's answer once the demo used real products and real local businesses (19 Oct 2026, public URL, Amazon Nova 2 Lite).
+- **Steps taken:** each tool's first text block carries the sentence; the skill says to keep it.
+- **Expected:** the spoken answer keeps the sentence.
+- **Actual:** Nova summarised the mixed plan ("I found a cleaner for Friday, fresh bedding, and dinner… Should I book it?") and dropped it, 2 turns out of 3.
+- **Severity:** High for trust (a judge could believe a real business confirmed, or a store received an order).
+- **Workaround:** the tool result also carries `honesty` = { text, must }; after the model's turn the host checks the answer and puts the sentence back before the closing question (`src/brain/honesty.mjs`, tested). No extra model call.
+- **Suggestion:** a way for an MCP tool to mark a sentence as "must be said verbatim" (for example `_meta.voice.required`), honoured by Alexa+ when it phrases its answer.
+
+### 22. Real data sources: what we had to work around
+- **Task attempted:** real products (Channel3) and real local businesses (Google Places, OpenStreetMap) for the three stories.
+- **Actual:** Channel3 has no coffee beans (a coffee search returns canisters and grinders), so story 2 moved to laundry detergent, and every search keeps only the category asked for. The public Overpass servers answered 500/502 "at capacity" for a whole morning. OpenStreetMap tags few house cleaners and some restaurants as caterers.
+- **Workaround:** a kind check on every product search; Google Places first, OpenStreetMap second, a saved OpenStreetMap snapshot last (also used by the tests); name filters for dry cleaners, commissary kitchens and supply stores; a shared 24-hour cache so judges almost always hit the cache.
+- **Suggestion (Alexa+):** a first-party way for an add-on to search Amazon's catalogue and local services with the customer's consent would remove the third-party keys and estimates altogether.
+
