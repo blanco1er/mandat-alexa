@@ -1,7 +1,7 @@
 HTTP/1.1 401 Unauthorized
 content-type: application/json
 www-authenticate: Bearer realm="mandat", resource_metadata="http://127.0.0.1:8798/.well-known/oauth-protected-resource"
-Date: Mon, 19 Oct 2026 08:19:24 GMT
+Date: Mon, 19 Oct 2026 09:18:48 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 Transfer-Encoding: chunked

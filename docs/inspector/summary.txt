@@ -1,4 +1,4 @@
-MCP Inspector @modelcontextprotocol/inspector@2.11.0 -> http://127.0.0.1:8798/mcp (account link: a fresh empty household, OAuth 2.1 + PKCE), 2026-10-19T08:19Z
+MCP Inspector @modelcontextprotocol/inspector@2.11.0 -> http://127.0.0.1:8798/mcp (account link: a fresh empty household, OAuth 2.1 + PKCE), 2026-10-19T09:18Z
 PASS  initialize: protocol 2025-11-25
 PASS  initialize: MCP Apps extension io.modelcontextprotocol/ui announced
 PASS  initialize: listChanged false (stateless, fixed lists)
@@ -11,8 +11,9 @@ PASS  resources/list: 7 ui:// cards with mimeType text/html;profile=mcp-app
 PASS  resources/read: plan card is self-contained HTML with _meta.ui.csp
 PASS  tools/call set_spending_mandate
 PASS  tools/call remember_preference
-PASS  tools/call find_home_services (3 agents, verified cards)
-PASS  tools/call negotiate_offer (never below the floor)
+PASS  tools/call find_home_services (real businesses, estimated prices)
+PASS  tools/call find_home_services (3 demo partner agents, verified cards, next to real caterers)
+PASS  tools/call negotiate_offer (demo partner, never below the floor)
 PASS  tools/call find_products
 PASS  tools/call propose_plan (needs a yes, token issued, no money moved)
 PASS  confirm_plan without the user's yes is refused (isError + next step)
@@ -33,4 +34,4 @@ PASS  tools/call update_settings (Ask me first, $200 a week)
 PASS  tools/call pause_spending (emergency stop)
 PASS  tools/call resume_spending
 ----
-33 passed, 0 failed
+34 passed, 0 failed

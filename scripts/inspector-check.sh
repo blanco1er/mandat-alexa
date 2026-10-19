@@ -65,10 +65,13 @@ MID="$(jq -r '.result.structuredContent.mandate.id' "$OUT/10-set_spending_mandat
 call 11-remember_preference remember_preference '{"subject":"Max (dog)","fact":"allergic to chicken"}'
 check "tools/call remember_preference" "$(ok_result 11-remember_preference)"
 call 12-find_home_services find_home_services '{"need":"deep clean of the guest room","category":"cleaning","when":"Friday morning"}'
-check "tools/call find_home_services (3 agents, verified cards)" "$(jq -e '.result.structuredContent.asked == 3 and ([.result.structuredContent.offers[].card_verified] | all)' "$OUT/12-find_home_services.json" >/dev/null; echo $?)"
+check "tools/call find_home_services (real businesses, estimated prices)" "$(jq -e '(.result.structuredContent.offers | length > 0) and ([.result.structuredContent.offers[] | .source == "local" and .estimated] | all)' "$OUT/12-find_home_services.json" >/dev/null; echo $?)"
 CLEAN="$(jq -r '.result.structuredContent.offers[0].id' "$OUT/12-find_home_services.json")"
-call 13-negotiate_offer negotiate_offer "{\"offer_id\":\"$CLEAN\",\"ask\":\"Friday morning for \$70?\"}"
-check "tools/call negotiate_offer (never below the floor)" "$(jq -e '.result.structuredContent.offers[0].total >= 85' "$OUT/13-negotiate_offer.json" >/dev/null; echo $?)"
+call 12b-find_home_services-catering find_home_services '{"need":"dinner for six at home","category":"catering","when":"Saturday evening","guests":6}'
+check "tools/call find_home_services (3 demo partner agents, verified cards, next to real caterers)" "$(jq -e '.result.structuredContent.asked_partners == 3 and ([.result.structuredContent.offers[] | select(.source == "partner") | .card_verified] | all)' "$OUT/12b-find_home_services-catering.json" >/dev/null; echo $?)"
+FOOD="$(jq -r '[.result.structuredContent.offers[] | select(.source == "partner")][0].id' "$OUT/12b-find_home_services-catering.json")"
+call 13-negotiate_offer negotiate_offer "{\"offer_id\":\"$FOOD\",\"ask\":\"Saturday evening for \$150?\"}"
+check "tools/call negotiate_offer (demo partner, never below the floor)" "$(jq -e '.result.structuredContent.offers[0].total >= 195' "$OUT/13-negotiate_offer.json" >/dev/null; echo $?)"
 call 14-find_products find_products '{"query":"queen bedding sheets for the guest room"}'
 check "tools/call find_products" "$(ok_result 14-find_products)"
 SHEETS="$(jq -r '.result.structuredContent.offers[0].id' "$OUT/14-find_products.json")"
