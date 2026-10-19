@@ -10,12 +10,12 @@ FUNCTION="${MANDAT_FUNCTION:-mandat-alexa}"; REGION="${AWS_REGION:-us-east-1}"; 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 invoke() { aws lambda invoke --function-name "$FUNCTION" --region "$REGION" --profile "$PROFILE" --cli-binary-format raw-in-base64-out --payload "{\"mandat_admin\":\"$1\"}" "$TMP/out.json" >/dev/null && cat "$TMP/out.json"; }
 STATUS=$(invoke demo-buyer-status)
-if echo "$STATUS" | grep -q '"linked":true'; then echo "Un payeur de démo est déjà relié : $(echo "$STATUS" | sed -E 's/.*"payer":"([^"]*)".*/\1/')."; printf "Le remplacer ? (o/N) "; read -r A; [ "$A" = o ] || exit 0; fi
+if echo "$STATUS" | grep -q '"linked":true'; then echo "A demo buyer is already linked: $(echo "$STATUS" | sed -E 's/.*"payer":"([^"]*)".*/\1/')."; printf "Replace it? (y/N) "; read -r A; [ "$A" = y ] || exit 0; fi
 OUT=$(invoke link-demo-buyer)
 URL=$(echo "$OUT" | sed -nE 's/.*"approveUrl":"([^"]+)".*/\1/p')
-[ -n "$URL" ] || { echo "Échec : $OUT"; exit 1; }
-echo "1. Ouvrez ce lien dans le navigateur :"; echo "   $URL"
-echo "2. Connectez-vous avec le compte SANDBOX « personal » (developer.paypal.com > Testing Tools > Sandbox accounts), puis acceptez."
-echo "J'attends la confirmation (10 minutes au plus)…"
-for i in $(seq 1 120); do sleep 5; if invoke demo-buyer-status | grep -q '"linked":true'; then echo "C'est fait : le payeur de démo est relié. Les nouveaux budgets de la démo font de vraies réservations sandbox (argent de test)."; exit 0; fi; done
-echo "Pas encore de confirmation. Relancez ce script quand vous aurez accepté dans PayPal."; exit 1
+[ -n "$URL" ] || { echo "Failed: $OUT"; exit 1; }
+echo "1. Open this link in a browser:"; echo "   $URL"
+echo "2. Log in with the SANDBOX personal account (developer.paypal.com > Testing Tools > Sandbox accounts), then approve."
+echo "Waiting for the approval (10 minutes at most)…"
+for i in $(seq 1 120); do sleep 5; if invoke demo-buyer-status | grep -q '"linked":true'; then echo "Done: the demo buyer is linked. New demo budgets now place real PayPal sandbox holds (test money)."; exit 0; fi; done
+echo "No approval yet. Run this script again once you have approved in PayPal."; exit 1
