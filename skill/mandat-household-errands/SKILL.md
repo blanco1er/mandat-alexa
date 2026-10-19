@@ -1,6 +1,6 @@
 ---
 name: mandat-household-errands
-description: Runs household errands for a voice assistant with the Mandat MCP server, inside a spending budget the user set once. Use when the user asks to book home services (cleaning, catering, plumbing, handyman), to restock household products (pet food, coffee, bedding), to set or check a household budget, or to change, cancel, pay or refund an order. Covers money rules (confirm before paying, read the price breakdown, never pay twice), the three household playbooks and the voice style for screen and screenless devices.
+description: Runs household errands for a voice assistant with the Mandat MCP server, inside a spending budget the user set once. Use when the user asks to book home services (cleaning, catering, plumbing, handyman), to restock household products (pet food, laundry, bedding), to set or check a household budget, or to change, cancel, pay or refund an order. Covers money rules (confirm before paying, read the price breakdown, never pay twice), honesty about real and simulated data, the three household playbooks and the voice style for screen and screenless devices.
 license: MIT
 compatibility: Needs the Mandat MCP server (Streamable HTTP, MCP 2025-11-25) connected as a tool source.
 metadata:
@@ -11,8 +11,18 @@ metadata:
 # Mandat household errands
 
 Mandat lets the assistant act on a budget, not a to-do list. The household sets a budget once
-(`set_spending_mandate`); Mandat finds merchants, negotiates with their AI agents, asks before paying,
-places PayPal payment holds and remembers the household between sessions.
+(`set_spending_mandate`); Mandat finds real local businesses and real products, negotiates with demo partner
+agents, asks before paying, places PayPal sandbox payment holds (test money) and remembers the household between
+sessions.
+
+## What is real, what is simulated (say it the way the results say it)
+
+- **Real local businesses** (Google Maps or OpenStreetMap): their price is an **estimate** and the booking is a
+  **booking request** that Mandat does not send in this demo. Never say a real business agreed, accepted, confirmed,
+  negotiated or lowered a price. Say "about $100 estimated".
+- **Demo partners**: simulated merchant agents. They are the only ones that quote and negotiate. Say "a demo partner".
+- **Products** are real (real stores, real prices, United States, USD), but Mandat never orders from the store.
+- **Money** is PayPal sandbox test money (or simulated payments). The first text block already says this: keep it.
 
 Every tool result has two text blocks. Say **only the first one** aloud. The second starts with
 `Assistant data (do not read aloud):` and holds the ids and tokens you need for the next call
@@ -41,19 +51,22 @@ Every tool result has two text blocks. Say **only the first one** aloud. The sec
 ### 1. One request, several services ("The in-laws are coming")
 "My in-laws land Saturday: a cleaner Friday, fresh bedding, dinner for six at home Saturday. Keep it under $400."
 1. `set_spending_mandate` (budget 400, period `once`, purpose "In-laws visit", auto_approve_under 0).
-2. In this order: `find_home_services` (cleaning, "Friday morning"), `find_products` (query "queen bedding set",
-   no quantity), `find_home_services` (catering, "Saturday evening", need "dinner for six", guests 6).
+2. In this order: `find_home_services` (cleaning, "Friday morning"), `find_products` (query "queen sheet set",
+   no quantity, `max_price` about a fifth of the budget, e.g. 80 for $400), `find_home_services` (catering,
+   "Saturday evening", need "dinner for six", guests 6).
 3. `propose_plan` with the `recommended_offer_id` of each search (offers are listed best first) and the
    `mandate_id` from step 1.
    If it is refused for the budget, try once more on your own with the cheapest offer of each search before
    asking the user what to drop.
-4. Say how many merchants were asked, the three lines, the total and what is left. Ask "Should I book it?"
-5. On yes: `confirm_plan` with `user_confirmation`. Say how many holds were placed and that nothing is
-   charged until each service is delivered.
+4. Say what was found (real businesses near home, demo partners), the three lines as the result says them, the
+   total and what is left, and the one honesty sentence. Ask "Should I book it?"
+5. On yes: `confirm_plan` with `user_confirmation`. Say how many holds were placed, that nothing is
+   charged until each service is delivered, and that a real business only has a booking request.
 
 ### 2. Memory and bounded autonomy ("Four days later")
-"We're almost out of dog food and coffee."
-1. **One product per plan**, never both in one plan: `find_products` then `propose_plan` with only that
+"We're almost out of dog food and laundry detergent."
+1. **One product per plan**, never both in one plan: `find_products` (in English: "dry dog food", "laundry
+   detergent"; the household's usual brand is searched by Mandat) then `propose_plan` with only that
    product's `recommended_offer_id` (no `mandate_id`: the household's recurring envelope is used). Separate plans
    let the cheap item go through under the auto-approve rule while the expensive one waits for a yes.
 2. If `needs_user_yes` is false: `confirm_plan` at once and announce it. Mention products skipped because of
@@ -62,19 +75,21 @@ Every tool result has two text blocks. Say **only the first one** aloud. The sec
 
 ### 3. Plans change ("Their flight moved to Sunday")
 1. `get_household_status` (section `orders`) to find the open orders of that event (its `budget`, e.g. "In-laws visit").
-2. One `change_order` (field `date`) for **each open service order** of that event, both of them:
+2. One `change_order` (field `date`) for **each open service order** of that event, both of them (a booking
+   request to a real business is updated by Mandat; a demo partner answers for itself):
    - a service needed before the guests arrive (cleaning) moves to **the day before** the new arrival day
      ("moved to Sunday" -> cleaning on Saturday);
    - a service for the guests (dinner, catering) moves to **the new day** (Sunday).
    Products already delivered (bedding) do not move.
-3. Report what moved first, then what was declined: the hold was voided, nothing was charged.
+3. Report what moved first (a request is still not confirmed by the business), then what was declined: the hold
+   was voided, nothing was charged.
 4. A declined change returns `alternatives` and a `replacement` hint: `propose_plan` with that offer_id and the
    **same `mandate_id`** as the declined order (never the weekly envelope), then ask for a yes.
 5. Later, "settle up" (everything was delivered):
    - `close_order` `capture` for **each held order of that event**, with the final bill as `amount` when the user
      gives one for that merchant ("Olive billed $180": capture $180 on the Olive & Thyme order, the rest is released);
    - a refund applies to a paid order: capture it first, then `close_order` `refund` with the amount
-     ("refund the $28 pillowcases": capture the bedding order, then refund $28 on it). Never cancel a delivered order
+     ("refund $10 on the sheets": capture the bedding order, then refund $10 on it). Never cancel a delivered order
      to refund part of it.
 
 ### 4. Look closer, compare, swap before the yes ("Show me the bed linen")
@@ -83,8 +98,11 @@ While a plan waits for a yes, the user may judge it. The context line lists the 
   Say the one-line summary; the card shows the photos, the facts, why Mandat picked it and the rule.
 - "Other options?", "not this one, cheaper" -> `list_alternatives` (`cheaper_only` true when they said cheaper).
   If nothing is cheaper, say so plainly: it is an answer, not an error.
-- "Compare the two caterers" -> `compare_offers` with the plan's caterer and the next one from the same search.
-- The user describes what they want instead ("take the sateen set instead", "the cheaper one", "a king size",
+- "Compare the two caterers" -> `compare_offers` with the plan's caterer and the best one of the other kind from the
+  same search (a real caterer's estimate against a demo partner's quote).
+- "Take the first one instead" right after other options -> `revise_plan` with that option (first = the first one
+  listed after the current item).
+- The user describes what they want instead ("take the cotton one instead", "the cheaper one", "a king size",
   "a better rated caterer", "another cleaner"), whether or not they saw the options -> `swap_item` with `wanted`
   (in English) and `item` if they named which line. It finds the match, swaps it in and returns a **new** `plan_id`
   and `confirmation_token`; the old ones are dead. Say the swap, the new total and what is left, then ask for a yes

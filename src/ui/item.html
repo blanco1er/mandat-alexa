@@ -37,7 +37,7 @@
 .cmp { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--gap); }
 .col { display: grid; align-content: start; gap: .45em; padding: .6em .7em .8em; border-radius: var(--radius-in); background: var(--surface-2); position: relative; min-width: 0; }
 .col.win { box-shadow: inset 0 0 0 max(2px, .16vw) var(--ok); }
-.col .ph { aspect-ratio: 2 / 1; border-radius: calc(var(--radius-in) * .72); overflow: hidden; background: var(--fill); margin: -.1em -.2em .2em; position: relative; }
+.col .ph { aspect-ratio: auto; height: min(5.5em, 17vh); border-radius: calc(var(--radius-in) * .72); overflow: hidden; background: var(--fill); margin: -.1em -.2em .2em; position: relative; }
 .col .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .col b.name { font-weight: 590; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .col .num { font-size: calc(var(--t-num) * .72); }
@@ -97,17 +97,19 @@ function detail(sc) {
   const h = (o.history || []).filter((x) => x.from === 'merchant' && x.list);
   const nego = h.length && h[h.length - 1].list > h[h.length - 1].total ? `${usd(h[h.length - 1].list)} → ${usd(h[h.length - 1].total)}` : '';
   const real = o.source === 'local' || o.live;
-  const specs = (sc.specs || []).filter((x) => x.k !== 'What').slice(0, real ? 6 : 4); // the title already says what it is
+  // the title, the big price and the footer already say what it is, its price and its source: the rows add the rest
+  const skip = [tx('What'), 'What', 'Quoi', 'Qué', ...(real ? ['Price', 'Prix', 'Precio', 'Source', 'Fuente', 'Reviews', 'Avis', 'Reseñas'] : [])];
+  const specs = (sc.specs || []).filter((x) => !skip.includes(x.k)).slice(0, 4);
   if (nego) specs.splice(1, 0, { k: tx('Negotiated'), v: nego });
   $('#app').innerHTML = `
     <div class="head"><p class="context">${esc(o.source === 'local' ? `${tx(NOUN[o.category] || 'Service')} · ${tx('Real business')} · ${origin(o, { long: true })}` : o.source === 'partner' ? `${tx(NOUN[o.category] || 'Service')} · ${origin(o, { long: true })}` : svc ? `${tx(NOUN[o.category] || 'Service')} · ${tx(o.card_verified ? 'agent verified' : 'agent not verified')}` : `${o.live ? tx('Real product') + ' · ' : o.source === 'test catalogue' ? tx('Test catalogue') + ' · ' : ''}${o.merchant}${o.matches_preference ? tx(' · your usual') : ''}`)}</p>${st}</div>
     <div class="detail">
       ${gallery(sc.images || [])}
       <div class="info">
-        <div class="stack"><h1>${esc(svc ? o.merchant : P(o.title))}</h1><span class="meta">${esc(svc ? `${P(o.title)} · ${slotL(o.slot_label)}` : `${o.merchant} · ${slotL(o.slot_label)}`)}</span></div>
+        <div class="stack"><h1>${esc(svc ? o.merchant : P(o.title))}</h1><span class="meta">${esc(svc ? `${P(o.title)} · ${slotL(o.slot_label)}` : `${o.merchant} · ${slotL(o.slot_label)}`)}${o.rating ? ` · ★ ${esc(o.rating)}${o.ratings ? ` (${Number(o.ratings).toLocaleString(LOC())})` : ''}` : ''}</span></div>
         <div class="price"><span class="num">${esc(priceOf(o))}</span>${o.discount ? `<s>${usd(o.base + (o.fees || 0))}</s>` : o.was ? `<s>${usd(o.was)}</s>` : ''}${o.source === 'local' ? `<span class="meta">${tx('Estimated price')}</span>` : ''}</div>
         <ul class="facts">${specs.map((x) => `<li><span>${esc(x.k)}</span><b>${esc(x.v)}</b></li>`).join('')}</ul>
-        ${(sc.why || []).length ? `<ul class="why" aria-label="${tx('Why Mandat picked it')}">${sc.why.slice(0, real ? 4 : 3).map((w) => (typeof w === 'string' ? { text: w, tone: 'plus' } : w)).map((w) => `<li class="t-${esc(w.tone)}">${esc(w.text)}</li>`).join('')}</ul>` : ''}
+        ${(sc.why || []).length ? `<ul class="why" aria-label="${tx('Why Mandat picked it')}">${sc.why.slice(0, 3).map((w) => (typeof w === 'string' ? { text: w, tone: 'plus' } : w)).map((w) => `<li class="t-${esc(w.tone)}">${esc(w.text)}</li>`).join('')}</ul>` : ''}
         ${rule ? `<p class="rule">${status(rule.buys_on_its_own ? 'ok' : 'wait', rule.text)}</p>` : ''}
         <div class="actions">
           ${sc.in_plan ? '' : `<button class="btn primary" id="choose" data-label="${tx('Choose')}">${tx('Choose')}</button>`}
@@ -117,7 +119,7 @@ function detail(sc) {
           ${sc.plan_id ? `<button class="btn" id="back" data-label="${tx('Back')}">${tx('Back')}</button>` : ''}
         </div>
       </div>
-    </div>${real || o.source === 'partner' ? honestNote(sc.pay_mode) : ''}`;
+    </div>${real || o.source === 'partner' ? honestNote(sc.pay_mode, o.live ? 'Channel3' : (o.place && o.place.attribution) || '') : ''}`;
   const lk = $('#link'); if (lk) lk.onclick = () => mcpApp.openLink(sc.link.url).catch(() => {});
   wireGallery();
   const b = (id, text) => { const e = $('#' + id); if (e) e.onclick = () => act(e, text); };

@@ -31,6 +31,8 @@ import { authorizationServerMetadata, OAuthServer, privacyPage, protectedResourc
 import { runHostIntent } from './brain/host-intents.mjs';
 import { tr } from './core/i18n.mjs';
 import { serveImg } from './core/imgproxy.mjs';
+import { shopEnabled } from './core/shop.mjs';
+import { googleEnabled, placesMode } from './core/places.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATIC = { '/simulator/': path.join(ROOT, 'simulator'), '/media/': path.join(ROOT, 'media') };
@@ -150,7 +152,7 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
         return json(405, { error: 'method not allowed' });
       }
       if (p === '/privacy') return privacyPage();
-      if (p === '/healthz') return json(200, { ok: true, protocol: LATEST_PROTOCOL_VERSION, auth: required ? 'oauth2.1 required' : 'oauth2.1 optional', model: service.provider.name, store: service.store.kind, paypal: PAYPAL_MODE, paypal_buyer: PAYPAL_MODE === 'sandbox' ? ((await service.demoBuyer().catch(() => null)) ? 'linked' : 'not linked') : undefined, brain: brain?.name || null, tts: tts?.name || 'browser', llm_budget: (({ usd, budget, left, paused }) => ({ usd, budget, left, paused }))(await spendViewShared()) });
+      if (p === '/healthz') return json(200, { ok: true, protocol: LATEST_PROTOCOL_VERSION, auth: required ? 'oauth2.1 required' : 'oauth2.1 optional', model: service.provider.name, store: service.store.kind, paypal: PAYPAL_MODE, paypal_buyer: PAYPAL_MODE === 'sandbox' ? ((await service.demoBuyer().catch(() => null)) ? 'linked' : 'not linked') : undefined, brain: brain?.name || null, tts: tts?.name || 'browser', products: shopEnabled() ? 'channel3' : 'test catalogue', places: placesMode() === 'live' ? (googleEnabled() ? 'google+osm' : 'osm') : placesMode(), llm_budget: (({ usd, budget, left, paused }) => ({ usd, budget, left, paused }))(await spendViewShared()) });
       if (p === '/turn' && request.method === 'POST') {
         if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { error: 'Forbidden origin' });
         if (!brain) return json(501, { error: 'No orchestrator configured' });

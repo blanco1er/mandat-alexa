@@ -1,0 +1,6 @@
+{ "_note": "Fake Overpass answer (invented caterers near Capitol Hill), for tests only.",
+  "elements": [
+    { "type": "node", "id": 101, "lat": 47.6200, "lon": -122.3150, "tags": { "craft": "caterer", "name": "Test Table Catering", "opening_hours": "Mo-Fr 09:00-17:00; Sa-Su off", "addr:housenumber": "12", "addr:street": "Test Street" } },
+    { "type": "node", "id": 102, "lat": 47.6100, "lon": -122.3300, "tags": { "craft": "caterer", "name": "Shared Commissary Kitchens" } },
+    { "type": "way", "id": 103, "center": { "lat": 47.6300, "lon": -122.3100 }, "tags": { "craft": "caterer", "name": "Second Test Caterer", "website": "https://caterer.example" } }
+  ] }

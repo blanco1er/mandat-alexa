@@ -1,0 +1,29 @@
+{
+  "_note": "Fake Channel3 /v1/search answers (invented products, same shape as the real API), for tests only.",
+  "sheets": { "products": [
+    { "id": "c3_sheet_a", "title": "Brushed Microfiber Queen Sheet Set", "description": "Four-piece set with deep pockets.", "brands": [{ "name": "Fabrikam Home" }],
+      "images": [{ "url": "https://cdn.trychannel3.com/test-sheet-a-1?aid=x", "is_main_image": true, "alt_text": "Folded white sheet set" }, { "url": "https://cdn.trychannel3.com/test-sheet-a-2?aid=x", "alt_text": "Made bed" }],
+      "category": { "title": "Bed Sheets", "path": [{ "title": "Home & Garden" }, { "title": "Linens & Bedding" }, { "title": "Bedding" }] },
+      "materials": ["microfiber"], "key_features": ["4-piece set", "Deep pockets"], "structured_attributes": { "bedding-size": ["Queen"] },
+      "offers": [{ "url": "https://buy.trychannel3.com/test-a", "domain": "examplehome.com", "price": { "price": 39.99, "compare_at_price": 49.99, "currency": "USD" }, "availability": "InStock" }] },
+    { "id": "c3_sheet_b", "title": "Percale Cotton Queen Sheet Set", "description": "Crisp cotton percale.", "brands": [{ "name": "Contoso Linen" }],
+      "images": [{ "url": "https://cdn.trychannel3.com/test-sheet-b-1?aid=x", "is_main_image": true, "alt_text": "Percale sheets" }],
+      "category": { "title": "Bed Sheets", "path": [{ "title": "Home & Garden" }] }, "materials": ["cotton"], "key_features": ["100% cotton percale"],
+      "offers": [{ "url": "https://buy.trychannel3.com/test-b", "domain": "linenstore.example", "price": { "price": 64, "currency": "USD" }, "availability": "InStock" }, { "url": "https://buy.trychannel3.com/test-b2", "domain": "otherstore.example", "price": { "price": 69, "currency": "USD" }, "availability": "InStock" }] },
+    { "id": "c3_canister", "title": "Sheet Metal Storage Canister", "description": "Not bedding at all.", "brands": [{ "name": "Litware" }],
+      "images": [{ "url": "https://cdn.trychannel3.com/test-can?aid=x", "is_main_image": true }], "category": { "title": "Food Storage Containers" },
+      "offers": [{ "url": "https://buy.trychannel3.com/test-c", "domain": "kitchen.example", "price": { "price": 12, "currency": "USD" }, "availability": "InStock" }] }
+  ] },
+  "dog": { "products": [
+    { "id": "c3_dog_hidden_chicken", "title": "Complete Adult Dry Dog Food", "description": "Made with real chicken as the first ingredient.", "brands": [{ "name": "Northwind Pet" }],
+      "images": [{ "url": "https://cdn.trychannel3.com/test-dog-1?aid=x", "is_main_image": true }], "category": { "title": "Non-prescription Dog Food" },
+      "offers": [{ "url": "https://buy.trychannel3.com/test-d1", "domain": "pets.example", "price": { "price": 31, "currency": "USD" }, "availability": "InStock" }] },
+    { "id": "c3_dog_salmon", "title": "Salmon Recipe Dry Dog Food, 24 lb", "description": "Salmon and sweet potato.", "brands": [{ "name": "Adatum Pet" }],
+      "images": [{ "url": "https://cdn.trychannel3.com/test-dog-2?aid=x", "is_main_image": true }], "category": { "title": "Non-prescription Dog Food" },
+      "offers": [{ "url": "https://buy.trychannel3.com/test-d2", "domain": "pets.example", "price": { "price": 36.5, "currency": "USD" }, "availability": "InStock" }] }
+  ] },
+  "coffee": { "products": [
+    { "id": "c3_coffee_canister", "title": "Coffee Bean Canister", "description": "Airtight canister.", "brands": [{ "name": "Litware" }], "images": [], "category": { "title": "Food Storage Containers" },
+      "offers": [{ "url": "https://buy.trychannel3.com/test-cc", "domain": "kitchen.example", "price": { "price": 29.95, "currency": "USD" }, "availability": "InStock" }] }
+  ] }
+}

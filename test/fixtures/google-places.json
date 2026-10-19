@@ -1,0 +1,18 @@
+{
+  "_note": "Fake Google Places (New) searchText answers (invented businesses near Capitol Hill, Seattle), for tests only.",
+  "cleaning": { "places": [
+    { "id": "gp_sparkly", "displayName": { "text": "Sparkly Test Maids" }, "formattedAddress": "100 Test Ave E, Seattle, WA 98102", "shortFormattedAddress": "100 Test Ave E, Seattle",
+      "location": { "latitude": 47.6245, "longitude": -122.3210 }, "rating": 4.9, "userRatingCount": 412, "googleMapsUri": "https://maps.google.com/?cid=1", "websiteUri": "https://sparkly.example",
+      "regularOpeningHours": {"periods": [{"open": {"day": 1, "hour": 8, "minute": 0}, "close": {"day": 1, "hour": 18, "minute": 0}}, {"open": {"day": 2, "hour": 8, "minute": 0}, "close": {"day": 2, "hour": 18, "minute": 0}}, {"open": {"day": 3, "hour": 8, "minute": 0}, "close": {"day": 3, "hour": 18, "minute": 0}}, {"open": {"day": 4, "hour": 8, "minute": 0}, "close": {"day": 4, "hour": 18, "minute": 0}}, {"open": {"day": 5, "hour": 8, "minute": 0}, "close": {"day": 5, "hour": 18, "minute": 0}}, {"open": {"day": 6, "hour": 8, "minute": 0}, "close": {"day": 6, "hour": 18, "minute": 0}}]}, "types": ["service"], "businessStatus": "OPERATIONAL",
+      "photos": [{ "name": "places/gp_sparkly/photos/ph1", "authorAttributions": [{ "displayName": "Test Photographer" }] }] },
+    { "id": "gp_tiny", "displayName": { "text": "Five Star Few Reviews" }, "formattedAddress": "5 Few St, Seattle", "location": { "latitude": 47.6240, "longitude": -122.3190 },
+      "rating": 5, "userRatingCount": 3, "types": ["service"], "businessStatus": "OPERATIONAL" },
+    { "id": "gp_closedfri", "displayName": { "text": "Weekend Off Cleaners" }, "formattedAddress": "9 Pine St, Seattle", "location": { "latitude": 47.6150, "longitude": -122.3200 },
+      "rating": 4.8, "userRatingCount": 200, "types": ["service"], "businessStatus": "OPERATIONAL",
+      "regularOpeningHours": { "periods": [{ "open": { "day": 1, "hour": 9, "minute": 0 }, "close": { "day": 1, "hour": 17, "minute": 0 } }, { "open": { "day": 2, "hour": 9, "minute": 0 }, "close": { "day": 2, "hour": 17, "minute": 0 } }] } },
+    { "id": "gp_drycleaner", "displayName": { "text": "Corner Dry Cleaning" }, "formattedAddress": "1 Laundry Ln, Seattle", "location": { "latitude": 47.6239, "longitude": -122.3185 },
+      "rating": 4.9, "userRatingCount": 900, "types": ["laundry", "dry_cleaner"], "businessStatus": "OPERATIONAL" },
+    { "id": "gp_far", "displayName": { "text": "Far Away Cleaning" }, "formattedAddress": "Tacoma, WA", "location": { "latitude": 47.2529, "longitude": -122.4443 },
+      "rating": 4.9, "userRatingCount": 1000, "types": ["service"], "businessStatus": "OPERATIONAL" }
+  ] }
+}

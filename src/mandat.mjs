@@ -339,7 +339,9 @@ export class Mandat {
         created: new Date(now).toISOString(), expires: new Date(now + OFFER_TTL).toISOString(),
       });
     }
-    const offers = [...partnerOffers, ...localOffers].sort((a, b) => a.total - b.total || (b.rating || 0) - (a.rating || 0) || (a.place?.distance_m ?? 1e9) - (b.place?.distance_m ?? 1e9));
+    // same price (estimates are one typical rate): the better rating weighed by its number of reviews, then the closer
+    const trust = (o) => (o.rating ? o.rating - 1.5 / Math.sqrt(o.ratings || 1) : 0);
+    const offers = [...partnerOffers, ...localOffers].sort((a, b) => a.total - b.total || trust(b) - trust(a) || (a.place?.distance_m ?? 1e9) - (b.place?.distance_m ?? 1e9));
     const top = offers.slice(0, 5);
     if (!top.length) {
       throw new ToolError(T('e_no_service', { noun: nounOf(cat, 1), day: day ? I.dayName(DAY_NAMES[day], loc()) : '', max: max_price ? usd(max_price) : '' }), 'Suggest another day or a higher limit to the user.');
@@ -349,7 +351,7 @@ export class Mandat {
     await this.store.put(pkOf(hid), `SEARCH#${sid}`, { id: sid, kind: 'service', category: cat, when: when || '', guests: guests || null, asked: nLocal + nPartners, found_local: nLocal, asked_partners: nPartners, offer_ids: top.map((o) => o.id), declined: declined.length, at: new Date(now).toISOString() });
     const spoken = top.slice(0, 3).map((o, i) => T(o.source === 'local' ? 'svc_line_local' : 'svc_line_partner', { n: top.length, i, merchant: o.merchant, total: usd(o.total), slot: spokenSlot(o.slot_label), base: o.discount ? usd(o.base) : '', r: o.rating || '' }));
     return {
-      speech: `${T('svc_found', { local: nLocal, partners: nPartners, noun: nounOf(cat, nLocal), area: home.area })} ${spoken.join('. ')}.${nLocal && top.some((o) => o.source === 'local') ? ' ' + T('svc_estimate_note') : ''}`,
+      speech: `${T('svc_found', { local: nLocal, partners: nPartners, noun: nounOf(cat, nLocal), area: home.area })} ${spoken.join('. ')}.${top.slice(0, 3).some((o) => o.source === 'local') ? ' ' + T('svc_estimate_note') : ''}`,
       data: { category: cat, asked: nLocal + nPartners, found_local: nLocal, asked_partners: nPartners, area: home.area, places_source: local.source, attribution: local.attribution, requested_slot: slot, offers: top, declined },
       card: 'offers',
     };
@@ -805,7 +807,7 @@ export class Mandat {
     const notCheapest = priced && n > 1 && cheapest && cheapest.id !== o.id && o.total > cheapest.total;
     if (quality.length && (notCheapest || o.kind === 'product')) why.push({ tone: 'plus', text: T(inPlan ? 'why_chosen_for' : 'why_offers', { list: listWords(quality) }) });
     if (priced && n > 1 && !notCheapest) why.push({ tone: 'plus', text: o.kind === 'service' ? T('why_cheapest', { n, noun }) : T('why_cheapest_similar', { n }) });
-    if (o.kind === 'service' && !notCheapest && n > 1 && o.rating && o.rating >= Math.max(...same.map((x) => x.rating || 0))) why.push({ tone: 'plus', text: T('why_rated', { r: o.rating }) });
+    if (priced && o.kind === 'service' && !notCheapest && n > 1 && o.rating && o.rating >= Math.max(...same.map((x) => x.rating || 0))) why.push({ tone: 'plus', text: T('why_rated', { r: o.rating }) });
     if (notCheapest) why.push({ tone: 'cost', text: T('why_costs_more', { diff: usd(o.total - cheapest.total), name: name(cheapest), n }) });
     if (o.discount) why.push({ tone: 'plus', text: T('why_off', { amt: usd(o.discount), deal: o.conditions ? I.dealOf(o.conditions, loc()) : '' }) });
     if (o.matches_preference) why.push({ tone: 'plus', text: T('why_usual') });
@@ -814,7 +816,6 @@ export class Mandat {
     if (o.kind === 'service' && o.card_verified) why.push({ tone: 'info', text: T('why_verified') });
     // where it comes from, always said plainly
     if (o.source === 'local') {
-      if (o.rating) why.push({ tone: 'info', text: T('why_reviews', { r: o.rating, n: o.ratings || 0 }) });
       why.push({ tone: 'info', text: T('why_estimate', { rule: estimateText(o, loc()) }) });
       why.push({ tone: 'info', text: T('why_request', { m: o.merchant }) });
     }
