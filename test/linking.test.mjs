@@ -100,7 +100,15 @@ test('refresh tokens rotate; a reused refresh token revokes the whole link', asy
   const t = await linkHousehold(srv.url, { choice: 'new' });
   const r1 = await (await fetch(`${srv.url}/oauth/token`, form({ grant_type: 'refresh_token', refresh_token: t.refresh_token, client_id: 'alexa-plus-simulator' }))).json();
   assert.ok(r1.access_token && r1.refresh_token && r1.refresh_token !== t.refresh_token);
-  const reuse = await fetch(`${srv.url}/oauth/token`, form({ grant_type: 'refresh_token', refresh_token: t.refresh_token, client_id: 'alexa-plus-simulator' }));
+  // the answer was lost (phone asleep): the same token comes back at once -> one new pair, the link survives
+  const retry = await fetch(`${srv.url}/oauth/token`, form({ grant_type: 'refresh_token', refresh_token: t.refresh_token, client_id: 'alexa-plus-simulator' }));
+  assert.equal(retry.status, 200, 'a retry inside the reuse interval (lost answer, a second tab)');
+  // after the interval, a reuse is a copy: the whole link goes
+  const { REUSE_GRACE } = await import('../src/core/oauth.mjs');
+  const realNow = Date.now;
+  Date.now = () => realNow() + (REUSE_GRACE + 5) * 1000;
+  let reuse;
+  try { reuse = await fetch(`${srv.url}/oauth/token`, form({ grant_type: 'refresh_token', refresh_token: t.refresh_token, client_id: 'alexa-plus-simulator' })); } finally { Date.now = realNow; }
   assert.equal(reuse.status, 400);
   const dead = await rpc(srv.mcpUrl, INIT, { authorization: `Bearer ${r1.access_token}` });
   assert.equal(dead.status, 401, 'reuse detection revoked the new access token too');

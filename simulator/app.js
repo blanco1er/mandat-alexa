@@ -92,20 +92,33 @@ function useLink(l) {
 }
 let refreshing = null;
 // Alexa asks for a new access token when it is about to expire (refresh tokens rotate on every use).
+// Several tabs share one link (localStorage): another tab may have refreshed it already. Adopt the newest copy.
+function adoptStoredLink() {
+  const stored = store.get('mandat.link', null);
+  if (stored?.refresh_token && stored.refresh_token !== link?.refresh_token && (stored.expires_at || 0) >= (link?.expires_at || 0)) useLink(stored);
+  return link;
+}
+window.addEventListener('storage', (e) => { if (e.key === 'mandat.link') { const l = store.get('mandat.link', null); if (l?.access_token) useLink(l); } });
 async function fresh() {
+  adoptStoredLink();
   if (!link?.refresh_token || link.expires_at - Date.now() > 60_000) return link;
   if (refreshing) return refreshing;
-  refreshing = (async () => {
+  // one refresh at a time across every tab of this site (Web Locks), then read the shared copy again inside the lock
+  const exclusive = (fn) => (navigator.locks?.request ? navigator.locks.request('mandat-refresh', fn) : fn());
+  refreshing = exclusive(async () => {
+    adoptStoredLink();
+    if (!link?.refresh_token || link.expires_at - Date.now() > 60_000) return link;
     try {
       const r = await fetch('/oauth/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: link.refresh_token, client_id: CLIENT_ID }) });
       const tok = await r.json();
       log('orch', 'page → /oauth/token', { method: 'refresh_token', result: r.ok ? { token_type: tok.token_type, expires_in: tok.expires_in, scope: tok.scope } : tok });
-      if (!r.ok) { forgetLink(); return null; }
+      // only a refused grant ends the link; a busy server or a network hiccup keeps it (tried again next time)
+      if (!r.ok) { if (r.status === 400 && tok.error === 'invalid_grant') { forgetLink(); return null; } return link; }
       const l = { ...link, access_token: tok.access_token, refresh_token: tok.refresh_token, expires_at: Date.now() + tok.expires_in * 1000, scope: tok.scope };
       store.set('mandat.link', l); useLink(l);
       return l;
-    } finally { refreshing = null; }
-  })();
+    } catch { return link; } // network: keep the link, try again next time
+  }).finally(() => { refreshing = null; });
   return refreshing;
 }
 mcp.before = async () => { if (!refreshing) await fresh(); };
@@ -198,7 +211,7 @@ window.addEventListener('message', async (e) => {
       if (m.firstRun) return firstRun();
       const said = r.content?.[0]?.text || t('Shared details updated.');
       setReply(said); speak(said);
-    } catch (err) { setReply(t('I could not reach Mandat, so nothing was booked or charged. Try again in a moment.'), { error: true }); }
+    } catch (err) { setReply(t('I could not confirm that your shared details were saved. Try again in a moment.'), { error: true }); }
     return;
   }
   if (m.type === 'delete') {
@@ -563,15 +576,20 @@ async function speak(text) {
   const words = text.split(/\s+/).length;
   try {
     if (ttsServer) {
-      const r = await fetch('/tts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, locale }) });
-      if (r.ok) {
-        const a = new Audio(URL.createObjectURL(await r.blob()));
-        a.ontimeupdate = () => { if (a.duration) { markSaid((a.currentTime / a.duration) * text.length); target = 0.8; } };
-        await a.play();
-        await new Promise((res) => (a.onended = res));
-        return;
-      }
-      ttsServer = false;
+      // A voice that fails (audio refused by the browser, network) must never turn into a failed turn: the answer
+      // is already on screen; fall back to the browser voice. (Seen live: a refused play() made the page say
+      // "nothing was booked" under a receipt with three holds.)
+      try {
+        const r = await fetch('/tts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, locale }) });
+        if (r.ok) {
+          const a = new Audio(URL.createObjectURL(await r.blob()));
+          a.ontimeupdate = () => { if (a.duration) { markSaid((a.currentTime / a.duration) * text.length); target = 0.8; } };
+          await a.play();
+          await new Promise((res) => { a.onended = res; a.onerror = res; setTimeout(res, Math.max(6000, words * 600)); });
+          return;
+        }
+        if (r.status >= 500) ttsServer = false;
+      } catch (err) { log('orch', 'page ✕ /tts', { method: 'voice', error: { message: String(err.message || err) } }); }
     }
     if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
       await new Promise((res) => {
@@ -586,9 +604,32 @@ async function speak(text) {
         speechSynthesis.cancel(); speechSynthesis.speak(u);
       });
     }
-  } finally {
+  } catch { /* the voice is a bonus: never an error of the turn */ } finally {
     markAll();
     setState(session.pending ? 'confirming' : 'idle');
+  }
+}
+
+// After an error, never guess: read what really happened (the household's orders and the plan that was waiting),
+// then say it. Used when /turn fails or times out; a turn that answered is never overwritten.
+async function truthAfterError(pendingBefore) {
+  try {
+    const st = await mcp.callTool('get_household_status', {});
+    lastStatus = st; updateGauge(st);
+    const d = st.structuredContent || {};
+    const planId = pendingBefore?.plan_id;
+    const booked = planId ? (d.open_orders || []).filter((o) => o.plan_id === planId) : [];
+    if (booked.length) {
+      session = { ...session, pending: null };
+      store.set(`mandat.session.${household}`, session);
+      try { const rc = await mcp.callTool('refresh_card', { card: 'receipt', order_ids: booked.map((o) => o.id) }); await render('refresh_card', { card: 'receipt' }, rc); } catch {}
+      const sum = booked.reduce((x, o) => x + o.amount, 0);
+      return t('That took longer than usual, but it went through: {n} payment holds for {amt}, nothing charged until each is delivered.', { n: booked.length, amt: usd(sum) });
+    }
+    try { await render('get_household_status', {}, st); } catch {}
+    return `${t('Something went wrong on the way back. Here is where things stand:')} ${st.content?.[0]?.text || ''}`.trim();
+  } catch {
+    return t('Mandat did not answer, and I could not check what happened. Say “how much is left?” in a moment to see where things stand.');
   }
 }
 
@@ -660,6 +701,8 @@ async function turn(text) {
   if (document.body.dataset.screen === 'home' && device !== 'dot') document.body.dataset.screen = 'card';
   const turnId = (crypto.randomUUID?.() || `t-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`).toLowerCase();
   const stopLive = startLive(turnId);
+  const pendingBefore = session.pending;
+  let answered = false;
   try {
     log('orch', 'page → /turn', { method: 'turn', params: { text, device, turn: turnId } });
     await fresh();
@@ -668,6 +711,11 @@ async function turn(text) {
     stopLive();
     // Not linked (or the link was revoked): like Alexa after a 401, say so and start account linking.
     if (r.status === 401 && out.link_required) {
+      // an access token that just expired is refreshed silently and the sentence is sent again, once
+      if (out.error === 'invalid_token' && link?.refresh_token && !text.__retried) {
+        link = { ...link, expires_at: 0 }; const l = await fresh();
+        if (l?.access_token) { stopLive(); endLive(); setBusy(false); return turn(Object.assign(new String(text), { __retried: true }).toString()); }
+      }
       endLive(); setBusy(false);
       played.delete(text); store.set(playedKey(), [...played]); renderScript();
       if (out.error === 'invalid_token') forgetLink();
@@ -677,6 +725,7 @@ async function turn(text) {
     if (r.ok && !out.unlinked) await finishLive(turnId); // after "delete my data" the token is gone: no last read
     endLive();
     if (!r.ok) throw Object.assign(new Error(out.error || 'turn failed'), { spoken: out.speech });
+    answered = true;
     for (const s of out.steps) log('orch', 'brain tools/call', { method: 'tools/call', params: { name: s.name, arguments: s.args }, result: s.result });
     session = { ...out.session, modelContext: null };
     store.set(`mandat.session.${household}`, session);
@@ -691,14 +740,18 @@ async function turn(text) {
     setBusy(false);
     await speak(out.speech);
   } catch (e) {
-    // Honest error: what happened, what did not, and the way out.
     stopLive(); endLive();
+    log('orch', 'page ✕ /turn', { method: 'error', error: { message: String(e.message || e) } });
+    // Mandat answered and the card is shown: a later hiccup (the card, the voice) never replaces that answer.
+    if (answered) { markAll(); setState(session.pending ? 'confirming' : 'idle'); return; }
+    // Honest error: read the real state first (holds may have been placed before a timeout), then say it.
     played.delete(text); store.set(playedKey(), [...played]); renderScript();
     if (document.body.dataset.screen === 'home') document.body.dataset.screen = 'card';
-    setReply(e.spoken || t('I could not reach Mandat, so nothing was booked or charged. Try again in a moment.'), { error: true });
+    const said = e.spoken || (await truthAfterError(pendingBefore));
+    setReply(said, { error: true });
+    setAsk(session.pending);
     markAll();
-    setState('idle');
-    log('orch', 'page ✕ /turn', { method: 'error', error: { message: String(e.message || e) } });
+    setState(session.pending ? 'confirming' : 'idle');
   } finally { if (busy) setBusy(false); }
 }
 

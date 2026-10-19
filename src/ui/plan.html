@@ -63,7 +63,15 @@ function render(result, { justBooked = false } = {}) {
       plan.status = 'confirmed';
       const env2 = r.structuredContent && r.structuredContent.receipt && r.structuredContent.receipt.envelope;
       render({ structuredContent: { ...current, plan, envelope: env2 || current.envelope } }, { justBooked: true });
-    } catch (e) { fail(tx('Mandat could not be reached. Nothing was booked.')); }
+    } catch (e) {
+      // never guess after an error: the holds may have been placed before the answer was lost. Read the plan again.
+      try {
+        const st = await mcpApp.callTool('refresh_card', { card: 'plan', plan_id: plan.id });
+        const now = st && st.structuredContent && st.structuredContent.plan;
+        if (now && now.status === 'confirmed') { plan.status = 'confirmed'; return render({ structuredContent: { ...current, plan } }, { justBooked: true }); }
+        fail(tx('Not booked yet: nothing was held for this plan. Try again.'));
+      } catch { fail(tx('Mandat did not answer. Trying again is safe: a plan is never paid twice.')); }
+    }
   };
   for (const li of document.querySelectorAll('.rows.tap > li')) {
     const open = () => mcpApp.say(li.dataset.say).catch(() => {});
