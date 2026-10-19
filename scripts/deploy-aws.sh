@@ -19,6 +19,9 @@
 #   MANDAT_LIMIT_TURNS (60), MANDAT_LIMIT_TTS (120), MANDAT_LIMIT_MCP (600)   per-IP, per-hour demo limits
 #   MANDAT_RESERVED_CONCURRENCY (5)                skipped when the account's Lambda limit is too small to reserve
 #   PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET         sandbox keys, from your shell only; absent = payments stay simulated
+#   CHANNEL3_API_KEY, GOOGLE_PLACES_KEY            real products / Google data for real businesses (set once with
+#                                                  scripts/set-channel3.sh and scripts/set-google-places.sh, then kept)
+#   MANDAT_PLACES (live)                           live = Google Places, else OpenStreetMap, else the saved snapshot
 #   MANDAT_DEMO_TOKEN                              optional bearer token on /mcp
 #   MANDAT_NETWORK_SECRET                          optional; generated once and then kept from the live function
 #   MANDAT_ZIP                                     use this zip instead of running `npm run package`
@@ -183,6 +186,10 @@ BRAIN_ID="$BRAIN_ID" MERCHANT_ID="$MERCHANT_ID" BRAIN_FALLBACK="$BRAIN_FALLBACK"
     // real products through Channel3: key set once with scripts/set-channel3.sh, KEPT on every redeploy
     CHANNEL3_API_KEY: e.CHANNEL3_API_KEY || cur.CHANNEL3_API_KEY,
     MANDAT_SHOP: e.MANDAT_SHOP || cur.MANDAT_SHOP || ((e.CHANNEL3_API_KEY || cur.CHANNEL3_API_KEY) ? "live" : undefined),
+    // real local businesses: Google Places key set once with scripts/set-google-places.sh, KEPT on every redeploy;
+    // without it the demo still shows real businesses from OpenStreetMap (MANDAT_PLACES=live in both cases)
+    GOOGLE_PLACES_KEY: e.GOOGLE_PLACES_KEY || cur.GOOGLE_PLACES_KEY,
+    MANDAT_PLACES: e.MANDAT_PLACES || cur.MANDAT_PLACES || "live",
     NODE_OPTIONS: "--enable-source-maps",
   };
   for (const k of Object.keys(v)) if (v[k] === undefined || v[k] === "") delete v[k];

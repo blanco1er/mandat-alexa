@@ -147,3 +147,24 @@ test('deploy: a redeploy keeps the PayPal sandbox keys already in the function, 
   assert.equal(env2.MANDAT_PAYPAL, 'offline');
   assert.equal(env2.PAYPAL_CLIENT_ID, undefined);
 });
+
+test('deploy: a redeploy keeps the Channel3 and Google Places keys already in the function, never prints them', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mandat-deploy-'));
+  const c3 = 'c3-key-' + Date.now(), gp = 'AIza-google-key-' + Date.now();
+  const bin = fakeAws(dir, { existing: true, currentEnv: { MANDAT_NETWORK_SECRET: 'k'.repeat(64), CHANNEL3_API_KEY: c3, MANDAT_SHOP: 'live', GOOGLE_PLACES_KEY: gp, MANDAT_PLACES: 'live' } });
+  const r = run({ PATH: `${bin}:${process.env.PATH}`, DEPLOY_STAGE: 'bedrock' }, dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!(r.stdout + r.stderr).includes(c3) && !(r.stdout + r.stderr).includes(gp), 'a key value was printed');
+  const env = JSON.parse(fs.readFileSync(path.join(dir, 'env.json'), 'utf8')).Variables;
+  assert.equal(env.CHANNEL3_API_KEY, c3);
+  assert.equal(env.MANDAT_SHOP, 'live');
+  assert.equal(env.GOOGLE_PLACES_KEY, gp);
+  assert.equal(env.MANDAT_PLACES, 'live');
+  // no Google key: real businesses still come from OpenStreetMap
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'mandat-deploy-'));
+  const r2 = run({ PATH: `${fakeAws(dir2, { existing: true, currentEnv: { MANDAT_NETWORK_SECRET: 'k'.repeat(64) } })}:${process.env.PATH}` }, dir2);
+  assert.equal(r2.status, 0, r2.stderr);
+  const env2 = JSON.parse(fs.readFileSync(path.join(dir2, 'env.json'), 'utf8')).Variables;
+  assert.equal(env2.GOOGLE_PLACES_KEY, undefined);
+  assert.equal(env2.MANDAT_PLACES, 'live');
+});
