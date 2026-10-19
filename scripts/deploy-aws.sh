@@ -180,6 +180,9 @@ BRAIN_ID="$BRAIN_ID" MERCHANT_ID="$MERCHANT_ID" BRAIN_FALLBACK="$BRAIN_FALLBACK"
     MANDAT_AUTH: e.MANDAT_AUTH || "required",
     MANDAT_OAUTH_CLIENT_ID: e.MANDAT_OAUTH_CLIENT_ID || cur.MANDAT_OAUTH_CLIENT_ID, MANDAT_OAUTH_CLIENT_SECRET: e.MANDAT_OAUTH_CLIENT_SECRET || cur.MANDAT_OAUTH_CLIENT_SECRET,
     MANDAT_OAUTH_REDIRECT_URIS: e.MANDAT_OAUTH_REDIRECT_URIS || cur.MANDAT_OAUTH_REDIRECT_URIS,
+    // real products through Channel3: key set once with scripts/set-channel3.sh, KEPT on every redeploy
+    CHANNEL3_API_KEY: e.CHANNEL3_API_KEY || cur.CHANNEL3_API_KEY,
+    MANDAT_SHOP: e.MANDAT_SHOP || cur.MANDAT_SHOP || ((e.CHANNEL3_API_KEY || cur.CHANNEL3_API_KEY) ? "live" : undefined),
     NODE_OPTIONS: "--enable-source-maps",
   };
   for (const k of Object.keys(v)) if (v[k] === undefined || v[k] === "") delete v[k];
