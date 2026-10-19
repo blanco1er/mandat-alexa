@@ -233,6 +233,18 @@ Mandat MCP server (/mcp, stateless; AWS Lambda + Function URL; locally node :878
    └─ Products (sandbox catalogue; Channel3 when enabled)
 ```
 
+### Where the products come from
+
+- **The public demo uses a sandbox catalogue**: generic household products from fictional shops (`src/core/catalog.mjs`),
+  so every judge sees the same, repeatable demo and nothing is ever ordered from a real retailer.
+- **Real products are one switch away**: with `MANDAT_SHOP=live` and a `CHANNEL3_API_KEY`, Mandat searches real
+  products (photos, brands, prices) across thousands of retailers through Channel3 (`src/core/shop.mjs`). It is off in
+  the public demo.
+- **For everyone, the natural source is Amazon itself.** In a production Alexa+ add-on, Mandat would propose items
+  straight from Amazon's catalogue, where households already shop, with their usual delivery and returns. The product
+  source is a single module behind the same tools, so the mandate on top does not change: the budget, the rules, the
+  payment holds and the "yes" stay exactly as they are.
+
 ## Alexa+ add-on requirements we honour
 
 | Alexa+ guidance | In Mandat |
