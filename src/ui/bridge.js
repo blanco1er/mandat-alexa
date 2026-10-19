@@ -54,11 +54,16 @@
     const root = document.documentElement;
     const max = hostContext.containerDimensions && hostContext.containerDimensions.maxHeight;
     root.style.setProperty('--k', '1');
+    delete root.dataset.tight;
+    // --avail: the height the host gives the card; photos sized by width (item gallery, option photos) are capped by it
+    if (max) root.style.setProperty('--avail', max + 'px'); else root.style.removeProperty('--avail');
     if (!max) return;
     // measure the card itself: the iframe viewport may still be taller than the content
     const h = () => { const c = document.querySelector('main'); return c ? c.getBoundingClientRect().height : root.scrollHeight; };
-    let k = 1;
-    while (h() > max + 1 && k > 0.73) { k = Math.round((k - 0.03) * 100) / 100; root.style.setProperty('--k', String(k)); }
+    const shrink = (floor) => { let k = 1; root.style.setProperty('--k', '1'); while (h() > max + 1 && k > floor) { k = Math.round((k - 0.03) * 100) / 100; root.style.setProperty('--k', String(k)); } };
+    shrink(0.73);
+    // still too tall (the action buttons would be cut off): compact rows and photos, then a little smaller type
+    if (h() > max + 1) { root.dataset.tight = ''; shrink(0.6); }
   }
   window.mcpAutoFit = autoFit;
 

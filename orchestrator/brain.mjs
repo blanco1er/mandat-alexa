@@ -44,7 +44,14 @@ export const STATES_AMOUNT = /\$\s?\d|\d\s?\$|\b\d+\s*(dollars?|bucks|usd|dólar
 const SETTLE_WORDS = /\b(settle|settled|billed|bill|bills|invoice|paid|pay them|pay the|done|went well|finished|capture|refund|money back|cancel|call off|rembourse|remboursement|annule|annuler|regle|solde|facture|reembolsa|reembolso|cancela|liquida|cobro|cobrado|terminado|salio bien|tout s'est bien passe)\b/;
 const SETTINGS_WORDS = /\b(that'?s (all|it)|done|c'est tout|termine|eso es todo|listo|settings|reglages|ajustes|autonomy|autonomie|autonomia)\b/;
 const RESUME_WORDS = /\b(resume|unpause|unfreeze|restart|reactivate|back on|start (buying|spending) again|reprends|reprendre|reactive|relance|degele|reanuda|reanudar|reactiva|descongela)\b/;
+// revise_plan / swap_item change the plan: never when the user only asked to see, list or compare options (seen live
+// on 19 Oct: "Other options?" became a swap to the cheaper sheets, $357.99 -> $330.99, without being asked)
+const ASK_ONLY = /\b(other options?|any options?|options\?|alternatives?|what else|show me|tell me (about|more)|compare|comparison|details?|d'autres options|autres options|quelles options|montre|compare|comparer|details|otras opciones|alternativas|que mas|ensename|muestrame|compara|comparar|detalles)\b/;
+const CHANGE_WORDS = /\b(take|instead|swap|switch|change|replace|remove|drop|without|go with|pick|choose|use the|i'?ll have|i want|let'?s do|prends|prend|plutot|remplace|change|enleve|retire|sans|choisis|garde|je veux|toma|mejor|en vez|cambia|reemplaza|quita|sin|elige|quiero)\b/;
 export function guardToolCall(name, input, utterance) {
+  if ((name === 'revise_plan' || name === 'swap_item') && ASK_ONLY.test(norm(utterance)) && !CHANGE_WORDS.test(norm(utterance))) {
+    return { cancel: 'Refused by the host: the user only asked to see options, not to change the plan. Show them (list_alternatives, get_offer_details or compare_offers) and let the user choose; the plan stays as it is.' };
+  }
   if (name === 'confirm_plan') return { input: { ...input, user_confirmation: String(utterance).slice(0, 120) } };
   if (name === 'update_settings' && ['weekly_budget', 'auto_buy_under', 'daily_cap'].some((k) => input[k] !== undefined) && !/\d/.test(utterance)) {
     return { cancel: 'Refused by the host: the user did not say an amount. Never change a budget or a limit on your own; ask the user.' };

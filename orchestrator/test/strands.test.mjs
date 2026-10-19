@@ -61,6 +61,18 @@ test('host guardrail: confirm_plan always carries the user\'s own words, never t
   assert.equal(g.input.plan_id, 'p');
 });
 
+test('host guardrail: asking to see options never changes the plan; a stated choice does', () => {
+  for (const u of ['Other options?', 'D’autres options ?', '¿Otras opciones?', 'Show me the bed linen.', 'Compare the two caterers.', 'Compare les deux traiteurs.']) {
+    assert.ok(guardToolCall('revise_plan', { plan_id: 'p', add_offer_ids: ['o2'] }, u).cancel, u);
+    assert.ok(guardToolCall('swap_item', { wanted: 'cheaper' }, u).cancel, u);
+  }
+  for (const u of ['Take the first one instead.', 'Prends plutôt la première.', 'Mejor la primera.', 'Swap the sheets for the cotton ones', 'the cheaper one', 'Remove the dinner']) {
+    assert.ok(!guardToolCall('revise_plan', { plan_id: 'p' }, u).cancel, u);
+    assert.ok(!guardToolCall('swap_item', { wanted: u }, u).cancel, u);
+  }
+  assert.ok(!guardToolCall('list_alternatives', { offer_id: 'o' }, 'Other options?').cancel);
+});
+
 test('host guardrail: no budget is created or changed unless the user said an amount', () => {
   assert.ok(guardToolCall('set_spending_mandate', { budget: 200 }, 'Yes, go ahead.').cancel);
   assert.ok(!guardToolCall('set_spending_mandate', { budget: 400 }, 'Keep it under $400.').cancel);

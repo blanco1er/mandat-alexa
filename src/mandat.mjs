@@ -151,11 +151,13 @@ export class Mandat {
     const pending = (await this.store.query(pkOf(hid), 'PLAN#')).map((r) => r.value).filter((p) => p.status === 'proposed' && Date.parse(p.expires) > this.now());
     const data = {
       household_id: hid,
-      envelopes: section && section !== 'budget' ? undefined : envelopes,
-      mandates: section && section !== 'budget' ? undefined : mandates.map(({ paypal, ...m }) => ({ ...m, paypal_mode: paypal?.mode })),
-      open_orders: section && section !== 'orders' ? undefined : open.map((o) => ({ ...publicOrder(o), purpose: mandates.find((m) => m.id === o.mandate_id)?.purpose })),
-      recent_orders: section && section !== 'orders' ? undefined : orders.filter((o) => o.state !== 'held').slice(-5).map(publicOrder),
-      preferences: section && section !== 'preferences' ? undefined : preferences,
+      // the card always gets the whole household (a card that said "No budget yet" or "All settled" because the model
+      // asked for one section was wrong); only the spoken sentence follows the section. The model reads content, not this.
+      envelopes,
+      mandates: mandates.map(({ paypal, ...m }) => ({ ...m, paypal_mode: paypal?.mode })),
+      open_orders: open.map((o) => ({ ...publicOrder(o), purpose: mandates.find((m) => m.id === o.mandate_id)?.purpose })),
+      recent_orders: orders.filter((o) => o.state !== 'held').slice(-5).map(publicOrder),
+      preferences,
       pending_decisions: pending.map((p) => ({ plan_id: p.id, total: p.breakdown.total, lines: p.lines.map((l) => l.merchant) })),
     };
     // Autonomy at a glance (level, paused, what it may still buy alone today), who the household is, what it did last.

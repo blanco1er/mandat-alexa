@@ -55,6 +55,19 @@ test('the assistant data carries what a model needs to chain calls (recommended 
   await c.close();
 });
 
+test('a status asked for one section still gives the card the whole household (never "No budget yet" next to a budget)', async () => {
+  const c = await client(srv.mcpUrl);
+  const { plan } = await inLawsPlan(c);
+  await c.callTool({ name: 'confirm_plan', arguments: { plan_id: sc(plan).plan.id, confirmation_token: sc(plan).confirmation_token, user_confirmation: 'yes' } });
+  for (const section of ['orders', 'preferences', 'budget']) {
+    const st = sc(await c.callTool({ name: 'get_household_status', arguments: { section } }));
+    assert.ok(st.envelopes?.length, `envelopes with section ${section}`);
+    assert.ok(st.open_orders?.length, `open orders with section ${section}`);
+    assert.ok(Array.isArray(st.preferences), `preferences with section ${section}`);
+  }
+  await c.close();
+});
+
 test('per-IP limiter: N per hour, then a retry-after', () => {
   let t = 0;
   const hit = createLimiter({ perHour: 2, now: () => t });

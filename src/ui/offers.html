@@ -12,7 +12,7 @@
 .offer[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 8%, var(--surface-2)); box-shadow: inset 0 0 0 max(2px, .18vw) var(--accent); }
 .offer:focus-visible { outline: max(3px, .25vw) solid color-mix(in srgb, #0088ff 70%, transparent); outline-offset: 2px; }
 /* item photo on top of each option, like Alexa shopping cards (16:10 so three options still fit without scrolling) */
-.offer .ph { display: block; aspect-ratio: 16 / 10; margin: -.4em -.5em .25em; border-radius: calc(var(--radius-in) * .72); overflow: hidden; background: var(--fill); position: relative; }
+.offer .ph { display: block; aspect-ratio: 16 / 10; max-height: calc(var(--avail, 200vh) * .34); margin: -.4em -.5em .25em; border-radius: calc(var(--radius-in) * .72); overflow: hidden; background: var(--fill); position: relative; }
 .offer .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .offer .ph::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 var(--hair) rgba(0, 0, 0, .1); }
 .offer .ph.broken img { visibility: hidden; }

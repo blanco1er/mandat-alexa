@@ -571,7 +571,20 @@ function markSaid(charIndex) {
   }
 }
 const markAll = () => markSaid(Infinity);
+// One voice at a time. A new turn (a click on the next line while Alexa is still talking, the mic) stops the current
+// voice at once, and a voice that was stopped never touches the page state afterwards: before, the old voice ended
+// in the middle of the next turn and set the page back to "Tap to talk" while Mandat was still working (a second
+// click then ran two turns at once and their answers crossed).
+let speakSeq = 0, stopVoice = () => {};
+function stopSpeaking() {
+  speakSeq++;
+  try { stopVoice(); } catch {}
+  stopVoice = () => {};
+  try { window.speechSynthesis?.cancel?.(); } catch {}
+}
 async function speak(text) {
+  const my = ++speakSeq;
+  const current = () => my === speakSeq;
   setState('speaking');
   kickLevel();
   const words = text.split(/\s+/).length;
@@ -582,18 +595,24 @@ async function speak(text) {
       // "nothing was booked" under a receipt with three holds.)
       try {
         const r = await fetch('/tts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, locale }) });
+        if (!current()) return;
         if (r.ok) {
           const a = new Audio(URL.createObjectURL(await r.blob()));
-          a.ontimeupdate = () => { if (a.duration) { markSaid((a.currentTime / a.duration) * text.length); target = 0.8; } };
+          if (!current()) return;
+          let done = () => {};
+          stopVoice = () => { a.pause(); done(); };
+          a.ontimeupdate = () => { if (a.duration && current()) { markSaid((a.currentTime / a.duration) * text.length); target = 0.8; } };
           await a.play();
-          await new Promise((res) => { a.onended = res; a.onerror = res; setTimeout(res, Math.max(6000, words * 600)); });
+          await new Promise((res) => { done = res; a.onended = res; a.onerror = res; setTimeout(res, Math.max(6000, words * 600)); if (!current()) res(); });
           return;
         }
         if (r.status >= 500) ttsServer = false;
       } catch (err) { log('orch', 'page ✕ /tts', { method: 'voice', error: { message: String(err.message || err) } }); }
     }
+    if (!current()) return;
     if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
       await new Promise((res) => {
+        stopVoice = res;
         const u = new SpeechSynthesisUtterance(text);
         u.lang = locale; u.rate = 1.04;
         const vs = speechSynthesis.getVoices();
@@ -606,8 +625,12 @@ async function speak(text) {
       });
     }
   } catch { /* the voice is a bonus: never an error of the turn */ } finally {
-    markAll();
-    setState(session.pending ? 'confirming' : 'idle');
+    // a voice stopped by a newer turn leaves the page to that turn
+    if (current()) {
+      stopVoice = () => {};
+      markAll();
+      if (!busy) setState(session.pending ? 'confirming' : 'idle');
+    }
   }
 }
 
@@ -654,7 +677,7 @@ function stopListening(r = rec, { abort = false } = {}) {
 function listen() {
   if (!SR) { $('#typeInput').focus(); micHint('This browser cannot hear you. Type what you would say below.'); return; }
   if (rec) { const r = rec; const heard = r.__final || ''; stopListening(r, { abort: !heard }); setState(session.pending ? 'confirming' : 'idle'); if (heard.trim()) turn(heard.trim()); return; }
-  speechSynthesis?.cancel?.();
+  stopSpeaking();
   const r = new SR();
   rec = r;
   r.lang = locale; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
@@ -719,15 +742,17 @@ function setBusy(on) {
   else { b.removeAttribute('aria-busy'); b.setAttribute('aria-label', t('Send')); b.innerHTML = '<svg class="ui-icon"><use href="#i-up"/></svg>'; b.disabled = !$('#typeInput').value.trim(); }
   for (const l of document.querySelectorAll('.line')) l.toggleAttribute('aria-disabled', on);
 }
+let turnSeq = 0;
 async function turn(text) {
   if (busy) return;
+  const my = ++turnSeq;
+  stopSpeaking();
   if (isEnable(text)) {
     played.add(text); store.set(playedKey(), [...played]); renderScript();
     showHeard(text); $('#trail').replaceChildren(); setAsk(null);
     return enableFlow(text);
   }
   setBusy(true);
-  speechSynthesis?.cancel?.();
   played.add(text); store.set(playedKey(), [...played]); renderScript();
   showHeard(text);
   $('#reply').textContent = '';
@@ -782,7 +807,7 @@ async function turn(text) {
     stopLive(); endLive();
     log('orch', 'page ✕ /turn', { method: 'error', error: { message: String(e.message || e) } });
     // Mandat answered and the card is shown: a later hiccup (the card, the voice) never replaces that answer.
-    if (answered) { markAll(); setState(session.pending ? 'confirming' : 'idle'); return; }
+    if (answered) { if (my === turnSeq) { markAll(); setState(session.pending ? 'confirming' : 'idle'); } return; }
     // Honest error: read the real state first (holds may have been placed before a timeout), then say it.
     played.delete(text); store.set(playedKey(), [...played]); renderScript();
     if (document.body.dataset.screen === 'home') document.body.dataset.screen = 'card';
@@ -791,7 +816,7 @@ async function turn(text) {
     setAsk(session.pending);
     markAll();
     setState(session.pending ? 'confirming' : 'idle');
-  } finally { if (busy) setBusy(false); }
+  } finally { if (busy && my === turnSeq) setBusy(false); } // only the current turn frees the page
 }
 
 // ---------- language: static texts, the script, the voice, the cards (hostContext.locale) ----------
@@ -819,7 +844,7 @@ function applyLanguage() {
 $('#lang').addEventListener('change', (e) => {
   locale = pickLocale(e.target.value); setLang(locale); store.set('mandat.lang', locale); tick(); visit('lang');
   mcp.headers['x-mandat-locale'] = locale;
-  speechSynthesis?.cancel?.();
+  stopSpeaking();
   applyLanguage();
 });
 

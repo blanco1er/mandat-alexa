@@ -90,6 +90,11 @@ h1 { margin: 0; font-size: var(--t-title); line-height: 1.1; font-weight: 700; l
 .rows:has(.thumb.sm) { --lead: 2.8em; }
 .rows.compact > li { padding: .3em 0; }
 .rows.compact .who > span { display: none; }
+/* tight: set by the bridge when the card still does not fit its container at 73 % (a 3-line plan with photos on an
+   Echo Show 15 under a long answer): smaller photos and rows first, then the type shrinks again (never below 60 %) */
+:root[data-tight] .rows:has(.thumb) { --lead: 2.4em; }
+:root[data-tight] .thumb, :root[data-tight] .thumb.sm { width: 2.4em; height: 2.4em; }
+:root[data-tight] .rows > li { padding: .3em 0; }
 .ico { width: 1.25em; height: 1.25em; display: grid; place-items: center; color: var(--label-2); flex: none; }
 .ico svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .who { min-width: 0; display: grid; gap: .08em; }
