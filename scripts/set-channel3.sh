@@ -9,15 +9,22 @@ PROFILE="${AWS_PROFILE:-mandat}"
 
 echo "Channel3 API key (trychannel3.com, your account > API keys)."
 printf "Paste the key, then Enter (nothing is shown): "; read -rs KEY; echo
+# Forgive common copy slips: "CHANNEL3_API_KEY=" prefix, quotes, spaces.
+KEY="${KEY#CHANNEL3_API_KEY=}"; KEY="${KEY//\"/}"; KEY="${KEY//\'/}"; KEY="${KEY// /}"
 [ -n "$KEY" ] || { echo "Empty value: nothing was changed."; exit 1; }
+echo "Key received: ${#KEY} characters (not shown)."
 
-# One real search to check the key works, without printing it.
-CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST https://api.trychannel3.com/v1/search \
-  -H "x-api-key: $KEY" -H "content-type: application/json" -d '{"query":"queen sheet set","limit":1}')
-[ "$CODE" = 200 ] || { echo "Channel3 refused this key (HTTP $CODE). Nothing was changed."; exit 1; }
+# One real search to check the key works, without printing it (Channel3's own error message is shown, never the key).
+RESP=$(mktemp); trap 'rm -f "$RESP"' EXIT
+CODE=$(curl -s -o "$RESP" -w "%{http_code}" -X POST https://api.trychannel3.com/v1/search \
+  -H "x-api-key: $KEY" -H "content-type: application/json" -d '{"query":"queen sheet set","limit":3}')
+if [ "$CODE" != 200 ]; then
+  echo "Channel3 refused this key (HTTP $CODE). Channel3 says: $(head -c 300 "$RESP" | tr -d '\n')"
+  echo "Nothing was changed."; exit 1
+fi
 echo "Key accepted by Channel3."
 
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT; umask 077
+rm -f "$RESP"; TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT; umask 077
 aws lambda get-function-configuration --function-name "$FUNCTION" --region "$REGION" --profile "$PROFILE" \
   --query 'Environment.Variables' --output json > "$TMP/cur.json"
 KEY="$KEY" node -e '
