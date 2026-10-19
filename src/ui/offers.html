@@ -42,18 +42,26 @@
 </style></head>
 <body><main class="card" id="app" aria-live="polite"><p class="context">Asking the merchants…</p></main>
 <script>/*BRIDGE_JS*/
-showLoading('Asking the merchants’ agents…');
-const ASKED = { catering: ['{n} caterer asked', '{n} caterers asked'], cleaning: ['{n} cleaner asked', '{n} cleaners asked'], plumbing: ['{n} plumber asked', '{n} plumbers asked'], handyman: ['{n} handyman asked', '{n} handymen asked'] };
+showLoading('Finding options…');
 const nameOf = (o) => (o.kind === 'service' ? o.merchant : P(o.title).split(/[:,(]/)[0].trim());
 const CHECK = `<svg viewBox="0 0 24 24">${ICONS.check}</svg>`;
-const trust = (o) => o.kind !== 'service' ? (o.matches_preference ? `<span class="trust">${CHECK}${tx('Your usual')}</span>` : '') : o.card_verified ? `<span class="trust">${CHECK}${tx('Verified agent')}</span>` : `<span class="trust no">${tx('Unverified agent')}</span>`;
+const trust = (o) => o.kind !== 'service' ? (o.matches_preference ? `<span class="trust">${CHECK}${tx('Your usual')}</span>` : '') : o.source === 'partner' ? `<span class="trust">${CHECK}${tx('Verified agent')}</span>` : '';
+// second line of an option: a real business shows its Google rating and distance, a demo partner what its agent said
+const detailOf = (o) => o.source === 'local'
+  ? [o.rating ? `★ ${o.rating}${o.ratings ? ` (${Number(o.ratings).toLocaleString(LOC())})` : ''}` : '', o.place && o.place.distance_m != null ? miles(o.place.distance_m) : ''].filter(Boolean).join(' · ')
+  : o.kind === 'service' ? `“${o.negotiation}”` : o.live ? `${o.brand ? o.brand + ' · ' : ''}${o.retailer}` : P(o.title);
+const miles = (m) => (LANG() === 'en' ? `${(m / 1609.34).toFixed(1)} mi` : `${(m / 1000).toLocaleString(LOC(), { maximumFractionDigits: 1 })} km`);
 function render(result) {
   if (result.isError) return showError(result);
   ready();
   const sc = result.structuredContent || {};
   const offers = sc.offers || sc.alternatives || [];
   const cur = sc.current_offer_id ? offers.find((o) => o.id === sc.current_offer_id) : null;
-  const who = cur ? tx('Other options than {name}', { name: nameOf(cur) }) : sc.category ? tx((ASKED[sc.category] || [null, '{n} pros asked'])[sc.asked === 1 ? 0 : 1] || '{n} pros asked', { n: sc.asked }) : sc.query ? tx('Products') : tx('Updated quote');
+  const svcSearch = sc.category && (sc.found_local !== undefined || sc.asked_partners !== undefined);
+  const who = cur ? tx('Other options than {name}', { name: nameOf(cur) })
+    : svcSearch ? (sc.asked_partners ? tx('{n} near {area} · {p} demo partners', { n: sc.found_local || 0, area: sc.area || '', p: sc.asked_partners }) : tx('{n} near {area}', { n: sc.found_local || 0, area: sc.area || '' }))
+    : sc.query ? tx(sc.source === 'channel3' ? 'Real products · US stores' : 'Products · test catalogue') : tx('Updated quote');
+  const foot = honestNote(sc.pay_mode, sc.attribution || (offers.some((o) => o.live) ? 'Channel3' : ''));
   if (!offers.length) {
     $('#app').innerHTML = `<div class="head"><p class="context">${esc(who)}</p>${status('wait', tx('No match'))}</div>
       <h1>${tx('No one can do it at that time')}</h1><p class="lead">${tx('Try another day, or a higher price limit.')}</p>`;
@@ -61,33 +69,34 @@ function render(result) {
   }
   const svc = offers[0].kind === 'service';
   const skipped = sc.skipped && sc.skipped.length;
-  const st = skipped ? status('info', tx('{n} skipped for your household', { n: sc.skipped.length })) : svc ? status('ok', tx(offers.length === 1 ? '{n} quote' : '{n} quotes', { n: offers.length })) : '';
+  const st = skipped ? status('info', tx('{n} skipped for your household', { n: sc.skipped.length })) : svc ? status('ok', tx(offers.length === 1 ? '{n} option' : '{n} options', { n: offers.length })) : '';
   const best = cur || offers[0];
   if (offers.length === 1) {
     const o = best;
     $('#app').innerHTML = `
-      <div class="head"><p class="context">${esc(who)}${o.kind === 'service' && o.card_verified ? tx(' · agent card verified') : ''}</p>${st}</div>
-      <div class="hero"><div class="lead-in">${o.image_url ? thumb(o, 'lg') : ''}<div class="stack"><h1>${esc(o.merchant)}</h1><span class="meta">${esc(slotL(o.slot_label))}${o.kind === 'service' && o.rating ? ` · ${tx('rated {r}', { r: o.rating })}` : ''}</span></div></div>
-        <span class="num">${usd(o.total)}</span></div>
+      <div class="head"><p class="context">${esc(who)}</p>${st}</div>
+      <div class="hero"><div class="lead-in">${o.image_url ? thumb(o, 'lg') : ''}<div class="stack"><span class="origin${o.source === 'partner' ? ' partner' : ''}">${esc(origin(o))}</span><h1>${esc(o.kind === 'service' ? o.merchant : nameOf(o))}</h1><span class="meta">${esc(slotL(o.slot_label))}</span></div></div>
+        <span class="num">${esc(priceOf(o))}</span></div>
       <div class="single">
-        ${o.kind === 'service' ? `<p class="said">${esc(o.negotiation)}</p>` : `<p class="said">${esc(P(o.title))}</p>`}
-        <div class="facts">${o.discount ? `<span>${tx('Was')} <b>${usd(o.base + (o.fees || 0))}</b></span><span>${tx('Negotiated')} <b style="color:var(--ok-text)">−${usd(o.discount)}</b></span>` : ''}${trust(o)}</div>
-      </div>`;
+        <p class="said">${esc(o.source === 'local' ? origin(o, { long: true }) : o.kind === 'service' ? o.negotiation : P(o.title))}</p>
+        <div class="facts">${o.discount ? `<span>${tx('Was')} <b>${usd(o.base + (o.fees || 0))}</b></span><span>${tx('Negotiated')} <b style="color:var(--ok-text)">−${usd(o.discount)}</b></span>` : ''}${trust(o)}<span>${esc(detailOf(o))}</span></div>
+      </div>${foot}`;
     return;
   }
   $('#app').innerHTML = `
-    <div class="head"><p class="context">${esc(who)}${svc && !cur ? tx(' · every agent verified') : ''}</p>${st}</div>
-    <div class="hero"><div class="stack"><span class="best">${tx(cur ? 'Now in your plan' : svc ? 'Best quote' : 'Best match')}</span><h1>${esc(cur && cur.kind === 'product' ? nameOf(cur) : best.merchant)}</h1></div><span class="num">${usd(best.total)}</span></div>
+    <div class="head"><p class="context">${esc(who)}</p>${st}</div>
+    <div class="hero"><div class="stack"><span class="best">${tx(cur ? 'Now in your plan' : svc ? 'Best quote' : 'Best match')}</span><h1>${esc(cur && cur.kind === 'product' ? nameOf(cur) : best.kind === 'product' ? nameOf(best) : best.merchant)}</h1></div><span class="num">${esc(priceOf(best))}</span></div>
     <div class="rail${offers.length < 3 ? ' two' : ''}" role="list" aria-label="${tx('Options')}">${offers.slice(0, 5).map((o, i) => `
-      <button class="offer" role="listitem" aria-pressed="${cur ? o.id === cur.id : i === 0}" data-id="${esc(o.id)}" aria-label="${esc(o.kind === 'product' ? P(o.title) : o.merchant)}, ${esc(usd(o.total))}, ${esc(slotL(o.slot_label))}${cur && o.id !== cur.id ? esc(tx('. Tap to take it instead')) : ''}">
+      <button class="offer" role="listitem" aria-pressed="${cur ? o.id === cur.id : i === 0}" data-id="${esc(o.id)}" aria-label="${esc(o.kind === 'product' ? P(o.title) : o.merchant)}, ${esc(priceOf(o))}, ${esc(origin(o))}${cur && o.id !== cur.id ? esc(tx('. Tap to take it instead')) : ''}">
         <span class="sel" aria-hidden="true">${CHECK}</span>
         ${o.image_url ? `<span class="ph"><img src="${esc(o.image_url)}" alt="${esc(o.image_alt || P(o.title))}" loading="lazy" decoding="async"></span>` : ''}
-        <span class="top">${o.image_url ? '' : kindIcon(o)}<b>${esc(cur && o.kind === 'product' ? nameOf(o) : o.merchant)}</b></span>
-        <span class="price">${usd(o.total)}${o.discount ? `<s>${usd(o.base + (o.fees || 0))}</s>` : ''}</span>
-        <span class="when">${esc(slotL(o.slot_label))}${o.kind === 'service' && o.rating ? ` · ${o.rating}` : ''}</span>
-        <span class="quote">${o.kind === 'service' ? `“${esc(o.negotiation)}”` : esc(P(o.title))}</span>
+        <span class="top">${o.image_url ? '' : kindIcon(o)}<b>${esc(o.kind === 'product' ? nameOf(o) : o.merchant)}</b></span>
+        <span class="origin${o.source === 'partner' ? ' partner' : ''}">${esc(origin(o))}</span>
+        <span class="price">${esc(priceOf(o))}${o.discount ? `<s>${usd(o.base + (o.fees || 0))}</s>` : ''}</span>
+        <span class="when">${esc(slotL(o.slot_label))}</span>
+        <span class="quote">${esc(detailOf(o))}</span>
         ${trust(o)}
-      </button>`).join('')}</div>`;
+      </button>`).join('')}</div>${foot}`;
   // Alternatives to a plan line: a tap on another option is "take this one instead" (said to Alexa, same guardrails).
   if (cur) {
     for (const b of document.querySelectorAll('.offer')) b.onclick = () => {
@@ -102,7 +111,7 @@ function render(result) {
   for (const b of document.querySelectorAll('.offer')) b.onclick = () => {
     for (const x of document.querySelectorAll('.offer')) x.setAttribute('aria-pressed', String(x === b));
     const o = offers.find((x) => x.id === b.dataset.id);
-    mcpApp.updateModelContext([{ type: 'text', text: `The user selected ${o.merchant} (${o.title}, ${usd(o.total)}). offer_id=${o.id}` }], { selected_offer_id: o.id }).catch(() => {});
+    mcpApp.updateModelContext([{ type: 'text', text: `The user selected ${o.merchant} (${o.title}, ${usd(o.total)}${o.source === 'local' ? ', estimated' : ''}). offer_id=${o.id}` }], { selected_offer_id: o.id }).catch(() => {});
   };
 }
 mcpApp.on('result', render);

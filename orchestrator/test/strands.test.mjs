@@ -25,13 +25,13 @@ test('scenario 1 through Strands: Agent -> McpClient -> Mandat MCP server, then 
   let session = { device: 'show' };
   const out = await brain.runTurn({ text: 'Alexa, my in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400.', session, household: 'strands' });
   assert.deepEqual(out.steps.map((s) => s.name), ['set_spending_mandate', 'find_home_services', 'find_products', 'find_home_services', 'propose_plan']);
-  assert.match(out.speech, /Total \$372.*Should I book it\?/);
+  assert.match(out.speech, /Total \$380.*booking request at an estimated price.*Should I book it\?/);
   assert.ok(out.steps.every((s) => s.result._meta?.ui?.resourceUri), 'raw MCP results kept for the cards');
   session = out.session;
   const yes = await brain.runTurn({ text: 'Yes, book it.', session, household: 'strands' });
   assert.deepEqual(yes.steps.map((s) => s.name), ['confirm_plan']);
   assert.equal(yes.steps[0].result.structuredContent.receipt.orders.length, 3);
-  assert.match(yes.speech, /Booked\. 3 payment holds for \$372/);
+  assert.match(yes.speech, /Done\. 3 payment holds for \$380/);
 });
 
 test('the AgentSkills plugin is loaded on the agent and exposes the skill to the model', async () => {

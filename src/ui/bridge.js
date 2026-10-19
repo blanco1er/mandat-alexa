@@ -130,6 +130,19 @@ const ICONS = {
 const icon = (k) => `<span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24">${ICONS[k] || ICONS.product}</svg></span>`;
 const kindIcon = (o) => icon(o.kind === 'product' ? 'product' : o.category || guessCategory(o));
 const status = (tone, text) => `<span class="status ${tone}">${esc(text)}</span>`;
+// Where an option comes from, said plainly on every card: a real business (estimated price, booking request), a demo
+// partner (simulated merchant agent), a real product (no order placed with the store) or the test catalogue.
+function origin(o, { long = false } = {}) {
+  if (!o) return '';
+  if (o.source === 'local') return long ? tx('Booking request · not sent in this demo') : `${tx('Real business')} · ${tx('Estimated')}`;
+  if (o.source === 'partner') return long ? tx('Demo partner · simulated merchant agent') : tx('Demo partner');
+  if (o.live) return long ? tx('No order placed with {m}', { m: o.retailer || o.merchant }) : tx('Real product');
+  if (o.source === 'test catalogue') return tx('Test catalogue');
+  return '';
+}
+// "about $100" for an estimate, "$195" for a quote or a store price
+const priceOf = (o, amt) => (o && (o.source === 'local' || o.estimated) ? tx('about {amt}', { amt: usd(amt ?? o.total) }) : usd(amt ?? (o ? o.total : 0)));
+const honestNote = (mode, extra = '') => `<p class="note honest">${esc(tx(mode === 'sandbox' ? 'PayPal sandbox test money · no real order or booking' : 'Simulated payments · no real order or booking'))}${extra ? ' · ' + esc(extra) : ''}</p>`;
 // Item photo (served from Mandat's own origin, the only domain in the card's CSP), else the category icon.
 // The box has a fixed size, so the card never jumps when the photo arrives; a photo that fails keeps a quiet tile.
 const thumb = (o, cls = '') => o && o.image_url

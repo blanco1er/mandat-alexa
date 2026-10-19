@@ -18,6 +18,7 @@ import { cards, CARD_NAMES, MCP_APP_MIME, resourceUiMeta, UI_EXTENSION } from '.
 
 export const SERVER_INFO = { name: 'mandat-for-alexa-plus', title: 'Mandat for Alexa+', version: '0.1.0' };
 export const INSTRUCTIONS = `Mandat runs household errands inside a spending budget the user set once.
+Real local businesses come with an ESTIMATED price and a booking request (never say they confirmed, accepted or lowered a price); demo partners are simulated merchant agents (say "demo partner"); products are real, but Mandat never orders from the store: payments are PayPal sandbox test money.
 Flow: find_home_services / find_products -> (negotiate_offer) -> propose_plan -> read the total aloud -> the user says yes -> confirm_plan with user_confirmation set to the user's words.
 Before the yes, the user may look closer (get_offer_details), ask for other options (list_alternatives), compare (compare_offers) or swap and remove items (revise_plan, which returns a new plan and a new confirmation_token). review_plan shows the plan waiting for a yes.
 Never call confirm_plan for a plan that needs a yes before the user has said it. Never invent ids: use the ones in the results.
@@ -68,7 +69,7 @@ const UI_TEXT = {
   get_household_status: ['Checking your household…', 'Household status ready'],
   set_spending_mandate: ['Setting your budget…', 'Budget set'],
   remember_preference: ['Saving that…', 'Saved'],
-  find_home_services: ['Asking local pros…', 'Quotes ready'],
+  find_home_services: ['Finding local pros…', 'Options ready'],
   find_products: ['Searching products…', 'Products found'],
   negotiate_offer: ['Negotiating…', 'Merchant answered'],
   propose_plan: ['Building your plan…', 'Plan ready'],
@@ -122,7 +123,7 @@ export function liveStart(name, a = {}) {
 export function liveEnd(name, d = {}) {
   const env = d.envelope || d.receipt?.envelope;
   switch (name) {
-    case 'find_home_services': return { text: T('le_svc', { n: d.asked, noun: I.noun(d.category, d.asked, L()), cat: d.category, q: d.offers?.length || 0 }), to: d.offers?.[0]?.total ?? null, detail: d.offers?.[0] ? T('le_best', { m: d.offers[0].merchant }) : undefined };
+    case 'find_home_services': return { text: T('le_svc2', { local: d.found_local || 0, partners: d.asked_partners || 0, area: d.area || '', q: d.offers?.length || 0 }), to: d.offers?.[0]?.total ?? null, detail: d.offers?.[0] ? T('le_best', { m: d.offers[0].merchant }) : undefined, image_url: d.offers?.[0]?.image_url };
     case 'find_products': {
       const best = d.offers?.[0];
       const skipped = d.skipped || [];
@@ -176,7 +177,9 @@ export function createMcpServer({ service, household = householdFrom }) {
         const out = await run(hid, args);
         if (!visibility) await note(service.store, { step, tool: name, state: 'done', ...liveEnd(name, out.data || {}) });
         const cardName = out.card || card;
-        const data = { ...out.data, ...(out.duplicate ? { duplicate: true } : {}) };
+        // pay_mode: what the cards say about money ("PayPal sandbox test money" or "Simulated payments"), read from
+        // the running configuration, never written in the card
+        const data = { ...out.data, ...(out.duplicate ? { duplicate: true } : {}), pay_mode: service.payMode ? service.payMode() : 'offline' };
         return {
           content: [
             { type: 'text', text: out.speech || invoked },
@@ -225,7 +228,7 @@ export function createMcpServer({ service, household = householdFrom }) {
 
   tool('find_home_services', {
     title: 'Get quotes from local home services',
-    description: 'Use when the user needs a service at home: cleaning, catering, plumbing or handyman work. Asks every matching merchant agent in parallel, verifies each agent\'s signed identity card, and returns up to 5 negotiated quotes, cheapest first. Does not book anything.',
+    description: 'Use when the user needs a service at home: cleaning, catering, plumbing or handyman work. Finds REAL local businesses near the home (Google Maps / OpenStreetMap: rating, reviews, hours) with an ESTIMATED price, and asks the demo partners (simulated merchant agents, signed identity cards) for negotiated quotes. Returns up to 5 options, cheapest first, each labelled. Does not book or contact anything.',
     input: {
       need: z.string().min(2).max(200).describe('What is needed, in the user\'s words, e.g. "dinner for six at home".'),
       category: z.enum(['cleaning', 'catering', 'plumbing', 'handyman']).describe('Type of service.'),
@@ -239,10 +242,10 @@ export function createMcpServer({ service, household = householdFrom }) {
 
   tool('find_products', {
     title: 'Find household products',
-    description: 'Use when the user needs things delivered: bedding, pet food, coffee, household supplies. Filters out anything that conflicts with saved household preferences (allergies) and puts the household\'s usual brand first. Returns up to 5 products with delivery. Does not buy anything.',
+    description: 'Use when the user needs things for the home: bedding, towels, pet food, laundry and household supplies. Searches real products and real prices from US online stores (or the labelled test catalogue), filters out anything that conflicts with saved household preferences (allergies) and puts the household\'s usual brand first. Returns up to 5 products. Never orders from a store: a plan is paid with test money.',
     input: {
-      query: z.string().min(2).max(200).describe('What to look for, e.g. "dog food" or "queen sheets for the guest room".'),
-      max_price: z.number().positive().max(5000).optional().describe('Highest price per item.'),
+      query: z.string().min(2).max(200).describe('What to look for, in English, e.g. "dry dog food" or "queen sheet set".'),
+      max_price: z.number().positive().max(5000).optional().describe('Highest price per item. Inside a total budget, pass about a fifth of it so the whole plan (and a later replacement) fits.'),
       quantity: z.number().int().min(1).max(10).default(1).describe('How many units. Leave it out (1) unless the user said a number: one bedding set covers a bed.'),
     },
     card: 'offers', annotations: { readOnlyHint: true, openWorldHint: true },
@@ -250,7 +253,7 @@ export function createMcpServer({ service, household = householdFrom }) {
 
   tool('negotiate_offer', {
     title: 'Negotiate a quote',
-    description: 'Use when the user wants a better price or a different slot on one service quote ("can they do better if we take Friday morning?"). Sends one message to the merchant\'s agent and returns the updated quote. The merchant never goes below its own floor.',
+    description: 'Use when the user wants a better price or a different slot on one DEMO PARTNER quote ("can they do better if we take Friday morning?"). Sends one message to that simulated merchant agent and returns the updated quote; it never goes below its floor. Real local businesses have no agent: their price is an estimate and cannot be negotiated.',
     input: { offer_id: z.string().min(3).max(40).describe('offer_id from find_home_services.'), ask: z.string().min(2).max(200).describe('What to ask the merchant, e.g. "Friday morning for $80?".') },
     card: 'offers', annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, (hid, a) => service.negotiateOffer(hid, a));
@@ -268,7 +271,7 @@ export function createMcpServer({ service, household = householdFrom }) {
 
   tool('confirm_plan', {
     title: 'Confirm and place payment holds',
-    description: 'Use only after the user explicitly said yes to a proposed plan (or when propose_plan said it is under the auto-approve rule). Places one PayPal authorization hold per item; nothing is captured until the service is done. Idempotent: calling it again for the same plan returns the same receipt and never pays twice.',
+    description: 'Use only after the user explicitly said yes to a proposed plan (or when propose_plan said it is under the auto-approve rule). Places one PayPal sandbox authorization hold (test money) per item; nothing is captured until the service is done. For a real local business the line is a booking request at an estimated price (not confirmed by the business); no order is ever placed with a store. Idempotent: calling it again for the same plan returns the same receipt and never pays twice.',
     input: {
       plan_id: z.string().min(3).max(40).describe('plan_id from propose_plan.'),
       confirmation_token: z.string().min(8).max(64).describe('confirmation_token from propose_plan.'),

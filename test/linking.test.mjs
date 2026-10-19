@@ -57,7 +57,7 @@ test('authorization code + PKCE S256: demo household pre-filled, refresh token i
   const c = await asUser(t.access_token);
   const st = sc(await c.callTool({ name: 'get_household_status', arguments: {} }));
   assert.match(st.household_id, /^demo-[0-9a-f]{10}$/);
-  assert.deepEqual(st.preferences.map((p) => p.subject).sort(), ['Coffee', 'Max (dog)']);
+  assert.deepEqual(st.preferences.map((p) => p.subject).sort(), ['Laundry', 'Max (dog)']);
   await c.close();
 });
 
@@ -133,7 +133,7 @@ test('revoke (Alexa "Unlink") kills every token of the link at once', async () =
 test('permissions: only what the person allowed is kept; the name greets, the address books; no address, no booking', async () => {
   const t = await linkHousehold(srv.url, { choice: 'demo' });
   const c = await asUser(t.access_token);
-  const values = { name: { full: 'Alex Rivera', given: 'Alex' }, email: 'alex.rivera@example.com', address: { line1: '1450 Maple Ave', city: 'Seattle', region: 'WA', postal: '98109' } };
+  const values = { name: { full: 'Alex Rivera', given: 'Alex' }, email: 'alex.rivera@example.com', address: { line1: 'Capitol Hill', city: 'Seattle', region: 'WA', postal: '98102' } };
   const p = await c.callTool({ name: 'apply_customer_permissions', arguments: { granted: { name: true, email: false, address: true }, values } });
   assert.match(text(p), /Thanks, Alex\. Mandat now has your name and your address\./);
   assert.equal(sc(p).profile.email, null, 'email not allowed, not kept');
@@ -141,7 +141,7 @@ test('permissions: only what the person allowed is kept; the name greets, the ad
   assert.match(text(s), /Welcome, Alex/);
   const svc = sc(await c.callTool({ name: 'find_home_services', arguments: { need: 'deep clean', category: 'cleaning', when: 'Friday morning' } }));
   const det = sc(await c.callTool({ name: 'get_offer_details', arguments: { offer_id: svc.offers[0].id } }));
-  assert.ok(det.specs.some((x) => /1450 Maple Ave/.test(x.v)));
+  assert.ok(det.specs.some((x) => /Capitol Hill/.test(x.v)));
   // address turned off: the detail is deleted and nothing can be booked at home
   await c.callTool({ name: 'apply_customer_permissions', arguments: { granted: { name: true, email: false, address: false }, values } });
   const plan = sc(await c.callTool({ name: 'propose_plan', arguments: { item_ids: [svc.offers[0].id] } }));

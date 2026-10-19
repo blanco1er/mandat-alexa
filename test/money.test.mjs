@@ -57,7 +57,7 @@ test('only a plan under the auto-approve rule can be confirmed without a yes', a
   const c = await client(srv.mcpUrl);
   await c.callTool({ name: 'set_spending_mandate', arguments: { budget: 150, period: 'weekly', purpose: 'Household essentials', auto_approve_under: 40 } });
   const dog = await c.callTool({ name: 'find_products', arguments: { query: 'dog food' } });
-  const coffee = await c.callTool({ name: 'find_products', arguments: { query: 'coffee northbeam' } });
+  const coffee = await c.callTool({ name: 'find_products', arguments: { query: 'seventh generation laundry detergent' } });
   const small = await c.callTool({ name: 'propose_plan', arguments: { item_ids: [sc(dog).offers.find((o) => o.total <= 40).id] } });
   const big = await c.callTool({ name: 'propose_plan', arguments: { item_ids: [sc(coffee).offers.find((o) => o.total > 40).id] } });
   assert.equal(sc(small).needs_user_yes, false);
@@ -78,7 +78,7 @@ test('confirm_plan is idempotent: a retry returns the same receipt and holds not
   assert.equal(ids(a), ids(third));
   assert.equal(sc(third).duplicate, true);
   assert.equal(await held(c), 3);
-  assert.equal(sc(third).receipt.envelope.held, 372);
+  assert.equal(sc(third).receipt.envelope.held, 380);
   await c.close();
 });
 

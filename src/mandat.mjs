@@ -7,10 +7,18 @@
 //  - a plan never exceeds what is left in its envelope (checked at proposal AND again at confirmation);
 //  - confirm_plan is idempotent on plan_id: a retry returns the same receipt and never holds twice;
 //  - a merchant agent (simulated or Bedrock) can never price below the merchant's floor (guardQuote).
+// Where things come from (never presented as anything else):
+//  - real local businesses (src/core/places.mjs): ESTIMATED price, a booking REQUEST Mandat never sends in this demo;
+//  - demo partners (src/core/merchants.mjs): simulated merchant agents, the only ones that quote and negotiate;
+//  - real products (src/core/shop.mjs, Channel3) or the labelled test catalogue: no order is ever placed with a store.
+//  Every payment is a hold of PayPal sandbox test money (or simulated when the sandbox is not connected).
 import crypto from 'node:crypto';
 import * as envelope from './core/envelope.mjs';
 import * as defaultPaypal from './core/paypal.mjs';
-import { searchProducts, shopEnabled } from './core/shop.mjs';
+import { searchProducts, setShopStore, shopEnabled, typeOf } from './core/shop.mjs';
+import { findLocal, HOME, openOn, setPlacesStore } from './core/places.mjs';
+import { estimateFor } from './core/estimate.mjs';
+import { imgUrl } from './core/imgproxy.mjs';
 import { searchCatalog } from './core/catalog.mjs';
 import { galleryFor, mediaFor } from './core/media.mjs';
 import { note } from './core/activity.mjs';
@@ -77,8 +85,13 @@ export class Mandat {
   constructor({ store, provider, paypal = defaultPaypal, publicUrl = process.env.MANDAT_PUBLIC_URL || 'http://localhost:8787', now = () => Date.now() }) {
     Object.assign(this, { store, provider, paypal, publicUrl, now });
     this.locks = new Map();
+    // real data caches are shared by every household (one neighbourhood, one product search serves everyone)
+    setPlacesStore(store);
+    setShopStore(store);
   }
 
+  // What pays: PayPal sandbox test money, or simulated payments when the sandbox is not connected.
+  payMode() { return this.paypal.MODE === 'sandbox' ? 'sandbox' : 'offline'; }
   // Serialize writes per household (one warm Lambda handles one request at a time; this covers the local server).
   async locked(hid, fn) {
     const prev = this.locks.get(hid) || Promise.resolve();
@@ -157,7 +170,7 @@ export class Mandat {
       if (!envelopes.length) parts.push(T('st_none'));
       for (const e of envelopes.slice(0, 2)) parts.push(T('st_env', { purpose: e.purpose, left: usd(e.remaining, e.currency), budget: usd(e.budget, e.currency), period: e.period, held: e.held ? usd(e.held, e.currency) : '' }));
     }
-    if (!section || section === 'orders') parts.push(open.length ? T('st_open', { n: open.length, names: listWords(open.slice(0, 3).map((o) => o.merchant)) }) : T('st_noopen'));
+    if (!section || section === 'orders') parts.push(open.length ? T('st_open', { n: open.length, names: listWords(open.slice(0, 3).map((o) => o.merchant.replace(/\.$/, ''))) }) : T('st_noopen'));
     if (section === 'preferences') parts.push(preferences.length ? T('st_prefs', { list: listWords(preferences.slice(0, 5).map((p) => `${p.subject}, ${p.fact}`)) }) : T('st_noprefs'));
     if (pending.length) parts.push(T('st_pending', { n: pending.length }));
     return { speech: parts.join(' '), data, card: 'status' };
@@ -268,55 +281,76 @@ export class Mandat {
   }
 
   // ---------- 4. find_home_services ----------
+  // Two kinds of options, always labelled: REAL local businesses near the home (Google Places or OpenStreetMap), with
+  // an ESTIMATED price and a booking request; and DEMO PARTNERS, simulated merchant agents that quote and negotiate.
+  // Best first: lowest total, then the better-rated, then the closer.
   async findHomeServices(hid, { need, category, when, area, max_price, guests }) {
     const cat = normalizeCategory(category) || normalizeCategory(need);
     if (!cat) throw new ToolError(`I can book cleaning, catering, plumbing and handyman services.`, 'Ask the user which of these they need.');
     guests = guests || parseGuests(need) || null;
     // Caterers price per guest: never quote a dinner for "one" because the number was lost on the way.
     if (cat === 'catering' && !guests) throw new ToolError(T('e_guests'), 'Ask the user, or reuse the guest count of the booking being replaced, then search again with guests.');
-    const merchants = search({ category: cat, area }).map((p) => merchantById(p.id));
     const sid = id('srch');
-    // Each merchant agent answers on its own: the screen shows every answer the moment it lands.
+    const now = this.now();
+    const home = HOME;
+    const slot = requestedSlot(cat, when, now);
+    const day = parseWhen(slot).day;
+    const declined = [];
+    // 1. real local businesses (never contacted: estimated price, booking request)
+    const lstep = `l-${sid}`;
+    await this.live({ step: lstep, state: 'running', text: T('l_looking', { noun: nounOf(cat, 2), area: home.area }) });
+    let local = { places: [], source: null, attribution: '' };
+    try { local = await findLocal({ category: cat, userId: hid, near: home }); } catch (e) { console.warn('[places]', e.message); }
+    const est = estimateFor(cat, { need, guests });
+    const localOffers = [];
+    for (const pl of local.places) {
+      // the published hours say closed that day: not proposed (catering hours are office hours, so they do not count)
+      if (cat !== 'catering' && openOn(pl.hours, day) === false) { declined.push({ merchant: pl.name, reply: T('l_closed_day', { m: pl.name, day: I.dayName(DAY_NAMES[day], loc()) }) }); continue; }
+      if (max_price && est.total > max_price) { declined.push({ merchant: pl.name, reply: `Above your ${usd(max_price)} limit (about ${usd(est.total)}).` }); continue; }
+      localOffers.push(localOffer(pl, { cat, slot, guests, when, est, sid, now, source: local.source, attribution: local.attribution, publicUrl: this.publicUrl, id: id('off') }));
+    }
+    await this.live({ step: lstep, state: 'done', text: T('l_found_local', { n: localOffers.length, noun: nounOf(cat, localOffers.length), area: home.area }), detail: local.attribution || undefined, image_url: localOffers[0]?.image_url });
+    // 2. demo partners: each simulated merchant agent answers on its own, the screen shows every answer as it lands
+    const merchants = search({ category: cat, area }).map((p) => merchantById(p.id));
     const answers = await Promise.all(merchants.map(async (m) => {
       await this.live({ step: `q-${sid}-${m.id}`, state: 'running', text: T('l_asking', { m: m.name }), image_url: mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl).image_url });
-      const r = await this.provider.merchantAgent({ merchant: m, when, ask: need, guests });
+      const r = await this.provider.merchantAgent({ merchant: m, when: when || slot, ask: need, guests });
       const quote = guardQuote(m, r.quote, guests);
       const verified = verifyCard(identityCard(m));
       await this.live(quote
-        ? { step: `q-${sid}-${m.id}`, state: 'done', text: m.name, detail: `${quote.slotLabel ? I.slot(usTime(quote.slotLabel), loc()) : ''}${verified ? ' · ' + T('l_verified') : ''}`, from: quote.discount ? round(quote.base) : null, to: round(quote.total), image_url: mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl).image_url }
+        ? { step: `q-${sid}-${m.id}`, state: 'done', text: m.name, detail: `${T('l_demo_partner')}${quote.slotLabel ? ' · ' + I.slot(usTime(quote.slotLabel), loc()) : ''}${verified ? ' · ' + T('l_verified') : ''}`, from: quote.discount ? round(quote.base) : null, to: round(quote.total), image_url: mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl).image_url }
         : { step: `q-${sid}-${m.id}`, state: 'failed', text: m.name, detail: firstSentence(r.reply), image_url: mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl).image_url });
       return { m, r, quote };
     }));
-    const now = this.now();
-    const offers = [];
-    const declined = [];
+    const partnerOffers = [];
     for (const { m, r, quote } of answers) {
       if (!quote) { declined.push({ merchant: m.name, reply: r.reply }); continue; }
       if (max_price && quote.total > max_price) { declined.push({ merchant: m.name, reply: `Above your ${usd(max_price)} limit (${usd(quote.total)}).` }); continue; }
       const card = identityCard(m);
-      offers.push({
-        id: id('off'), kind: 'service', merchant_id: m.id, merchant: m.name, category: m.category, area: m.area, rating: m.rating,
+      if (!verifyCard(card)) continue;
+      partnerOffers.push({
+        id: id('off'), kind: 'service', source: 'partner', partner: true, merchant_id: m.id, merchant: m.name, category: m.category, area: m.area, rating: null,
         title: m.label, slot_label: quote.slotLabel, guests: quote.guests, when: when || '',
         base: round(quote.base), discount: round(quote.discount), fees: 0, tax: 0, total: round(quote.total), currency: 'USD',
         negotiation: r.reply, conditions: quote.conditions || '',
-        card_verified: verifyCard(card), agent: card.agent, card_issuer: card.issuedBy, search_id: sid,
+        card_verified: true, agent: card.agent, card_issuer: card.issuedBy, search_id: sid,
         history: [{ from: 'merchant', list: round(quote.base), total: round(quote.total), text: r.reply }],
         ...mediaFor({ kind: 'service', merchant_id: m.id }, this.publicUrl),
         created: new Date(now).toISOString(), expires: new Date(now + OFFER_TTL).toISOString(),
       });
     }
-    offers.sort((a, b) => a.total - b.total || b.rating - a.rating);
-    const top = offers.filter((o) => o.card_verified).slice(0, 5);
+    const offers = [...partnerOffers, ...localOffers].sort((a, b) => a.total - b.total || (b.rating || 0) - (a.rating || 0) || (a.place?.distance_m ?? 1e9) - (b.place?.distance_m ?? 1e9));
+    const top = offers.slice(0, 5);
     if (!top.length) {
-      const d = parseWhen(when).day;
-      throw new ToolError(T('e_no_service', { noun: nounOf(cat, 1), day: d ? I.dayName(DAY_NAMES[d], loc()) : '', max: max_price ? usd(max_price) : '' }), 'Suggest another day or a higher limit to the user.');
+      throw new ToolError(T('e_no_service', { noun: nounOf(cat, 1), day: day ? I.dayName(DAY_NAMES[day], loc()) : '', max: max_price ? usd(max_price) : '' }), 'Suggest another day or a higher limit to the user.');
     }
     for (const o of top) await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
-    await this.store.put(pkOf(hid), `SEARCH#${sid}`, { id: sid, kind: 'service', category: cat, when: when || '', guests: guests || null, asked: answers.length, offer_ids: top.map((o) => o.id), declined: declined.length, at: new Date(now).toISOString() });
-    const spoken = top.slice(0, 3).map((o, i) => T('svc_line', { n: top.length, i, merchant: o.merchant, total: usd(o.total), slot: spokenSlot(o.slot_label), base: o.discount ? usd(o.base) : '' }));
+    const nLocal = localOffers.length, nPartners = answers.length;
+    await this.store.put(pkOf(hid), `SEARCH#${sid}`, { id: sid, kind: 'service', category: cat, when: when || '', guests: guests || null, asked: nLocal + nPartners, found_local: nLocal, asked_partners: nPartners, offer_ids: top.map((o) => o.id), declined: declined.length, at: new Date(now).toISOString() });
+    const spoken = top.slice(0, 3).map((o, i) => T(o.source === 'local' ? 'svc_line_local' : 'svc_line_partner', { n: top.length, i, merchant: o.merchant, total: usd(o.total), slot: spokenSlot(o.slot_label), base: o.discount ? usd(o.base) : '', r: o.rating || '' }));
     return {
-      speech: `${answers.length === 1 ? T('svc_one', { one: nounOf(cat, 1) }) : T('svc_many', { n: answers.length, label: nounOf(cat, answers.length) })} ${spoken.join('. ')}.`,
-      data: { category: cat, asked: answers.length, offers: top, declined },
+      speech: `${T('svc_found', { local: nLocal, partners: nPartners, noun: nounOf(cat, nLocal), area: home.area })} ${spoken.join('. ')}.${nLocal && top.some((o) => o.source === 'local') ? ' ' + T('svc_estimate_note') : ''}`,
+      data: { category: cat, asked: nLocal + nPartners, found_local: nLocal, asked_partners: nPartners, area: home.area, places_source: local.source, attribution: local.attribution, requested_slot: slot, offers: top, declined },
       card: 'offers',
     };
   }
@@ -332,40 +366,63 @@ export class Mandat {
       const reason = T('because', { who, fact: p.fact.replace(/\.$/, '') }).replace(/\s+/g, ' ');
       for (const w of I.allergensOf(p.fact)) banned.set(w.toLowerCase(), reason);
     }
-    let found;
-    if (shopEnabled()) {
-      const live = await searchProducts({ query, maxPrice: max_price, limit: 8, userId: hid });
-      found = live.map((p) => ({ id: p.id, shop: 'shop_' + p.retailer, shopName: p.retailer, title: p.title, price: p.price, delivery: 0, contains: [p.title.toLowerCase()], tags: [] }));
+    const live = shopEnabled();
+    let found, kind = null;
+    if (live) {
+      // the household's usual brand for this kind of thing goes into the search ("We use Seventh Generation detergent")
+      kind = typeOf(query);
+      const usual = kind ? prefs.map((x) => usualOf(x.fact)).find((u) => u && typeOf(u)?.type === kind.type) : null;
+      let res;
+      try { res = await searchProducts({ query: usual || query, maxPrice: max_price, limit: 8, userId: hid }); }
+      catch (e) { throw new ToolError(T(e.status === 429 ? 'e_shop_cap' : 'e_shop_down'), 'Tell the user; nothing was bought. Offer to try again later.'); }
+      if (usual && !res.products.length) res = await searchProducts({ query, maxPrice: max_price, limit: 8, userId: hid }).catch(() => res);
+      kind = res.type || kind;
+      found = res.products.map((p) => ({
+        id: p.id, live: true, shop: 'live:' + p.retailer, shopName: p.retailer, title: p.title, price: p.price, was: p.was, delivery: 0, brand: p.brand,
+        contains: p.materials || [], check: [p.title, p.description, ...(p.features || []), ...(p.materials || [])].join(' ').toLowerCase(),
+        category: kind?.settings || 'home', type: kind?.type || (p.category || 'item').toLowerCase(), features: p.features || [], url: p.url, images: p.images || [],
+        size: p.size || '', category_path: p.category_path || '', other_offers: (p.offers || []).slice(1),
+      }));
     } else found = searchCatalog({ query, maxPrice: max_price });
     const skipped = [];
     const ok = found.filter((p) => {
-      const hit = [...banned.keys()].find((b) => p.contains.some((c) => c.includes(b)) || p.title.toLowerCase().includes(b));
+      const hit = [...banned.keys()].find((b) => p.contains.some((c) => c.includes(b)) || p.title.toLowerCase().includes(b) || (p.check || '').includes(b));
       if (hit) skipped.push({ title: p.title, ingredient: hit, because: banned.get(hit) });
       return !hit;
     });
     // Household brand/product preferences go first.
     const liked = (p) => prefs.some((x) => (p.brand && x.fact.toLowerCase().includes(p.brand.toLowerCase())));
     ok.sort((a, b) => Number(liked(b)) - Number(liked(a)));
-    // Not carried at all (a TV): say what Mandat does buy, never "try a higher price"
-    if (!found.length && !max_price) throw new ToolError(T('e_not_carried', { q: query }), 'Tell the user what Mandat can buy; do not suggest another price.');
+    // Not carried at all (a TV, or coffee beans the stores of the search do not sell): say what Mandat does buy
+    if (!found.length && !max_price) throw new ToolError(T(live ? 'e_not_found_live' : 'e_not_carried', { q: query }), 'Tell the user what Mandat can buy; do not suggest another price.');
     if (!ok.length) throw new ToolError(T('e_nothing', { q: query, prefs: skipped.length > 0 }), 'Ask the user for another product or a higher price limit.');
     const now = this.now();
     const sid = id('srch');
-    const offers = ok.slice(0, 5).map((p) => ({
-      id: id('off'), kind: 'product', merchant_id: p.shop, merchant: p.shopName, product_id: p.id, title: p.title, quantity,
-      base: round(p.price * quantity), discount: 0, fees: round(p.delivery || 0), tax: 0, total: round(p.price * quantity + (p.delivery || 0)), currency: 'USD',
-      matches_preference: liked(p), slot_label: 'Delivery in 2 days', search_id: sid, contains: p.contains || [], unit_price: round(p.price),
-      product_category: p.category || 'home', product_type: p.type || null, features: p.features || [],
-      ...mediaFor({ kind: 'product', product_id: p.id }, this.publicUrl),
-      created: new Date(now).toISOString(), expires: new Date(now + OFFER_TTL).toISOString(),
-    }));
+    const offers = ok.slice(0, 5).map((p) => {
+      const base = {
+        id: id('off'), kind: 'product', merchant_id: p.shop, merchant: p.shopName, product_id: p.id, title: p.title, quantity,
+        base: round(p.price * quantity), discount: 0, fees: round(p.delivery || 0), tax: 0, total: round(p.price * quantity + (p.delivery || 0)), currency: 'USD',
+        matches_preference: liked(p), search_id: sid, contains: p.contains || [], unit_price: round(p.price),
+        product_category: p.category || 'home', product_type: p.type || null, features: p.features || [], brand: p.brand || '',
+        created: new Date(now).toISOString(), expires: new Date(now + OFFER_TTL).toISOString(),
+      };
+      if (!p.live) return { ...base, source: 'test catalogue', slot_label: 'Delivery in 2 days', ...mediaFor({ kind: 'product', product_id: p.id }, this.publicUrl) };
+      const gallery = p.images.map((im) => ({ url: imgUrl(this.publicUrl, im.url), alt: im.alt })).filter((x) => x.url);
+      return {
+        ...base, source: 'channel3', live: true, retailer: p.shopName, url: p.url, was: p.was ? round(p.was * quantity) : null, size: p.size, category_path: p.category_path,
+        other_offers: p.other_offers, slot_label: 'Delivery set by the store', checked_for: [...banned.keys()],
+        ...(gallery.length ? { image_url: gallery[0].url, image_alt: gallery[0].alt, gallery } : {}),
+      };
+    });
     for (const o of offers) await this.store.put(pkOf(hid), `OFFER#${o.id}`, o);
-    await this.store.put(pkOf(hid), `SEARCH#${sid}`, { id: sid, kind: 'product', query, asked: found.length, offer_ids: offers.map((o) => o.id), skipped, at: new Date(now).toISOString() });
+    await this.store.put(pkOf(hid), `SEARCH#${sid}`, { id: sid, kind: 'product', query, asked: found.length, offer_ids: offers.map((o) => o.id), skipped, source: live ? 'channel3' : 'test catalogue', at: new Date(now).toISOString() });
     const best = offers[0];
     const skip = skipped.length ? T('prod_skip', { n: skipped.length, ingredients: listWords([...new Set(skipped.map((x) => P(x.ingredient)))]), because: skipped[0].because }) : '';
     return {
-      speech: T('prod_best', { usual: best.matches_preference, title: P(best.title), total: usd(best.total), merchant: best.merchant, skip }),
-      data: { query, offers, skipped, source: shopEnabled() ? 'channel3' : 'sandbox catalogue' },
+      speech: live
+        ? `${T('prod_best_live', { usual: best.matches_preference, title: shortTitle(best.title), total: usd(best.total), merchant: best.merchant, skip })} ${T('prod_honest', { mode: this.payMode() })}`
+        : T('prod_best', { usual: best.matches_preference, title: P(best.title), total: usd(best.total), merchant: best.merchant, skip }),
+      data: { query, offers, skipped, source: live ? 'channel3' : 'test catalogue', market: 'US', checked_for: [...banned.keys()] },
       card: 'offers',
     };
   }
@@ -373,7 +430,9 @@ export class Mandat {
   // ---------- 6. negotiate_offer ----------
   async negotiateOffer(hid, { offer_id, ask }) {
     const o = await this.offer(hid, offer_id);
-    if (o.kind !== 'service') throw new ToolError('Online shop prices are fixed, so there is nothing to negotiate.', 'Offer another product or go ahead with this price.');
+    if (o.kind !== 'service') throw new ToolError(T('e_no_nego_product'), 'Offer another product or go ahead with this price.');
+    // a real business has no agent in Mandat's network: its price is an estimate and Mandat never contacts it
+    if (o.source === 'local') throw new ToolError(T('e_no_nego_local', { m: o.merchant }), 'Say the price is an estimate; offer a demo partner (they negotiate) or keep the request.');
     const m = merchantById(o.merchant_id);
     const r = await this.provider.merchantAgent({ merchant: m, when: `${o.when} ${ask}`, ask, guests: o.guests });
     const quote = guardQuote(m, r.quote, o.guests);
@@ -408,7 +467,7 @@ export class Mandat {
     if (settings?.paused) throw new ToolError(T('e_paused'), 'Tell the user Mandat is paused; they can say "resume Mandat".');
     const m = await this.mandate(hid, mandate_id);
     const env = await this.envelopeOf(hid, m);
-    const lines = offers.map((o) => ({ offer_id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, merchant_id: o.merchant_id, title: o.title, detail: o.slot_label, guests: o.guests ?? null, quantity: o.quantity ?? null, base: o.base, discount: o.discount, fees: o.fees, tax: o.tax, total: o.total, search_id: o.search_id || null, product_category: o.product_category ?? null, ...(o.image_url ? { image_url: o.image_url, image_alt: o.image_alt } : {}) }));
+    const lines = offers.map((o) => ({ offer_id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, merchant_id: o.merchant_id, title: o.title, detail: o.slot_label, guests: o.guests ?? null, quantity: o.quantity ?? null, base: o.base, discount: o.discount, fees: o.fees, tax: o.tax, total: o.total, search_id: o.search_id || null, product_category: o.product_category ?? null, source: o.source || null, live: !!o.live, estimated: !!o.estimated, retailer: o.retailer || null, ...(o.image_url ? { image_url: o.image_url, image_alt: o.image_alt } : {}) }));
     const sum = (k) => round(lines.reduce((s, l) => s + (l[k] || 0), 0));
     const breakdown = { base: sum('base'), discount: sum('discount'), fees: sum('fees'), tax: sum('tax'), total: sum('total'), currency: m.currency };
     const verdict = envelope.check(env, breakdown.total);
@@ -434,12 +493,27 @@ export class Mandat {
     };
     await this.store.put(pkOf(hid), `PLAN#${plan.id}`, plan);
     await this.event(hid, 'plan.proposed', { plan_id: plan.id, total: breakdown.total, auto_approved: plan.auto_approved });
-    const items = lines.map((l) => `${l.merchant} ${usd(l.total)}`);
+    const items = lines.map((l) => this.itemSay(l));
+    const honest = this.honesty(lines);
     const speech = plan.auto_approved
-      ? T(plan.auto_reason === 'hands_off' ? 'plan_auto_hands_off' : 'plan_auto', { items: listWords(items), total: usd(breakdown.total), auto: usd(m.auto_approve_under), cap: usd(settings?.daily_cap || 0) })
-      : T('plan_ask', { items: listWords(items), total: usd(breakdown.total), discount: breakdown.discount ? usd(breakdown.discount) : '', left: usd(plan.remaining_after), budget: usd(t.total), why: settings ? T('ask_why_' + autonomy.reason, { amt: usd(auto), left: usd(autonomy.left ?? 0) }) : '' });
+      ? `${T(plan.auto_reason === 'hands_off' ? 'plan_auto_hands_off' : 'plan_auto', { items: listWords(items), total: usd(breakdown.total), auto: usd(m.auto_approve_under), cap: usd(settings?.daily_cap || 0) })} ${honest}`.trim()
+      : T('plan_ask', { items: listWords(items), total: usd(breakdown.total), discount: breakdown.discount ? usd(breakdown.discount) : '', left: usd(plan.remaining_after), budget: usd(t.total), why: settings ? T('ask_why_' + autonomy.reason, { amt: usd(auto), left: usd(autonomy.left ?? 0) }) : '', honest });
     const { token_hash, ...pub } = plan;
     return { speech, data: { plan: pub, confirmation_token: token, needs_user_yes: !plan.auto_approved, envelope: this.envelopeView(m, env), autonomy: settings ? { level: settings.autonomy, reason: autonomy.reason } : undefined }, card: 'plan' };
+  }
+
+  // How one plan line is said: "Pure House Cleaning, about $100 estimated", "Hearth Table Catering, a demo partner, $195",
+  // "Ienjoy Home Bed Sheet Set from ashleyfurniture.com, $40.99"; test catalogue lines as before ("Hearth & Linen $92").
+  itemSay(l) {
+    if (l.source === 'local') return T('item_local', { m: l.merchant, total: usd(l.total) });
+    if (l.source === 'partner') return T('item_partner', { m: l.merchant, total: usd(l.total) });
+    if (l.live) return T('item_live', { what: shortTitle(l.title), m: l.merchant, total: usd(l.total) });
+    return `${l.merchant} ${usd(l.total)}`;
+  }
+  // One sentence that says what is real and what is not, whenever a plan holds real or simulated merchants.
+  honesty(lines) {
+    if (!lines.some((l) => l.source === 'local' || l.source === 'partner' || l.live)) return '';
+    return T('plan_honest', { mode: this.payMode(), requests: lines.some((l) => l.source === 'local'), partners: lines.some((l) => l.source === 'partner'), stores: lines.some((l) => l.live) });
   }
 
   // ---------- 8. confirm_plan ----------
@@ -488,6 +562,7 @@ export class Mandat {
             id: oid, plan_id: plan.id, mandate_id: m.id, kind: l.kind, category: l.category ?? null, merchant_id: l.merchant_id, merchant: l.merchant, label: l.title, slotLabel: l.detail,
             guests: l.guests, quantity: l.quantity, amount: l.total, currency: m.currency, state: 'held', paypal: { orderId: pp.orderId, authorizationId: pp.authorizationId, mode: pp.mode },
             close_token: crypto.randomBytes(12).toString('hex'), timeline: [{ state: 'held', amount: l.total, at }], auto: !!alone && !isExplicitYes(user_confirmation),
+            source: l.source || null, live: !!l.live, estimated: !!l.estimated, retailer: l.retailer || null, offer_id: l.offer_id,
             ...(profile?.address ? { deliver_to: profile.address.line1 } : {}),
             ...(l.image_url ? { image_url: l.image_url, image_alt: l.image_alt } : {}),
           });
@@ -507,7 +582,14 @@ export class Mandat {
       await this.event(hid, 'plan.confirmed', { plan_id: plan.id, total: plan.breakdown.total, orders: orders.length, how: plan.confirmed_with });
       const t = envelope.totals(env);
       const n = orders.length;
-      const speech = T('booked', { auto: plan.confirmed_with === 'auto-approve rule', n, total: usd(plan.breakdown.total), left: usd(t.remaining), purpose: m.purpose });
+      const requests = orders.filter((o) => o.source === 'local').map((o) => o.merchant);
+      const stores = [...new Set(orders.filter((o) => o.live).map((o) => o.merchant))];
+      const speech = [
+        T('booked', { auto: plan.confirmed_with === 'auto-approve rule', n, total: usd(plan.breakdown.total), left: usd(t.remaining), purpose: m.purpose, mode: orders[0]?.paypal?.mode === 'sandbox' ? 'sandbox' : 'offline' }),
+        requests.length ? T('booked_requests', { names: listWords(requests), n: requests.length }) : '',
+        stores.length ? T('booked_no_order', { stores: listWords(stores) }) : '',
+        T('left_in', { left: usd(t.remaining), purpose: m.purpose }),
+      ].filter(Boolean).join(' ');
       return this.receipt(hid, orders.map((o) => o.id), speech, { idempotency_key: plan.id });
     });
   }
@@ -531,6 +613,7 @@ export class Mandat {
       const o = await this.order(hid, order_id);
       if (o.state !== 'held') throw new ToolError(`That order is already ${o.state}, so it cannot be changed.`, 'Book a new one instead.');
       if (o.kind !== 'service') throw new ToolError('Shop orders cannot be changed once placed.', 'Cancel it with close_order and buy again.');
+      if (o.source === 'local') return this.changeRequest(hid, o, change);
       const mer = merchantById(o.merchant_id);
       const r = await this.provider.merchantChange({ merchant: mer, order: o, change });
       // Server-side truth over any model: a move to a day the merchant is closed is a decline.
@@ -579,6 +662,61 @@ export class Mandat {
     });
   }
 
+  // A booking request to a real business is Mandat's own (never sent in this demo): Mandat updates it, says the
+  // business has not confirmed, and checks the business's published hours. Closed that day: the hold is voided and
+  // other options for that day are lined up, as when a merchant declines.
+  async changeRequest(hid, o, change) {
+    const m = (await this.mandates(hid)).find((x) => x.id === o.mandate_id);
+    const env = await this.envelopeOf(hid, m);
+    const at = new Date(this.now()).toISOString();
+    const offer = (await this.store.get(pkOf(hid), `OFFER#${o.offer_id}`)) || {};
+    const hours = o.place?.hours || offer.place?.hours || null;
+    const [dayWord, ...rest] = String(o.slotLabel || '').split(' ');
+    let slot = o.slotLabel, total = o.amount;
+    if (change.field === 'date') {
+      const d = parseWhen(String(change.value)).day;
+      if (!d) throw new ToolError(T('e_which_day'), 'Ask the user which day.');
+      if (o.category !== 'catering' && openOn(hours, d) === false) {
+        const reply = T('l_closed_day', { m: o.merchant, day: I.dayName(DAY_NAMES[d], loc()) });
+        await this.live({ step: `c-${o.id}`, state: 'failed', text: T('l_cant_move', { m: o.merchant }), detail: reply, image_url: o.image_url });
+        const pp = await this.paypal.release({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId });
+        envelope.release(env, o.id, pp);
+        o.state = 'released';
+        o.timeline.push({ state: 'released', amount: o.amount, note: reply, at });
+        await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
+        await this.saveEnvelope(hid, m, env);
+        await this.event(hid, 'order.released', { order_id: o.id, reason: 'closed that day', merchant: o.merchant, amount: o.amount });
+        let alternatives = [];
+        try { alternatives = (await this.findHomeServices(hid, { need: o.label, category: o.category, when: `${DAY_NAMES[d]} ${parseWhen(o.slotLabel).part || ''}`.trim(), guests: o.guests })).data.offers.filter((x) => x.merchant !== o.merchant).slice(0, 3); } catch {}
+        const rec = await this.receipt(hid, [o.id], '');
+        const alt = alternatives[0];
+        rec.speech = T('chg_declined', { m: o.merchant, reply, amount: usd(o.amount), alt: alt?.merchant || '', altSlot: alt ? spokenSlot(alt.slot_label) : '', altTotal: alt ? (alt.source === 'local' ? T('about_est', { total: usd(alt.total) }) : usd(alt.total)) : '' });
+        rec.data.alternatives = alternatives;
+        rec.accepted = false;
+        return rec;
+      }
+      slot = `${DAY_NAMES[d]} ${rest.join(' ')}`.trim();
+    } else if (change.field === 'time') {
+      const w = parseWhen(String(change.value));
+      const h = w.hour ?? ({ morning: 10, afternoon: 14, evening: 19 })[w.part];
+      if (h == null) throw new ToolError(T('e_which_time'), 'Ask the user what time.');
+      slot = usTime(`${dayWord} ${String(h).padStart(2, '0')}:00`);
+    } else if (change.field === 'quantity') {
+      const n = Number(String(change.value).match(/\d+/)?.[0]);
+      if (!(n > 0) || o.category !== 'catering') throw new ToolError(T('e_qty_fixed'), 'Keep the request as it is or cancel it.');
+      total = estimateFor('catering', { guests: n }).total;
+      if (total > o.amount + 1e-9) throw new ToolError(T('e_more_than_held', { m: o.merchant, total: usd(total), amount: usd(o.amount) }), 'Ask the user to approve a new plan for the difference.');
+      o.guests = n;
+    }
+    o.slotLabel = slot;
+    if (total < o.amount) o.expected_total = total;
+    o.timeline.push({ state: 'changed', note: `${change.field}: ${change.value} (request updated by Mandat)`, at });
+    await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
+    await this.event(hid, 'order.changed', { order_id: o.id, change, merchant: o.merchant });
+    await this.live({ step: `c-${o.id}`, state: 'done', text: T('l_request_moved', { m: o.merchant }), detail: I.slot(o.slotLabel, loc()), image_url: o.image_url });
+    return { ...(await this.receipt(hid, [o.id], T('chg_request', { m: o.merchant, slot: spokenSlot(o.slotLabel), amount: usd(o.amount) }))), accepted: true };
+  }
+
   // ---------- 10. close_order ----------
   async closeOrder(hid, { order_id, action, amount, confirmation_token }) {
     return this.locked(hid, async () => {
@@ -597,7 +735,8 @@ export class Mandat {
         Object.assign(o, { state: 'captured', captured: take, paypal: { ...o.paypal, captureId: pp.captureId } });
         o.timeline.push({ state: 'captured', amount: take, at });
         if (take < o.amount) o.timeline.push({ state: 'released', amount: round(o.amount - take), note: 'rest of the hold released', at });
-        speech = take < o.amount ? T('cap_partial', { m: o.merchant, take: usd(take), diff: usd(o.amount - take) }) : T('cap_full', { m: o.merchant, take: usd(take) });
+        const kindKey = o.source === 'local' ? '_request' : o.live ? '_store' : '';
+        speech = take < o.amount ? T('cap_partial' + kindKey, { m: o.merchant, take: usd(take), diff: usd(o.amount - take) }) : T('cap_full' + kindKey, { m: o.merchant, take: usd(take) });
       } else if (action === 'cancel') {
         if (o.state !== 'held') throw new ToolError(`That order is ${o.state}; only a held payment can be cancelled. A paid order can be refunded.`, 'Use action refund instead.');
         const pp = await this.paypal.release({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId });
@@ -660,10 +799,12 @@ export class Mandat {
     // what it is chosen for (the item's own qualities), first
     const quality = o.kind === 'service'
       ? [o.rating && n > 1 && o.rating >= Math.max(...same.map((x) => x.rating || 0)) ? T('why_q_rated', { r: o.rating }) : '', o.slot_label ? spokenSlot(o.slot_label) : ''].filter(Boolean)
-      : [...(o.features || []).slice(0, 2).map((f) => P(f)), P('delivery in 2 days')];
-    const notCheapest = n > 1 && cheapest && cheapest.id !== o.id && o.total > cheapest.total;
+      : [...(o.features || []).slice(0, 2).map((f) => P(f)), ...(o.live ? [] : [P('delivery in 2 days')])];
+    // an estimate is the same typical rate for every real business: never "cheapest" or "costs more" between them
+    const priced = o.source !== 'local';
+    const notCheapest = priced && n > 1 && cheapest && cheapest.id !== o.id && o.total > cheapest.total;
     if (quality.length && (notCheapest || o.kind === 'product')) why.push({ tone: 'plus', text: T(inPlan ? 'why_chosen_for' : 'why_offers', { list: listWords(quality) }) });
-    if (n > 1 && !notCheapest) why.push({ tone: 'plus', text: o.kind === 'service' ? T('why_cheapest', { n, noun }) : T('why_cheapest_similar', { n }) });
+    if (priced && n > 1 && !notCheapest) why.push({ tone: 'plus', text: o.kind === 'service' ? T('why_cheapest', { n, noun }) : T('why_cheapest_similar', { n }) });
     if (o.kind === 'service' && !notCheapest && n > 1 && o.rating && o.rating >= Math.max(...same.map((x) => x.rating || 0))) why.push({ tone: 'plus', text: T('why_rated', { r: o.rating }) });
     if (notCheapest) why.push({ tone: 'cost', text: T('why_costs_more', { diff: usd(o.total - cheapest.total), name: name(cheapest), n }) });
     if (o.discount) why.push({ tone: 'plus', text: T('why_off', { amt: usd(o.discount), deal: o.conditions ? I.dealOf(o.conditions, loc()) : '' }) });
@@ -671,6 +812,18 @@ export class Mandat {
     const skipped = search?.skipped || [];
     if (skipped.length) why.push({ tone: 'plus', text: T('why_skipped', { n: skipped.length, ing: listWords([...new Set(skipped.map((x) => P(x.ingredient)))]), because: skipped[0].because }) });
     if (o.kind === 'service' && o.card_verified) why.push({ tone: 'info', text: T('why_verified') });
+    // where it comes from, always said plainly
+    if (o.source === 'local') {
+      if (o.rating) why.push({ tone: 'info', text: T('why_reviews', { r: o.rating, n: o.ratings || 0 }) });
+      why.push({ tone: 'info', text: T('why_estimate', { rule: estimateText(o, loc()) }) });
+      why.push({ tone: 'info', text: T('why_request', { m: o.merchant }) });
+    }
+    if (o.source === 'partner') why.push({ tone: 'info', text: T('why_partner') });
+    if (o.live) {
+      if ((o.checked_for || []).length) why.push({ tone: 'info', text: T('why_checked', { ing: listWords(o.checked_for.map(P)) }) });
+      why.push({ tone: 'info', text: T('why_live', { m: o.merchant, mode: this.payMode() }) });
+    }
+    if (o.source === 'test catalogue') why.push({ tone: 'info', text: T('why_test_catalogue') });
     return why;
   }
   async ruleFor(hid, o, plan) {
@@ -690,20 +843,24 @@ export class Mandat {
     const why = this.whyOf(o, sibs, search, { inPlan });
     const addr = (await this.profile(hid))?.address?.line1 || '';
     const rule = await this.ruleFor(hid, o, plan);
-    const m = o.kind === 'service' ? merchantById(o.merchant_id) : null;
+    const m = o.kind === 'service' && o.source !== 'local' ? merchantById(o.merchant_id) : null;
     const L = loc();
-    const specs = o.kind === 'service'
+    const specs = o.source === 'local' ? localSpecs(o, L, T)
+      : o.live ? liveSpecs(o, L, T, addr)
+      : o.kind === 'service'
       ? [{ k: T('spec_what'), v: P(o.title) }, { k: T('spec_when'), v: I.slot(o.slot_label, L) }, ...(o.guests ? [{ k: T('spec_guests'), v: T('spec_per_guest', { n: o.guests, price: usd(m.price) }) }] : []), { k: T('spec_where'), v: addr ? T('spec_at_home', { addr }) : T('spec_area', { area: o.area, r: o.rating }) }, { k: T('spec_about'), v: P(m.pitch) }]
       : [{ k: T('spec_what'), v: P(o.title) }, { k: T('spec_delivery'), v: `${o.fees ? T('spec_fee', { slot: I.slot(o.slot_label, L), fee: usd(o.fees) }) : T('spec_free', { slot: I.slot(o.slot_label, L) })}${addr ? T('spec_to', { addr }) : ''}` }, ...(o.contains?.length ? [{ k: T('spec_made'), v: listWords(o.contains.map(P)) }] : []), ...(o.quantity > 1 ? [{ k: T('spec_qty'), v: String(o.quantity) }] : [])];
     const history = (o.history || []).map((h) => ({ ...h }));
     const what = P(o.title);
-    const lead = o.kind === 'service'
+    const lead = o.source === 'local' ? T('det_local', { m: o.merchant, total: usd(o.total), slot: spokenSlot(o.slot_label), r: o.rating || '', n: o.ratings || 0 })
+      : o.live ? T('det_prod_live', { title: shortTitle(o.title), total: usd(o.total), m: o.merchant, mode: this.payMode() })
+      : o.kind === 'service'
       ? T('det_svc', { m: o.merchant, total: usd(o.total), what: what.charAt(0).toLowerCase() + what.slice(1), slot: spokenSlot(o.slot_label) })
       : T('det_prod', { title: what, total: usd(o.total), m: o.merchant });
     // say the reason, and the trade-off when there is one (a higher price is never presented as an advantage)
     const said = [why.find((w) => w.tone === 'plus'), why.find((w) => w.tone === 'cost')].filter(Boolean).map((w) => w.text + '.').join(' ');
     const speech = `${lead} ${said}${inPlan ? ' ' + T('in_plan', { total: usd(plan.breakdown.total) }) : ''}`.replace(/\s+/g, ' ').trim();
-    return { speech, data: { mode: 'detail', offer: o, images: galleryFor(o, this.publicUrl), specs, why, rule, history, in_plan: inPlan, plan_id: plan?.id || null, alternatives: sibs.filter((x) => x.id !== o.id).length }, card: 'item' };
+    return { speech, data: { mode: 'detail', offer: o, images: galleryFor(o, this.publicUrl), specs, why, rule, history, in_plan: inPlan, plan_id: plan?.id || null, alternatives: sibs.filter((x) => x.id !== o.id).length, pay_mode: this.payMode(), link: o.live ? { url: o.url, label: o.merchant } : o.place?.maps_url ? { url: o.place.maps_url, label: o.place.source === 'google' ? 'Google Maps' : 'OpenStreetMap' } : null }, card: 'item' };
   }
 
   // ---------- 12. list_alternatives ("other options?", "something cheaper") ----------
@@ -721,7 +878,7 @@ export class Mandat {
       const speech = cheaper_only ? T('alt_cheapest', { name: o.kind === 'service' ? o.merchant : P(o.title), n: sibs.length, noun }) : T('alt_none');
       return { speech, data: { offers: sibs, current_offer_id: o.id, category: o.category, asked: sibs.length }, card: 'offers' };
     }
-    const said = others.slice(0, 3).map((x) => `${x.kind === 'service' ? x.merchant : P(x.title)}, ${usd(x.total)}${x.kind === 'service' ? ' ' + spokenSlot(x.slot_label) : ''}`);
+    const said = others.slice(0, 3).map((x) => `${x.kind === 'service' ? x.merchant : x.live ? `${shortTitle(x.title)} (${x.merchant})` : P(x.title)}, ${x.source === 'local' ? T('about_est', { total: usd(x.total) }) : usd(x.total)}${x.kind === 'service' ? ' ' + spokenSlot(x.slot_label) : ''}${x.source === 'partner' ? ' ' + T('tag_partner') : ''}`);
     return { speech: T('alt_list', { n: others.length, items: said.join('; ') }), data: { offers: [o, ...others], current_offer_id: o.id, category: o.category, asked: sibs.length }, card: 'offers' };
   }
 
@@ -735,8 +892,8 @@ export class Mandat {
     const cheapest = [...offers].sort((a, b) => a.total - b.total)[0];
     const best = [...offers].sort((a, b) => (b.rating || 0) - (a.rating || 0))[0];
     const diff = round(Math.max(...offers.map((x) => x.total)) - cheapest.total);
-    const name = (x) => (x.kind === 'service' ? x.merchant : P(x.title));
-    const parts = offers.map((x) => T('cmp_part', { name: name(x), total: usd(x.total), slot: x.kind === 'service' ? spokenSlot(x.slot_label) : '', r: x.rating, off: x.discount ? usd(x.discount) : '' }));
+    const name = (x) => (x.kind === 'service' ? x.merchant : x.live ? shortTitle(x.title) : P(x.title));
+    const parts = offers.map((x) => T('cmp_part', { name: name(x) + (x.source === 'partner' ? ' ' + T('tag_partner') : ''), total: x.source === 'local' ? T('about_est', { total: usd(x.total) }) : usd(x.total), slot: x.kind === 'service' ? spokenSlot(x.slot_label) : '', r: x.rating, off: x.discount ? usd(x.discount) : '' }));
     const verdict = diff > 0 ? T('cmp_cheaper', { name: name(cheapest), diff: usd(diff), best: best.id !== cheapest.id && best.rating ? name(best) : '' }) : T('cmp_same');
     const cols = offers.map((x) => ({ ...x, images: galleryFor(x, this.publicUrl).slice(0, 1), in_plan: !!plan?.lines.some((l) => l.offer_id === x.id) }));
     return { speech: `${parts.join('. ')}. ${verdict}`, data: { mode: 'compare', offers: cols, cheapest_id: cheapest.id, best_rated_id: best.id, difference: diff, plan_id: plan?.id || null }, card: 'item' };
@@ -803,10 +960,10 @@ export class Mandat {
       for (const line of which) {
         const o = (await this.store.get(pkOf(hid), `OFFER#${line.offer_id}`)) || line;
         const name = o.kind === 'service' ? o.merchant : P(o.title).split(/[:(]/)[0].trim();
-        if (o.kind === 'product') parts.push(T('swap_timing_product', { name, m: o.merchant }));
+        if (o.kind === 'product') parts.push(T(o.live ? 'swap_timing_live' : 'swap_timing_product', { name: o.live ? shortTitle(o.title) : name, m: o.merchant }));
         else svc.push(o);
       }
-      if (svc.length === 1) parts.push(T('swap_timing_service', { m: svc[0].merchant, slot: spokenSlot(svc[0].slot_label) }));
+      if (svc.length === 1) parts.push(T(svc[0].source === 'local' ? 'swap_timing_request' : 'swap_timing_service', { m: svc[0].merchant, slot: spokenSlot(svc[0].slot_label) }));
       else if (svc.length) parts.push(T('swap_timing_services', { list: listWords(svc.map((o) => `${o.merchant} ${spokenSlot(o.slot_label)}`)) }));
       const speech = parts.join(' ');
       const review = await this.reviewPlan(hid, { plan_id: plan.id });
@@ -876,7 +1033,7 @@ export class Mandat {
     if (!plan) throw new ToolError(T('e_no_plan'), 'Ask the user what they need, or call get_household_status for what is booked.');
     const m = await this.mandate(hid, plan.mandate_id);
     const env = this.envelopeView(m, await this.envelopeOf(hid, m));
-    const items = plan.lines.map((l) => `${l.merchant} ${usd(l.total)}`);
+    const items = plan.lines.map((l) => this.itemSay(l));
     const { token_hash, ...pub } = plan;
     return { speech: T('review', { items: listWords(items), total: usd(plan.breakdown.total), left: usd(plan.remaining_after), budget: usd(env.budget), ask: !plan.auto_approved }), data: { plan: pub, needs_user_yes: !plan.auto_approved, envelope: env, reviewed: true }, card: 'plan' };
   }
@@ -892,13 +1049,14 @@ export class Mandat {
   }
 
   // A new household behind a new account link (src/core/oauth.mjs). "demo" is pre-filled for judges: the two facts
-  // the stories rely on (Max's allergy, the coffee brand); no budget and no settings yet, so the first run shows.
+  // the stories rely on (Max's allergy, the usual detergent); no budget and no settings yet, so the first run shows.
   async seedHousehold(kind = 'demo') {
     const hid = `${kind === 'demo' ? 'demo' : 'hh'}-${crypto.randomBytes(5).toString('hex')}`;
     const at = new Date(this.now()).toISOString();
     await this.store.put(pkOf(hid), 'PROFILE', { kind, created: at });
     if (kind === 'demo') {
-      for (const [subject, fact] of [['Max (dog)', 'allergic to chicken'], ['Coffee', 'We drink Northbeam medium roast']]) {
+      // facts that work with real products: the dog's allergy, and a real brand of detergent the stores carry
+      for (const [subject, fact] of [['Max (dog)', 'allergic to chicken'], ['Laundry', 'We use Seventh Generation detergent']]) {
         const p = { id: id('pref'), subject, fact, at };
         await this.store.put(pkOf(hid), `PREF#${p.id}`, p);
       }
@@ -1083,6 +1241,67 @@ export class Mandat {
     const s = await this.getHouseholdStatus(hid, {});
     return { ...s, speech: '' };
   }
+}
+
+// "We use Seventh Generation detergent" -> "Seventh Generation detergent" (what to search for the household's usual)
+export function usualOf(fact = '') {
+  const m = /^\s*(?:we|i|they)\s+(?:always\s+)?(?:use|buy|drink|get|like|prefer)\s+(.+?)[.!]?\s*$/i.exec(String(fact));
+  return m ? m[1].replace(/^(the|our)\s+/i, '').slice(0, 80) : null;
+}
+// A long store title, shortened for the voice: "Ienjoy Home Luxury Ultra Soft Bed Sheet Set" stays, "X - Y, Z" -> "X"
+export const shortTitle = (t = '') => { const x = String(t).split(/\s[-–|]\s|,\s/)[0].trim(); return x.length > 70 ? x.slice(0, 68).replace(/\s+\S*$/, '') + '…' : x; };
+
+// "about 1.1 mi" / "à 1,8 km" (US units in English)
+export function distanceText(m, L) {
+  if (m == null) return '';
+  return I.langOf(L) === 'en' ? `${(m / 1609.34).toLocaleString('en-US', { maximumFractionDigits: 1 })} mi` : `${(m / 1000).toLocaleString(L, { maximumFractionDigits: 1 })} km`;
+}
+const estimateText = (o, L) => I.estimateRule(o.estimate, L);
+function localSpecs(o, L, T) {
+  const pl = o.place || {};
+  return [
+    { k: T('spec_estimate'), v: `${I.money(o.total, L)} · ${estimateText(o, L)}` },
+    { k: T('spec_when'), v: `${I.slot(o.slot_label, L)} · ${T('spec_requested')}` },
+    { k: T('spec_where'), v: [pl.address, pl.distance_m != null ? T('spec_from_home', { d: distanceText(pl.distance_m, L), area: HOME.area }) : ''].filter(Boolean).join(' · ') },
+    { k: T('spec_hours'), v: I.hoursText(pl.hours, L) || T('spec_hours_unknown') },
+    ...(o.rating ? [{ k: T('spec_reviews'), v: T('spec_reviews_v', { r: o.rating, n: (o.ratings || 0).toLocaleString(L) }) }] : []),
+    { k: T('spec_source'), v: pl.attribution || '' },
+  ];
+}
+function liveSpecs(o, L, T, addr) {
+  return [
+    { k: T('spec_price'), v: `${I.money(o.total, L)}${o.was ? ' · ' + T('spec_was', { amt: I.money(o.was, L) }) : ''} · ${o.merchant}` },
+    ...(o.brand ? [{ k: T('spec_brand'), v: o.brand }] : []),
+    ...(o.size ? [{ k: T('spec_size'), v: o.size }] : []),
+    { k: T('spec_delivery'), v: T('spec_store_delivery', { m: o.merchant }) },
+    ...((o.contains || []).length ? [{ k: T('spec_made'), v: o.contains.join(', ') }] : []),
+    { k: T('spec_source'), v: T('spec_channel3') },
+  ];
+}
+
+// ---------- real local businesses: requested slot, estimated price, booking request ----------
+const PART_HOUR = { morning: 10, afternoon: 14, evening: 19 };
+const TRADE_HOUR = { cleaning: 10, catering: 19, plumbing: 9, handyman: 10 };
+const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+// "Friday morning" -> "Friday 10 AM" (the canonical slot label); no day said -> tomorrow.
+export function requestedSlot(cat, when = '', now = Date.now()) {
+  const w = parseWhen(when);
+  const day = w.day || DAY_KEYS[(new Date(now).getUTCDay() + 1) % 7];
+  const hour = w.hour ?? (w.part ? PART_HOUR[w.part] : TRADE_HOUR[cat] || 10);
+  return usTime(`${DAY_NAMES[day]} ${String(hour).padStart(2, '0')}:00`);
+}
+export const LOCAL_TITLE = { cleaning: (est) => `Home cleaning, ${est.qty} hours`, catering: () => 'Dinner at home', plumbing: () => 'Plumber visit, first hour', handyman: (est) => `Handyman visit, ${est.qty} hours` };
+function localOffer(pl, { cat, slot, guests, when, est, sid, now, source, attribution, publicUrl, id: oid }) {
+  const photo = pl.photo ? imgUrl(publicUrl, pl.photo.ref) : null;
+  return {
+    id: oid, kind: 'service', source: 'local', estimated: true, request: true, merchant_id: 'local:' + pl.id, merchant: pl.name, category: cat, area: pl.area || HOME.area,
+    rating: pl.rating ?? null, ratings: pl.ratings ?? null, title: LOCAL_TITLE[cat](est), slot_label: slot, guests: cat === 'catering' ? guests : null, when: when || '',
+    base: est.total, discount: 0, fees: 0, tax: 0, total: est.total, currency: 'USD',
+    estimate: { rate: est.rate, qty: est.qty, per: est.per }, negotiation: '', conditions: '', card_verified: false, search_id: sid, history: [],
+    place: { id: pl.id, address: pl.address || '', distance_m: pl.distance_m, hours: pl.hours || null, hours_raw: pl.hours_raw || null, website: pl.website || null, maps_url: pl.maps_url || null, source, attribution, photo_author: pl.photo?.author || null, lat: pl.lat, lon: pl.lon },
+    ...(photo ? { image_url: photo, image_alt: pl.name, gallery: [{ url: photo, alt: pl.name, credit: pl.photo.author ? `${pl.photo.author} · Google Maps` : 'Google Maps' }] } : {}),
+    created: new Date(now).toISOString(), expires: new Date(now + OFFER_TTL).toISOString(),
+  };
 }
 
 // What the household shared through Alexa, as the cards show it (never more).

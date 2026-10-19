@@ -3,12 +3,10 @@
 // /media/items/, so the MCP Apps CSP lists only our origin (resourceDomains) and nothing else.
 // Keyed by catalogue product id and by merchant id (services): [file, alt, alt of view 2, alt of view 3]; views 2 and 3
 // (<file>-2.webp, <file>-3.webp) feed the photo gallery of the item card. Unknown items (live shop search, other trades) get no
-// photo: the cards then keep their category icon.
+// photo here: real products and real businesses carry their own photos (src/core/imgproxy.mjs); the rest keep their
+// category icon.
 export const ITEM_MEDIA = {
   // home services
-  m_brightnest: ['cleaning-eco-supplies', 'Eco cleaning supplies tidied on a kitchen counter', 'Spotless guest bathroom with folded towels', 'Tidy guest room in morning light'],
-  m_tidyhive: ['guest-room-refresh', 'Freshly made guest bed with folded towels', 'Tidy night table with a lamp', 'Towels and a bar of soap on the bed'],
-  m_sparkle: ['hotel-style-room', 'Hotel-style guest bed with flowers on the night table', 'Turn-down detail with a folded towel on the pillow', 'Water carafe and small bouquet on the night table'],
   m_hearth: ['family-style-dinner', 'Family-style dinner served on a wooden table', 'Table set for six with candles', 'Sliced roast with roasted vegetables'],
   m_olive: ['mediterranean-dinner', 'Plated Mediterranean dinner with grilled fish', 'Mezze: hummus, falafel, olives and pita', 'Grilled fish with lemon and herbs'],
   m_basil: ['comfort-food-buffet', 'Comfort-food buffet in steel chafing dishes', 'Golden baked macaroni and cheese', 'Cornbread and green salad on the buffet'],
@@ -16,16 +14,17 @@ export const ITEM_MEDIA = {
   p_guestbed: ['guest-sheet-set', 'White percale sheet set with two pillowcases', 'Queen bed made with the white percale sheets', 'Close-up of the percale weave and hem'],
   p_sheets_king: ['king-sateen-sheets', 'White sateen sheet set, folded', 'King bed made with white sateen sheets', 'Close-up of the sateen sheen'],
   p_duvet: ['queen-duvet', 'Thick white all-season duvet, folded', 'The duvet on a bed in a bright room', 'Close-up of the quilted stitching'],
+  p_sheets_micro: ['guest-room-refresh', 'Freshly made guest bed with a microfiber sheet set', 'Night table and lamp beside the made bed', 'Folded towels and soap on the bed'],
   p_towels: ['guest-towels', 'Stack of guest towels with eucalyptus', 'Towels folded on a wooden bathroom shelf', 'Close-up of the terry texture'],
+  // laundry (test catalogue)
+  p_det_7gen: ['cleaning-eco-supplies', 'Plant-based laundry and cleaning bottles on a counter', 'Spotless bathroom with folded towels', 'Tidy room in morning light'],
+  p_det_house: ['cleaning-eco-supplies', 'Laundry and cleaning bottles on a counter', 'Spotless bathroom with folded towels', 'Tidy room in morning light'],
+  p_det_pods: ['cleaning-eco-supplies', 'Plant-based laundry supplies on a counter', 'Spotless bathroom with folded towels', 'Tidy room in morning light'],
   // dog food
   p_dog_chicken: ['dog-food-chicken-rice', 'Bowl of dry dog food with chicken and brown rice', 'Close-up of the kibble', 'Chicken, brown rice and carrots, seen from above'],
   p_dog_salmon: ['dog-food-salmon-sweet-potato', 'Bowl of dry dog food with salmon and sweet potato', 'Close-up of the kibble', 'Salmon, sweet potato and spinach, seen from above'],
   p_dog_lamb: ['dog-food-lamb-oatmeal', 'Bowl of dry dog food with lamb and oats', 'Close-up of the kibble', 'Lamb, rolled oats and peas, seen from above'],
   p_dog_mix: ['dog-food-turkey-grain-free', 'Bowl of grain-free dry dog food with turkey', 'Close-up of the kibble', 'Turkey, squash and green beans, seen from above'],
-  // coffee
-  p_coffee_northbeam: ['coffee-medium-roast-beans', 'Two plain bags of medium-roast coffee beans', 'Close-up of medium-roast beans', 'Filter coffee next to a glass press'],
-  p_coffee_house: ['coffee-dark-roast-ground', 'Open bag of dark-roast ground coffee', 'Close-up of dark ground coffee', 'Espresso in a ceramic cup'],
-  p_coffee_decaf: ['coffee-decaf-beans', 'Decaf coffee beans in a glass jar', 'Close-up of the lighter decaf beans', 'A latte in a ceramic cup'],
 };
 
 export const mediaPath = (name) => `/media/items/${name}.webp`;
@@ -41,7 +40,9 @@ export function mediaFor({ kind, merchant_id, product_id }, publicUrl) {
 import fs from 'node:fs';
 const ITEMS_DIR = new URL('../../media/items/', import.meta.url);
 const exists = (n) => { try { return fs.statSync(new URL(`${n}.webp`, ITEMS_DIR)).size > 0; } catch { return false; } };
-export function galleryFor({ kind, merchant_id, product_id }, publicUrl) {
+export function galleryFor({ kind, merchant_id, product_id, gallery }, publicUrl) {
+  // real products and real businesses carry their own photos (signed links through /img)
+  if (Array.isArray(gallery) && gallery.length) return gallery.slice(0, 6);
   const hit = ITEM_MEDIA[kind === 'product' ? product_id : merchant_id];
   if (!hit || !publicUrl) return [];
   const base = String(publicUrl).replace(/\/$/, '');

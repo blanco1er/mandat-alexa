@@ -10,7 +10,7 @@ test.after(() => srv.close());
 
 test('get_offer_details: gallery, specs, why, the rule, negotiation; voice-complete', async () => {
   const c = await client(srv.mcpUrl);
-  const { clean, bed, plan } = await inLawsPlan(c);
+  const { clean, bed, food, plan } = await inLawsPlan(c);
   const r = await c.callTool({ name: 'get_offer_details', arguments: { offer_id: sc(bed).offers[0].id } });
   assert.ok(!r.isError, text(r));
   const d = sc(r);
@@ -18,18 +18,28 @@ test('get_offer_details: gallery, specs, why, the rule, negotiation; voice-compl
   assert.ok(d.images.length >= 1 && d.images.every((i) => i.url.includes('/media/items/') && i.alt));
   assert.ok(d.in_plan);
   assert.equal(d.plan_id, sc(plan).plan.id);
-  assert.match(text(r), /Guest bed bundle.*\$92.*Hearth & Linen/);
+  assert.match(text(r), /Guest bed bundle.*\$85.*Hearth & Linen/);
   assert.match(text(r), /in your plan/i);
   assert.equal(d.rule.buys_on_its_own, false);
-  const svc = sc(await c.callTool({ name: 'get_offer_details', arguments: { offer_id: sc(clean).offers[0].id } }));
-  assert.ok(svc.why.some((w) => /Cheapest of the 3 cleaners/.test(w.text) && w.tone === 'plus'), svc.why.map((w) => w.text).join(' | '));
-  assert.ok(svc.why.some((w) => /\$10 off/.test(w.text)));
-  // the guest bed bundle is compared with the other sheet set only (not with towels), and said why it is chosen
+  // a real business: estimated price with its rule, a booking request, its published data; never a negotiation
+  const local = await c.callTool({ name: 'get_offer_details', arguments: { offer_id: sc(clean).offers[0].id } });
+  const svc = sc(local);
+  assert.ok(svc.why.some((w) => /^Estimated price: 2 h × \$50 per hour, a typical rate\. The business sets the real price$/.test(w.text) && w.tone === 'info'), svc.why.map((w) => w.text).join(' | '));
+  assert.ok(svc.why.some((w) => /^Booking request only: .* has not confirmed it, and this demo does not send it$/.test(w.text)));
+  assert.ok(svc.specs.some((x) => x.k === 'Estimate' && /\$100 · 2 h × \$50 per hour/.test(x.v)));
+  assert.ok(svc.specs.some((x) => x.k === 'Source' && /OpenStreetMap/.test(x.v)));
+  assert.match(text(local), /about \$100 estimated, requested for Friday at 10 AM.*booking request; they have not confirmed it/);
+  assert.equal(svc.history.length, 0);
+  // a demo partner: the negotiation, labelled simulated
+  const partner = sc(await c.callTool({ name: 'get_offer_details', arguments: { offer_id: sc(food).offers[0].id } }));
+  assert.ok(partner.why.some((w) => /\$15 off/.test(w.text)));
+  assert.ok(partner.why.some((w) => /^Demo partner: a simulated merchant agent$/.test(w.text)));
+  assert.equal(partner.history[0].list, 210);
+  assert.equal(partner.history[0].total, 195);
+  // the guest bed bundle is compared with the other sheet sets only (not with towels): it costs more, said in amber
   assert.ok(d.why.some((w) => /^Chosen for queen size, with 2 pillowcases, cotton percale and delivery in 2 days$/.test(w.text) && w.tone === 'plus'), d.why.map((w) => w.text).join(' | '));
-  assert.ok(d.why.some((w) => /Cheapest of the 2 similar options/.test(w.text)), d.why.map((w) => w.text).join(' | '));
-  assert.ok(!d.why.some((w) => w.tone === 'cost'));
-  assert.equal(svc.history[0].list, 95);
-  assert.equal(svc.history[0].total, 85);
+  assert.ok(d.why.some((w) => w.tone === 'cost' && /Costs \$36 more than Queen microfiber sheet set, grey/.test(w.text)), d.why.map((w) => w.text).join(' | '));
+  assert.ok(d.why.some((w) => /^Test catalogue/.test(w.text)));
   await c.close();
 });
 
@@ -44,7 +54,7 @@ test('list_alternatives and compare_offers change nothing and say which is cheap
   if (kind) for (const x of altOffers) assert.equal(x.product_type, kind);
   assert.match(text(alts), /other option/i);
   const cheaper = await c.callTool({ name: 'list_alternatives', arguments: { offer_id: sc(food).offers[0].id, cheaper_only: true } });
-  assert.match(text(cheaper), /already the cheapest of the 3 caterers/);
+  assert.match(text(cheaper), /already the cheapest of the 5 caterers/);
   const cmp = await c.callTool({ name: 'compare_offers', arguments: { offer_ids: [sc(food).offers[0].id, sc(food).offers[1].id] } });
   assert.equal(sc(cmp).mode, 'compare');
   assert.equal(sc(cmp).cheapest_id, sc(food).offers[0].id);
@@ -54,7 +64,7 @@ test('list_alternatives and compare_offers change nothing and say which is cheap
   // still the same plan, still waiting
   const again = await c.callTool({ name: 'review_plan', arguments: {} });
   assert.equal(sc(again).plan.id, sc(plan).plan.id);
-  assert.equal(sc(again).plan.breakdown.total, 372);
+  assert.equal(sc(again).plan.breakdown.total, 380);
   await c.close();
 });
 
@@ -64,9 +74,9 @@ test('revise_plan swaps an item: new total vs budget, new token; the old plan ca
   const king = sc(bed).offers.find((o) => /King sateen/.test(o.title));
   const r = await c.callTool({ name: 'revise_plan', arguments: { plan_id: sc(plan).plan.id, remove_offer_ids: [sc(bed).offers[0].id], add_offer_ids: [king.id] } });
   assert.ok(!r.isError, text(r));
-  assert.equal(sc(r).plan.breakdown.total, 384);
-  assert.equal(sc(r).plan.remaining_after, 16);
-  assert.match(text(r), /Swapped Guest bed bundle for King sateen sheet set, white\. New total \$384, \$16 left of your \$400\. Should I book it\?/);
+  assert.equal(sc(r).plan.breakdown.total, 399);
+  assert.equal(sc(r).plan.remaining_after, 1);
+  assert.match(text(r), /Swapped Guest bed bundle for King sateen sheet set, white\. New total \$399, \$1 left of your \$400\. Should I book it\?/);
   assert.notEqual(sc(r).confirmation_token, sc(plan).confirmation_token);
   // the old plan and its token are dead
   const old = await c.callTool({ name: 'confirm_plan', arguments: { plan_id: sc(plan).plan.id, confirmation_token: sc(plan).confirmation_token, user_confirmation: 'yes' } });
@@ -76,23 +86,23 @@ test('revise_plan swaps an item: new total vs budget, new token; the old plan ca
   assert.ok(noYes.isError);
   const yes = await c.callTool({ name: 'confirm_plan', arguments: { plan_id: sc(r).plan.id, confirmation_token: sc(r).confirmation_token, user_confirmation: 'yes' } });
   assert.ok(!yes.isError, text(yes));
-  assert.equal(sc(yes).receipt.envelope.remaining, 16);
+  assert.equal(sc(yes).receipt.envelope.remaining, 1);
   await c.close();
 });
 
 test('revise_plan never goes over the budget, and refuses an empty or unchanged plan', async () => {
   const c = await client(srv.mcpUrl);
-  const { clean, plan } = await inLawsPlan(c);
-  const sparkle = sc(clean).offers.find((o) => o.merchant === 'Sparkle & Sage');
-  const over = await c.callTool({ name: 'revise_plan', arguments: { plan_id: sc(plan).plan.id, remove_offer_ids: [sc(clean).offers[0].id], add_offer_ids: [sparkle.id] } });
+  const { food, plan } = await inLawsPlan(c);
+  const basil = sc(food).offers.find((o) => o.merchant === 'Basil Street Caterers');
+  const over = await c.callTool({ name: 'revise_plan', arguments: { plan_id: sc(plan).plan.id, remove_offer_ids: [sc(food).offers[0].id], add_offer_ids: [basil.id] } });
   assert.ok(over.isError);
-  assert.match(text(over), /costs \$427 but only \$400 is left/);
+  assert.match(text(over), /costs \$449 but only \$400 is left/);
   const all = sc(plan).plan.lines.map((l) => l.offer_id);
   assert.ok((await c.callTool({ name: 'revise_plan', arguments: { plan_id: sc(plan).plan.id, remove_offer_ids: all } })).isError);
   assert.ok((await c.callTool({ name: 'revise_plan', arguments: { plan_id: sc(plan).plan.id } })).isError);
   // the original plan is untouched by the refused swaps
   const still = await c.callTool({ name: 'review_plan', arguments: { plan_id: sc(plan).plan.id } });
-  assert.equal(sc(still).plan.breakdown.total, 372);
+  assert.equal(sc(still).plan.breakdown.total, 380);
   await c.close();
 });
 
@@ -102,15 +112,19 @@ test('live activity: every tool call and every merchant answer of a turn lands o
   const { client: c } = await connectMcp(srv.mcpUrl, { household, headers: { 'X-Mandat-Turn': turn } });
   await c.callTool({ name: 'set_spending_mandate', arguments: { budget: 400, period: 'once', purpose: 'Test' } });
   await c.callTool({ name: 'find_home_services', arguments: { need: 'deep clean', category: 'cleaning', when: 'Friday morning' } });
+  await c.callTool({ name: 'find_home_services', arguments: { need: 'dinner for six', category: 'catering', when: 'Saturday evening', guests: 6 } });
   const r = await fetch(`${srv.url}/activity?household=${household}&turn=${turn}`);
   const { events } = await r.json();
   const texts = events.map((e) => `${e.state}:${e.text}`);
   assert.ok(texts.includes('done:Budget $400 set'), texts.join(' | '));
-  assert.ok(texts.some((t) => /^done:3 cleaners asked · 3 quotes$/.test(t)), texts.join(' | '));
-  const bright = events.find((e) => e.text === 'BrightNest Cleaning');
-  assert.equal(bright.from, 95);
-  assert.equal(bright.to, 85);
-  assert.ok(bright.image_url.includes('/media/items/'));
+  assert.ok(texts.includes('done:4 cleaners near Capitol Hill · estimated prices'), texts.join(' | '));
+  assert.ok(texts.includes('done:4 near Capitol Hill · 4 options'), texts.join(' | '));
+  assert.ok(texts.includes('done:4 near Capitol Hill · 3 demo partners · 5 options'), texts.join(' | '));
+  const hearth = events.find((e) => e.text === 'Hearth Table Catering');
+  assert.equal(hearth.from, 210);
+  assert.equal(hearth.to, 195);
+  assert.match(hearth.detail, /^demo partner/);
+  assert.ok(hearth.image_url.includes('/media/items/'));
   assert.ok(events.every((e) => e.state !== 'running'), 'every step finished');
   // another turn id sees nothing; a bad id is refused quietly
   assert.deepEqual((await (await fetch(`${srv.url}/activity?household=${household}&turn=turn-other-1`)).json()).events, []);
@@ -118,40 +132,41 @@ test('live activity: every tool call and every merchant answer of a turn lands o
   await c.close();
 });
 
-test('spoken flow (simulated brain): look closer, other options, take the sateen set, compare caterers, yes; story 3 still fits', async () => {
+test('spoken flow (simulated brain): look closer, other options, take the first one, compare caterers, yes; story 3 still fits', async () => {
   const say = talker(srv.mcpUrl, 'judge-' + Math.random().toString(36).slice(2, 7));
   const names = (o) => o.steps.map((s) => s.name);
   await say('Set a weekly household budget of $150, and buy on your own under $40.');
   const plan = await say('Alexa, my in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400.');
-  assert.equal(sc(plan.steps.at(-1).result).plan.breakdown.total, 372);
+  assert.equal(sc(plan.steps.at(-1).result).plan.breakdown.total, 380);
   const look = await say('Show me the bed linen.');
   assert.deepEqual(names(look), ['get_offer_details']);
   assert.match(sc(look.steps[0].result).offer.title, /Guest bed bundle/);
   assert.match(look.speech, /in your plan/i);
   const others = await say('Other options?');
   assert.deepEqual(names(others), ['list_alternatives']);
-  assert.ok(sc(others.steps[0].result).offers.some((o) => /King sateen/.test(o.title)));
-  const swap = await say('Take the sateen set instead.');
+  assert.ok(sc(others.steps[0].result).offers.some((o) => /microfiber/.test(o.title)), 'the bedding search stays under a fifth of the budget');
+  const swap = await say('Take the first one instead.');
   assert.deepEqual(names(swap), ['revise_plan']);
-  assert.match(swap.speech, /Swapped Guest bed bundle for King sateen sheet set.*New total \$384, \$16 left of your \$400\. Should I book it\?/);
+  assert.match(swap.speech, /Swapped Guest bed bundle for Queen microfiber sheet set, grey\. New total \$344, \$56 left of your \$400\. Should I book it\?/);
   const cmp = await say('Compare the two caterers.');
   assert.deepEqual(names(cmp), ['compare_offers']);
-  assert.match(cmp.speech, /Hearth Table Catering: \$195.*Olive & Thyme Kitchen: \$216.*Hearth Table Catering is \$21 cheaper/);
+  // the plan's caterer (a demo partner) against the best real caterer: an estimate, said as one
+  assert.match(cmp.speech, /^Hearth Table Catering \(demo partner\): \$195, Saturday at 7 PM, \$15 off\. .+: about \$270 estimated, Saturday at 7 PM\. Hearth Table Catering is \$75 cheaper\.$/);
   const why = await say('Why this one?');
   assert.deepEqual(names(why), ['get_offer_details']);
   const back = await say('Show me the plan.');
   assert.deepEqual(names(back), ['review_plan']);
-  assert.equal(sc(back.steps[0].result).plan.breakdown.total, 384);
+  assert.equal(sc(back.steps[0].result).plan.breakdown.total, 344);
   const yes = await say('Yes, book it.');
   assert.deepEqual(names(yes), ['confirm_plan']);
-  assert.equal(sc(yes.steps[0].result).receipt.envelope.remaining, 16);
-  // story 3 still works with the sateen set: the replacement caterer fits the $211 freed
+  assert.equal(sc(yes.steps[0].result).receipt.envelope.remaining, 56);
+  // story 3 still works after the swap: the replacement caterer fits the $251 freed
   const moved = await say('Their flight moved to Sunday.');
   assert.match(moved.speech, /Olive & Thyme Kitchen can do Sunday at 7:30 PM for \$210/);
   const ok = await say('Yes, go ahead.');
-  assert.equal(sc(ok.steps.at(-1).result).receipt.envelope.remaining, 400 - 85 - 104 - 210);
-  const settle = await say('Everything went well. Settle up: Olive billed $180, and refund the $28 pillowcases.');
-  assert.match(settle.speech, /Refund of \$28/);
+  assert.equal(sc(ok.steps.at(-1).result).receipt.envelope.remaining, 400 - 100 - 49 - 210);
+  const settle = await say('Everything went well. Settle up: Olive billed $180, and refund $10 on the sheets.');
+  assert.match(settle.speech, /Refunded \$10 on the Home Basics Co order/);
 });
 
 test('"not this one, cheaper" is not a no; a swap with nothing better is said honestly', async () => {
@@ -159,8 +174,8 @@ test('"not this one, cheaper" is not a no; a swap with nothing better is said ho
   await say('Alexa, my in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400.');
   const r = await say('Not this caterer, something cheaper.');
   assert.deepEqual(r.steps.map((s) => s.name), ['list_alternatives']);
-  assert.match(r.speech, /already the cheapest of the 3 caterers/);
-  const over = await say('Swap the cleaner for Sparkle & Sage.');
+  assert.match(r.speech, /already the cheapest of the 5 caterers/);
+  const over = await say('Swap the caterer for Basil Street Caterers.');
   assert.deepEqual(over.steps.map((s) => s.name), ['revise_plan']);
-  assert.match(over.speech, /costs \$427 but only \$400 is left/);
+  assert.match(over.speech, /costs \$449 but only \$400 is left/);
 });

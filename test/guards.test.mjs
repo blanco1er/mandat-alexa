@@ -37,7 +37,7 @@ test('a part refund on an order still on hold settles it first: held -> captured
   assert.deepEqual(o.timeline.map((t) => t.state), ['held', 'captured', 'refunded']);
   assert.equal(o.captured, bedding.amount);
   assert.equal(o.refunded, 28);
-  assert.match(text(r), /Paid .* then: Refund of \$28/);
+  assert.match(text(r), /Paid .* then: Refunded \$28/);
   await c.close();
 });
 
@@ -103,9 +103,9 @@ test('Bedrock merchant agent (faked): the booking system sets the floor and the 
   const sent = [];
   p.client = { send: async (cmd) => { sent.push(cmd.input); return { usage: { inputTokens: 10, outputTokens: 5 }, output: { message: { content: [{ text: '{"reply":"$70 tonight!","quote":{"total":70,"day":"fri","slot":"09:00"}}' }] } } }; } };
   p.sdk = { ConverseCommand: class { constructor(input) { this.input = input; } } };
-  const r = await p.merchantAgent({ merchant: merchant('m_brightnest'), when: 'Friday morning', ask: 'deep clean', guests: null });
-  assert.equal(r.quote.total, 85, 'never below what the request qualifies for ($95 - $10 Friday before noon)');
-  assert.match(sent[0].messages[0].content[0].text, /price with the deals this request qualifies for: \$85/);
+  const r = await p.merchantAgent({ merchant: merchant('m_flowfix'), when: 'Monday morning', ask: 'fix a leak', guests: null });
+  assert.equal(r.quote.total, 109, 'never below what the request qualifies for ($129 - $20 early in the week)');
+  assert.match(sent[0].messages[0].content[0].text, /price with the deals this request qualifies for: \$109/);
   const closed = await p.merchantAgent({ merchant: merchant('m_hearth'), when: 'Sunday evening', ask: 'dinner', guests: 6 });
   assert.equal(closed.quote, null, 'closed on Sunday: no quote, whatever the model says');
   const change = await p.merchantChange({ merchant: merchant('m_hearth'), order: { label: 'Dinner', slotLabel: 'Saturday 19:30', amount: 195, guests: 6 }, change: { field: 'date', value: 'Sunday' } });
@@ -116,7 +116,7 @@ test('under an auto-approve rule, two products cannot be bundled into one plan t
   const c = await client(srv.mcpUrl);
   await c.callTool({ name: 'set_spending_mandate', arguments: { budget: 150, period: 'weekly', auto_approve_under: 40, purpose: 'Household essentials' } });
   const dog = sc(await c.callTool({ name: 'find_products', arguments: { query: 'dog food' } })).offers[0];
-  const coffee = sc(await c.callTool({ name: 'find_products', arguments: { query: 'coffee' } })).offers.find((o) => o.total > 40);
+  const coffee = sc(await c.callTool({ name: 'find_products', arguments: { query: 'laundry detergent' } })).offers.find((o) => o.total > 40);
   const both = await c.callTool({ name: 'propose_plan', arguments: { item_ids: [dog.id, coffee.id] } });
   assert.equal(both.isError, true);
   assert.match(text(both), /each product is its own plan/);

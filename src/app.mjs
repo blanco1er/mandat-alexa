@@ -15,6 +15,7 @@
 // MANDAT_AUTH=optional (default, local and tests): a token is verified when present; without one the old
 // X-Mandat-Household header still picks a household.
 //   GET  /simulator/*      the Alexa+ web simulator (static)
+//   GET  /img              photos of real products (Channel3) and real businesses (Google Places), signed links only
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +30,7 @@ import { TURN_RE } from './core/context.mjs';
 import { authorizationServerMetadata, OAuthServer, privacyPage, protectedResourceMetadata, wwwAuthenticate } from './core/oauth.mjs';
 import { runHostIntent } from './brain/host-intents.mjs';
 import { tr } from './core/i18n.mjs';
+import { serveImg } from './core/imgproxy.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATIC = { '/simulator/': path.join(ROOT, 'simulator'), '/media/': path.join(ROOT, 'media') };
@@ -210,6 +212,8 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
         } catch (e) { return page(`Not linked: ${String(e.message || e).replace(/[<>&]/g, '')}`, 400); }
       }
       if (p === '/paypal/demo-buyer/cancel') return new Response('Demo buyer link cancelled. Nothing changed.', { status: 200 });
+      // photos of real products and real businesses, through Mandat's own origin (src/core/imgproxy.mjs)
+      if (p === '/img' && request.method === 'GET') return await serveImg(url);
       if (p === '/' || p === '/simulator') return Response.redirect(new URL('/simulator/', url), 302);
       for (const prefix of Object.keys(STATIC)) if (p.startsWith(prefix) && request.method === 'GET') return await serveStatic(prefix, p);
       return new Response('Not found', { status: 404 });

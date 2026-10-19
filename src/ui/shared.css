@@ -152,3 +152,8 @@ button { font: inherit; color: inherit; -webkit-user-select: none; user-select: 
   .bar span, .btn { transition: none; }
   .sk::after, .spin { animation: none; }
 }
+/* where an option comes from (real business, demo partner, real product): quiet, never a pill */
+.origin { font-size: var(--t-meta); color: var(--label-2); font-weight: 510; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.origin.partner { color: var(--accent-text); }
+.note.honest { font-size: calc(var(--t-meta) * .92); color: var(--label-2); }
+.stars { font-variant-numeric: tabular-nums; }

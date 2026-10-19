@@ -34,11 +34,11 @@ const SAY = {
   es: {
     quote: (v) => `${v.list} por ${v.what}${v.why ? `, ${v.total} con ${v.why}` : ''}. El ${v.day} a las ${v.slot} nos viene bien.`,
     guests: (n) => `${n} personas`,
-    closed: (v) => `Lo siento, cerramos los ${v.day}. Lo más cercano sería el ${v.alt}.`,
+    closed: (v) => `Lo siento, el ${v.day} cerramos. Lo más cercano sería el ${v.alt}.`,
     best: (v) => `${v.total} es lo mejor que podemos hacer.`,
     moved: (v) => `Hecho, cambiado al ${v.day} a las ${v.slot}. Mismo precio.`,
     too_close: () => 'Lo siento, no podemos cambiar una reserva tan cerca de la fecha.',
-    closed_move: (v) => `Lo siento, cerramos los ${v.day}, así que no podemos cambiar su reserva.`,
+    closed_move: (v) => `Lo siento, el ${v.day} cerramos, así que no podemos cambiar su reserva.`,
     which_day: () => '¿Qué día prefiere?',
   },
 };

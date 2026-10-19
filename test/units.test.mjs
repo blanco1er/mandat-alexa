@@ -70,7 +70,7 @@ test('Echo Show wallpapers: every photo in wallpaper.js exists in both sizes, â‰
 
 test('policy: intents and wishes from the demo sentences', () => {
   assert.equal(classify('Alexa, my in-laws land Saturday. Get the guest room ready: a cleaner Friday, fresh bedding, and dinner for six at home Saturday. Keep it under $400.'), 'big_plan');
-  assert.equal(classify("We're almost out of dog food and coffee."), 'restock');
+  assert.equal(classify("We're almost out of dog food and laundry detergent."), 'restock');
   assert.equal(classify('Their flight moved to Sunday.'), 'plans_change');
   assert.equal(classify('yes', { pending: { plan_id: 'p' } }), 'confirm');
   assert.deepEqual(wishes('a cleaner Friday, fresh bedding, and dinner for six at home Saturday').map((w) => w.category || w.kind), ['cleaning', 'product', 'catering']);

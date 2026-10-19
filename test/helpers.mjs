@@ -4,6 +4,7 @@ process.env.MANDAT_STORE = 'memory';
 process.env.MANDAT_MODEL = 'simulated';
 process.env.MANDAT_PAYPAL = 'offline';
 process.env.MANDAT_SHOP = 'off';
+process.env.MANDAT_PLACES = 'snapshot'; // real businesses from the saved OpenStreetMap snapshot, no network
 process.env.MANDAT_TTS = 'browser';
 delete process.env.MANDAT_DEMO_TOKEN;
 

@@ -1,5 +1,7 @@
-// Household merchant network (sandbox): fictional local businesses, each with its own AI sales agent that quotes
-// and negotiates within the merchant's private terms. Every merchant agent carries an identity card signed by the
+// Demo partners: SIMULATED merchants, each with its own AI sales agent that quotes and negotiates within the
+// merchant's private terms. They exist to show agent-to-agent negotiation, which no real local business offers yet;
+// every card and every sentence labels them "Demo partner, simulated merchant agent". Real local businesses come from
+// src/core/places.mjs, with estimated prices and booking requests, and are never negotiated with. Every merchant agent carries an identity card signed by the
 // network; Mandat verifies it before showing a quote ("Know Your Agent").
 // The agent's brain is a provider (src/providers): "simulated" applies the terms deterministically, "bedrock" asks
 // a Bedrock model with the same terms in its system prompt. Either way, the server re-checks the quote against the
@@ -25,45 +27,23 @@ const WEEKDAYS_SAT = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 // price: per job (unit "job") or per guest (unit "guest"). deals: the merchant's private negotiation room.
 // maxOff: the floor, as the largest total discount the merchant ever gives on one booking.
 export const MERCHANTS = [
-  // ----- cleaning -----
-  {
-    id: 'm_brightnest', name: 'BrightNest Cleaning', category: 'cleaning', area: 'Maple Heights', rating: 4.8,
-    pitch: 'Two-person team, eco products, guest-room deep cleans.', label: 'Guest room + bath deep clean', unit: 'job', price: 95,
-    open: WEEKDAYS_SAT, slots: { morning: '10:00', afternoon: '14:00', evening: '17:00' },
-    deals: [{ days: ['fri'], before: 12, off: 10, why: 'a Friday slot before noon' }], maxOff: 10, moves: 'accepts',
-    terms: 'Deep clean of a guest room and bathroom, 2.5 hours. $95. Floor: $10 off only for a Friday slot before noon. Open Monday to Saturday. Free rescheduling to any open day.',
-  },
-  {
-    id: 'm_tidyhive', name: 'TidyHive', category: 'cleaning', area: 'Riverside', rating: 4.6,
-    pitch: 'Same-week cleans, background-checked cleaners.', label: 'Guest room refresh', unit: 'job', price: 110,
-    open: ALL, slots: { morning: '09:00', afternoon: '13:00', evening: '18:00' },
-    deals: [{ any: true, off: 5, why: 'booking through an agent' }], maxOff: 5, moves: 'accepts',
-    terms: 'Guest room refresh, 2 hours. $110. Floor: $5 off for agent bookings. Open every day.',
-  },
-  {
-    id: 'm_sparkle', name: 'Sparkle & Sage', category: 'cleaning', area: 'Old Town', rating: 4.9,
-    pitch: 'Premium hotel-style turn-down of guest rooms.', label: 'Hotel-style guest room prep', unit: 'job', price: 140,
-    open: ['thu', 'fri', 'sat'], slots: { morning: '11:00', afternoon: '15:00' },
-    deals: [], maxOff: 0, moves: 'declines',
-    terms: 'Hotel-style guest room preparation. $140, no discounts. Thursday to Saturday only. No rescheduling within 48 hours.',
-  },
   // ----- catering -----
   {
-    id: 'm_hearth', name: 'Hearth Table Catering', category: 'catering', area: 'Maple Heights', rating: 4.7,
+    id: 'm_hearth', name: 'Hearth Table Catering', category: 'catering', area: 'Demo partner network', rating: 4.7,
     pitch: 'Family-style dinners cooked and served at home.', label: 'Family-style dinner at home', unit: 'guest', price: 35,
     open: ['tue', 'wed', 'thu', 'fri', 'sat'], slots: { evening: '19:00', afternoon: '13:00' },
     deals: [{ minGuests: 6, off: 15, why: 'a table of six or more' }], maxOff: 15, moves: 'declines',
     terms: 'Family-style dinner at home, $35 per guest, chef and server included. Floor: $15 off for 6 guests or more. Closed Sunday and Monday. Date changes are not possible inside 72 hours.',
   },
   {
-    id: 'm_olive', name: 'Olive & Thyme Kitchen', category: 'catering', area: 'Riverside', rating: 4.8,
+    id: 'm_olive', name: 'Olive & Thyme Kitchen', category: 'catering', area: 'Demo partner network', rating: 4.8,
     pitch: 'Mediterranean dinners, delivered hot and plated at home.', label: 'Mediterranean dinner at home', unit: 'guest', price: 38,
     open: ALL, slots: { evening: '19:30', afternoon: '12:30' },
     deals: [{ minGuests: 6, off: 12, why: 'a table of six or more' }, { days: ['sun'], off: 6, why: 'a Sunday booking' }], maxOff: 18, moves: 'accepts',
     terms: 'Mediterranean dinner, $38 per guest, delivered and plated. Floor: $12 off for 6+ guests and $6 off on Sundays (max $18). Bills only the guests actually served. Open every day.',
   },
   {
-    id: 'm_basil', name: 'Basil Street Caterers', category: 'catering', area: 'Old Town', rating: 4.5,
+    id: 'm_basil', name: 'Basil Street Caterers', category: 'catering', area: 'Demo partner network', rating: 4.5,
     pitch: 'Classic American comfort food, buffet style.', label: 'Comfort-food buffet at home', unit: 'guest', price: 44,
     open: ALL, slots: { evening: '18:30' },
     deals: [], maxOff: 0, moves: 'accepts',
@@ -71,21 +51,22 @@ export const MERCHANTS = [
   },
   // ----- plumbing / handyman (the add-on covers the whole home, not only the demo story) -----
   {
-    id: 'm_flowfix', name: 'FlowFix Plumbing', category: 'plumbing', area: 'Maple Heights', rating: 4.7,
+    id: 'm_flowfix', name: 'FlowFix Plumbing', category: 'plumbing', area: 'Demo partner network', rating: 4.7,
     pitch: 'Licensed plumbers, two-hour arrival window.', label: 'Plumber visit (first hour)', unit: 'job', price: 129,
     open: ALL, slots: { morning: '08:00', afternoon: '13:00', evening: '17:00' },
     deals: [{ days: ['mon', 'tue', 'wed'], off: 20, why: 'an early-week visit' }], maxOff: 20, moves: 'accepts',
     terms: 'Plumber visit, first hour $129. Floor: $20 off Monday to Wednesday.',
   },
   {
-    id: 'm_handyhank', name: 'Handy Hank', category: 'handyman', area: 'Riverside', rating: 4.6,
+    id: 'm_handyhank', name: 'Handy Hank', category: 'handyman', area: 'Demo partner network', rating: 4.6,
     pitch: 'Small home fixes, furniture assembly, TV mounting.', label: 'Handyman, 2 hours', unit: 'job', price: 90,
     open: WEEKDAYS_SAT, slots: { morning: '09:00', afternoon: '14:00' },
     deals: [{ before: 12, off: 10, why: 'a morning slot' }], maxOff: 10, moves: 'accepts',
     terms: 'Handyman, 2 hours, $90. Floor: $10 off for morning slots.',
   },
 ];
-export const CATEGORIES = [...new Set(MERCHANTS.map((m) => m.category))];
+// The trades Mandat books: real local businesses for all four, demo partners for catering, plumbing and handyman work.
+export const CATEGORIES = ['cleaning', 'catering', 'plumbing', 'handyman'];
 
 export function merchant(id) {
   const m = MERCHANTS.find((x) => x.id === id);
@@ -95,10 +76,12 @@ export function merchant(id) {
 
 // Public identity card, signed by the network. Mandat recomputes the signature before trusting a quote.
 export function identityCard(m) {
-  const card = { agent: `${m.id}.agent`, merchant: m.name, category: m.category, area: m.area, issuedBy: 'Mandat Merchant Network (sandbox)', issued: '2026-10-01' };
+  const card = { agent: `${m.id}.agent`, merchant: m.name, category: m.category, area: m.area, issuedBy: 'Mandat demo partner network (simulated)', issued: '2026-10-01' };
   const signature = crypto.createHmac('sha256', NETWORK_SECRET).update(JSON.stringify(card)).digest('hex');
   return { ...card, signature };
 }
+// Signs a short value with the network key (image proxy links: only links Mandat made can be fetched).
+export const networkSign = (v) => crypto.createHmac('sha256', NETWORK_SECRET).update('img:' + String(v)).digest('hex').slice(0, 24);
 export function verifyCard(card) {
   try {
     const { signature, ...rest } = card || {};
@@ -116,7 +99,7 @@ export function normalizeCategory(c = '') {
   return null;
 }
 
-// Every merchant of the sandbox serves the whole demo town; `area` only orders results (closest first).
+// Every demo partner serves the whole demo town; `area` only orders results (closest first).
 export function search({ category, area } = {}) {
   const cat = normalizeCategory(category);
   const near = (m) => (area && m.area.toLowerCase().includes(String(area).toLowerCase()) ? 0 : 1);

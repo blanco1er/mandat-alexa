@@ -15,6 +15,7 @@ const money = (t) => { const m = /\$\s?(\d+(?:\.\d+)?)/.exec(t); return m ? Numb
 const DAY = /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i;
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const best = (r) => (sc(r).offers || [])[0];
+const parseInt6 = (t) => { const m = /\b(?:for|of)\s+(\d{1,2}|two|three|four|five|six|seven|eight|nine|ten|twelve)\b/i.exec(t); const W = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12 }; return m ? W[m[1].toLowerCase()] || Number(m[1]) : null; };
 
 export function classify(u, session = {}) {
   const t = u.toLowerCase();
@@ -52,7 +53,7 @@ export function wishes(u) {
   const out = [];
   const near = (re) => { const i = t.search(re); if (i < 0) return null; const tail = t.slice(i, i + 60); const d = DAY.exec(tail); return d ? cap(d[1]) : null; };
   if (/clean/.test(t)) out.push({ kind: 'service', category: 'cleaning', need: 'deep clean of the guest room and bath', when: `${near(/clean/) || 'Friday'} morning` });
-  if (/(bedding|sheets|linen)/.test(t)) out.push({ kind: 'product', query: 'queen bedding sheets for the guest room' });
+  if (/(bedding|sheets|linen)/.test(t)) out.push({ kind: 'product', query: 'queen sheet set for the guest room' });
   if (/(dinner|cater)/.test(t)) {
     const g = /(?:for|of)\s+(\w+)/.exec(t.slice(t.search(/dinner|cater/)));
     out.push({ kind: 'service', category: 'catering', need: `dinner for ${g ? g[1] : 'six'} at home`, when: `${near(/dinner|cater/) || 'Saturday'} evening` });
@@ -78,7 +79,7 @@ const familyOf = (o) => (o.kind === 'product' ? (/(sheet|bed|duvet|towel|pillow)
 function known(session) {
   const out = new Map();
   for (const o of Object.values(session.offers || {})) out.set(o.id, { ...o, inPlan: false });
-  for (const l of session.pending?.lines || []) out.set(l.offer_id, { ...(out.get(l.offer_id) || {}), id: l.offer_id, kind: l.kind, category: l.category, merchant: l.merchant, title: l.title, total: l.total, search_id: l.search_id, inPlan: true });
+  for (const l of session.pending?.lines || []) out.set(l.offer_id, { ...(out.get(l.offer_id) || {}), id: l.offer_id, kind: l.kind, category: l.category, merchant: l.merchant, title: l.title, total: l.total, search_id: l.search_id, source: l.source ?? out.get(l.offer_id)?.source ?? null, inPlan: true });
   return [...out.values()];
 }
 // Best match for the words of the utterance; ties go to `prefer` (in the plan, or not in the plan).
@@ -110,17 +111,19 @@ export function absorb(session, name, result) {
   const s = { ...session };
   const d = sc(result);
   if (failed(result)) return s;
-  const lines = (p) => p.lines.map((l) => ({ offer_id: l.offer_id, kind: l.kind, category: l.category, merchant: l.merchant, title: l.title, total: l.total, search_id: l.search_id || null }));
+  const lines = (p) => p.lines.map((l) => ({ offer_id: l.offer_id, kind: l.kind, category: l.category, merchant: l.merchant, title: l.title, total: l.total, search_id: l.search_id || null, source: l.source || null }));
   if (name === 'propose_plan' || name === 'revise_plan' || (name === 'swap_item' && d.plan)) s.pending = d.needs_user_yes ? { plan_id: d.plan.id, token: d.confirmation_token, total: d.plan.breakdown.total, lines: lines(d.plan) } : null;
   if (name === 'confirm_plan') { s.pending = null; s.focus = null; }
   // options seen recently (for "show me", "other options", "take X instead"): the last 15, light
   const seen = d.offers || (d.offer ? [d.offer] : []);
   if (seen.length && ['find_home_services', 'find_products', 'list_alternatives', 'negotiate_offer', 'get_offer_details', 'compare_offers', 'swap_item'].includes(name)) {
     const keep = Object.values({ ...(s.offers || {}) });
-    for (const o of seen) keep.push({ id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, title: o.title, total: o.total, search_id: o.search_id || null });
+    for (const o of seen) keep.push({ id: o.id, kind: o.kind, category: o.category ?? null, merchant: o.merchant, title: o.title, total: o.total, search_id: o.search_id || null, source: o.source || null });
     s.offers = Object.fromEntries(keep.slice(-15).map((o) => [o.id, o]));
   }
   if ((name === 'get_offer_details' || name === 'swap_item') && d.offer) s.focus = d.offer.id;
+  // the other options just listed, in the order they were said ("take the first one")
+  if (name === 'list_alternatives' && d.offers) s.lastList = d.offers.filter((o) => o.id !== d.current_offer_id).slice(0, 5).map((o) => o.id);
   return s;
 }
 
@@ -167,9 +170,12 @@ export function decide({ utterance, session = {}, steps = [], locale }) {
 
     case 'compare': {
       const all = known(session);
-      const anchor = pointAt(u, session, { prefer: 'plan' }) || all.find((x) => x.id === session.focus);
+      // "compare the two caterers": the caterer of the plan, against the best of the others
+      const fam = Object.keys(CATEGORY_WORDS).find((k) => CATEGORY_WORDS[k].test(u.toLowerCase())) || Object.keys(PRODUCT_WORDS).find((k) => PRODUCT_WORDS[k].test(u.toLowerCase()));
+      const anchor = (fam && all.find((x) => x.inPlan && familyOf(x) === fam)) || pointAt(u, session, { prefer: 'plan' }) || all.find((x) => x.id === session.focus);
       if (!anchor) return say(tl('p_compare_which'));
-      const group = all.filter((x) => sameSearch(x, anchor)).sort((a, b) => (b.inPlan - a.inPlan) || a.total - b.total);
+      const other = (x) => ((x.source || '') !== (anchor.source || '') ? 0 : 1);
+      const group = [anchor, ...all.filter((x) => x.id !== anchor.id && sameSearch(x, anchor)).sort((a, b) => other(a) - other(b) || a.total - b.total)];
       const howMany = /\b(two|2|both)\b/i.test(u) ? 2 : 3;
       const ids = group.slice(0, howMany).map((x) => x.id);
       if (ids.length < 2) return say(tl('p_only_one'));
@@ -181,9 +187,14 @@ export function decide({ utterance, session = {}, steps = [], locale }) {
 
     case 'swap': {
       if (!session.pending) return say(tl('p_no_plan'));
-      const add = pointAt(u, session, { prefer: 'other' });
-      // named in words, never seen on screen ("take the sateen set instead"): Mandat finds it (swap_item)
-      if (!add || add.inPlan) { if (n === 0) return tool('swap_item', { wanted: u }); return say(said(last.result) + (dot && session.pending ? YES : '')); }
+      // "take the first one instead": the option at that place in the last list of other options
+      const ord = /\b(first|second|third|1st|2nd|3rd|last)\b/i.exec(u);
+      const listed = (session.lastList || []).map((oid) => known(session).find((x) => x.id === oid)).filter(Boolean);
+      const add = ord && listed.length ? listed[{ first: 0, '1st': 0, second: 1, '2nd': 1, third: 2, '3rd': 2, last: listed.length - 1 }[ord[1].toLowerCase()]] || null : pointAt(u, session, { prefer: 'other' });
+      // named in words, never seen on screen ("take the sateen set instead"), or only its family matched (any bedding):
+      // Mandat finds the like-for-like match itself (swap_item)
+      const named = (o) => { const ws = new Set(words(u)); return [...new Set(words(`${o.merchant} ${o.title} ${I.phrase(o.title, 'fr-FR')} ${I.phrase(o.title, 'es-ES')}`))].some((w) => ws.has(w)); };
+      if (!add || add.inPlan || (!ord && !named(add))) { if (n === 0) return tool('swap_item', { wanted: u }); return say(said(last.result) + (dot && session.pending ? YES : '')); }
       const out = known(session).find((x) => x.inPlan && sameSearch(x, add)) || known(session).find((x) => x.inPlan && familyOf(x) === familyOf(add));
       if (n === 0) return tool('revise_plan', { plan_id: session.pending.plan_id, remove_offer_ids: out ? [out.id] : [], add_offer_ids: [add.id] });
       return say(said(last.result) + (dot ? YES : ''));
@@ -211,12 +222,14 @@ export function decide({ utterance, session = {}, steps = [], locale }) {
           const dog = (lang === 'fr' ? /(\p{L}+),?\s+(?:notre|mon)\s+chien,?\s+est\s+(.*)$/iu : /(\p{L}+),?\s+(?:nuestro|mi)\s+perro,?\s+es\s+(.*)$/iu).exec(t);
           if (dog) return tool('remember_preference', { subject: `${cap(dog[1])} (${tl('sub_dog')})`, fact: dog[2] });
           if (/caf[ée]|torréfaction|tueste|roast/i.test(t)) return tool('remember_preference', { subject: tl('sub_coffee'), fact: cap(t) });
+          if (/lessive|detergente|laundry/i.test(t)) return tool('remember_preference', { subject: tl('sub_laundry'), fact: cap(t) });
           return tool('remember_preference', { subject: lang === 'fr' ? 'Maison' : 'Casa', fact: cap(t) });
         }
         const t = u.replace(/^.*?\bremember\b\s*(that\s*)?/i, '').replace(/[.!]$/, '');
         const dog = /\b(\w+),?\s+(?:our|my)\s+dog,?\s+is\s+(.*)$/i.exec(t);
         if (dog) return tool('remember_preference', { subject: `${cap(dog[1])} (dog)`, fact: dog[2] });
         if (/coffee|roast/i.test(t)) return tool('remember_preference', { subject: 'Coffee', fact: cap(t) });
+        if (/laundry|detergent/i.test(t)) return tool('remember_preference', { subject: 'Laundry', fact: cap(t) });
         const m = /^(\w+)\s+(is|are|likes|prefers|drinks|eats)\s+(.*)$/i.exec(t);
         return tool('remember_preference', m ? { subject: cap(m[1]), fact: `${m[2]} ${m[3]}` } : { subject: 'Household', fact: cap(t) });
       }
@@ -227,7 +240,7 @@ export function decide({ utterance, session = {}, steps = [], locale }) {
       if (n === 0) {
         const amounts = [...u.matchAll(/\$\s?(\d+)/g)].map((m) => Number(m[1]));
         const auto = /(without asking|on your own|auto)/i.test(u) && amounts.length > 1 ? amounts[1] : 0;
-        return tool('set_spending_mandate', { budget: amounts[0], currency: 'USD', period: /month/i.test(u) ? 'monthly' : 'weekly', auto_approve_under: auto, purpose: /grocer|courses|compra/i.test(u) ? tl('pur_groceries') : tl('pur_house') });
+        return tool('set_spending_mandate', { budget: amounts[0], currency: 'USD', period: /month/i.test(u) ? 'monthly' : 'weekly', auto_approve_under: auto, purpose: /grocer|\bcourses\b|\bla compra\b/i.test(raw) ? tl('pur_groceries') : tl('pur_house') });
       }
       return say(said(last.result));
     }
@@ -242,20 +255,24 @@ export function decide({ utterance, session = {}, steps = [], locale }) {
       if (n === 0) return tool('set_spending_mandate', { budget: money(u), currency: 'USD', period: 'once', auto_approve_under: 0, purpose: purposeOf(u, L) });
       if (n <= ws.length) {
         const w = ws[n - 1];
-        return w.kind === 'product' ? tool('find_products', { query: w.query, quantity: 1 }) : tool('find_home_services', { need: w.need, category: w.category, when: w.when });
+        // a product inside a total budget: at most a fifth of it, so the services (and a replacement) still fit
+        const cap = money(u);
+        return w.kind === 'product' ? tool('find_products', { query: w.query, quantity: 1, ...(cap ? { max_price: Math.round(cap / 5) } : {}) }) : tool('find_home_services', { need: w.need, category: w.category, when: w.when, ...(w.category === 'catering' && parseInt6(w.need) ? { guests: parseInt6(w.need) } : {}) });
       }
       if (n === ws.length + 1) {
         const ids = steps.slice(1, ws.length + 1).map((s) => best(s.result)?.id).filter(Boolean);
         return tool('propose_plan', { item_ids: ids, mandate_id: sc(steps[0].result).mandate.id, note: purposeOf(u, L) });
       }
-      const asked = steps.slice(1, ws.length + 1).filter((s) => s.name === 'find_home_services').map((s) => { const k = sc(s.result).asked; return `${k} ${I.noun(sc(s.result).category, k, L)}`; });
-      return say(`${asked.length ? tl('p_asked', { list: I.list(asked, L) }) : ''}${said(last.result)}${dot ? YES : ''}`);
+      // "I found 4 cleaners near Capitol Hill, and 4 caterers plus 3 demo partners."
+      const asked = steps.slice(1, ws.length + 1).filter((s) => s.name === 'find_home_services' && !failed(s.result)).map((s, k) => { const d = sc(s.result); return tl('p_found_part', { local: d.found_local || 0, partners: d.asked_partners || 0, noun: I.noun(d.category, d.found_local || 2, L), area: k === 0 ? d.area || '' : '' }); });
+      return say(`${asked.length ? tl('p_found', { list: I.list(asked, L) }) : ''}${said(last.result)}${dot ? YES : ''}`);
     }
 
     case 'restock': {
       // one product at a time: under the auto-approve rule it is bought at once, above it Mandat asks.
       const items = [];
-      if (/dog|kibble/i.test(u)) items.push('dog food');
+      if (/dog|kibble/i.test(u)) items.push('dry dog food');
+      if (/laundry|detergent/i.test(u)) items.push('laundry detergent');
       if (/coffee/i.test(u)) items.push('coffee');
       if (/(sheets|bedding)/i.test(u)) items.push('bedding');
       if (!items.length) items.push(u.replace(/^.*(out of|low on|need more)\s*/i, '').replace(/[.!?]$/, ''));
@@ -290,11 +307,11 @@ export function decide({ utterance, session = {}, steps = [], locale }) {
       const open = (sc(steps[0].result).open_orders || []).filter((o) => o.kind === 'service');
       const changes = open.map((o) => ({ o, value: /dinner|cater/i.test(o.label) ? day : before }));
       if (n <= changes.length) { const c = changes[n - 1]; return tool('change_order', { order_id: c.o.id, change: { field: 'date', value: c.value } }); }
-      const declined = steps.slice(1, changes.length + 1).find((s) => (sc(s.result).alternatives || []).length);
+      const declinedAll = steps.slice(1, changes.length + 1).filter((s) => (sc(s.result).alternatives || []).length);
+      const declined = declinedAll[0];
       if (declined && n === changes.length + 1) {
-        const alt = sc(declined.result).alternatives[0];
         const order = (sc(declined.result).receipt.orders || [])[0];
-        return tool('propose_plan', { item_ids: [alt.id], mandate_id: order.mandate_id, note: 'Replacement after a date change' });
+        return tool('propose_plan', { item_ids: declinedAll.map((d) => sc(d.result).alternatives[0].id), mandate_id: order.mandate_id, note: 'Replacement after a date change' });
       }
       // what simply moved first, then what was declined (with its replacement)
       const told = steps.slice(1, changes.length + 1).sort((a, b) => (sc(a.result).alternatives ? 1 : 0) - (sc(b.result).alternatives ? 1 : 0)).map((s) => said(s.result)).join(' ');
@@ -319,8 +336,8 @@ export function decide({ utterance, session = {}, steps = [], locale }) {
         return tool('close_order', { order_id: o.id, action: 'capture', ...(f ? { amount: f.amount } : {}), confirmation_token: tokens[o.id] || 'missing-token' });
       }
       if (refund && n === open.length + 1) {
-        const word = (refund[2] || '').toLowerCase();
-        const target = open.find((o) => /pillow|bedding|sheet/.test(word) ? /bed|sheet|pillow/i.test(o.label) : true);
+        const bed = /refund[^.]*\b(pillow\w*|bedding|sheets?|linens?)\b/i.test(u);
+        const target = bed ? open.find((o) => o.kind === 'product' && /bed|sheet|pillow|linen/i.test(o.label)) || open.find((o) => o.kind === 'product') : open.find((o) => o.kind === 'product') || open[0];
         if (target) return tool('close_order', { order_id: target.id, action: 'refund', amount: Number(refund[1]), confirmation_token: tokens[target.id] || 'missing-token' });
       }
       // one short summary instead of one sentence per order

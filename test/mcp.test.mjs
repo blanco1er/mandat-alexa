@@ -97,12 +97,17 @@ test('every tool works on its happy path and returns voice text + structuredCont
   check(await c.callTool({ name: 'remember_preference', arguments: { subject: 'Max (dog)', fact: 'allergic to chicken' } }), 'remember_preference');
   const { m, clean, bed, food, plan } = await inLawsPlan(c);
   for (const [r, n] of [[m, 'set_spending_mandate'], [clean, 'find_home_services'], [bed, 'find_products'], [food, 'find_home_services'], [plan, 'propose_plan']]) check(r, n);
-  const neg = check(await c.callTool({ name: 'negotiate_offer', arguments: { offer_id: sc(clean).offers[1].id, ask: 'Can you do Friday morning for $90?' } }), 'negotiate_offer');
-  assert.ok(sc(neg).offer.total <= sc(clean).offers[1].total);
+  // only demo partners negotiate; a real business refuses with the reason
+  const partner = sc(food).offers.find((o) => o.source === 'partner' && o.id !== sc(food).offers[0].id);
+  const neg = check(await c.callTool({ name: 'negotiate_offer', arguments: { offer_id: partner.id, ask: 'Can you do Saturday evening for $180?' } }), 'negotiate_offer');
+  assert.ok(sc(neg).offer.total <= partner.total);
+  const local = await c.callTool({ name: 'negotiate_offer', arguments: { offer_id: sc(clean).offers[0].id, ask: 'Can you do $80?' } });
+  assert.equal(local.isError, true);
+  assert.match(text(local), /real business with no agent.*estimate.*Only demo partners negotiate/);
   const conf = check(await c.callTool({ name: 'confirm_plan', arguments: { plan_id: sc(plan).plan.id, confirmation_token: sc(plan).confirmation_token, user_confirmation: 'Yes, book it' } }), 'confirm_plan');
   const orders = sc(conf).receipt.orders;
   assert.equal(orders.length, 3);
-  const cleaning = orders.find((o) => /BrightNest/.test(o.merchant));
+  const cleaning = orders.find((o) => o.source === 'local');
   check(await c.callTool({ name: 'change_order', arguments: { order_id: cleaning.id, change: { field: 'date', value: 'Saturday' } } }), 'change_order');
   check(await c.callTool({ name: 'close_order', arguments: { order_id: cleaning.id, action: 'capture', confirmation_token: cleaning.close_token } }), 'close_order');
   const st = check(await c.callTool({ name: 'get_household_status', arguments: {} }), 'get_household_status');
@@ -114,7 +119,7 @@ test('every tool works on its happy path and returns voice text + structuredCont
 test('tool results carry the Alexa+ invoking/invoked convention and ids for the assistant in content[1]', async () => {
   const c = await client(srv.mcpUrl);
   const r = await c.callTool({ name: 'find_home_services', arguments: { need: 'fix a leak', category: 'plumbing', when: 'Monday morning' } });
-  assert.equal(r._meta.ui.invoking, 'Asking local pros…');
+  assert.equal(r._meta.ui.invoking, 'Finding local pros…');
   assert.match(r.content[1].text, /^Assistant data \(do not read aloud\): /);
   const ids = JSON.parse(r.content[1].text.replace(/^[^{]*/, ''));
   assert.match(ids.offers[0].offer_id, /^off_/);
@@ -134,22 +139,24 @@ test('item photos: offers, plan lines and receipts carry an image from our own o
   const { ITEM_MEDIA } = await import('../src/core/media.mjs');
   const { PRODUCTS } = await import('../src/core/catalog.mjs');
   for (const p of PRODUCTS) assert.ok(ITEM_MEDIA[p.id], `no photo for ${p.id}`);
-  for (const id of ['m_brightnest', 'm_tidyhive', 'm_sparkle', 'm_hearth', 'm_olive', 'm_basil']) assert.ok(ITEM_MEDIA[id], `no photo for ${id}`);
+  for (const id of ['m_hearth', 'm_olive', 'm_basil']) assert.ok(ITEM_MEDIA[id], `no photo for ${id}`);
   for (const [, [name, alt]] of Object.entries(ITEM_MEDIA)) {
     assert.ok(fs.statSync(new URL(`../media/items/${name}.webp`, import.meta.url)).size <= 60000, name);
     assert.ok(alt.length > 10 && !/image|photo|picture/i.test(alt), `alt text of ${name}`);
   }
   const c = await client(srv.mcpUrl);
-  const { plan, clean } = await inLawsPlan(c);
+  const { plan, food } = await inLawsPlan(c);
   const origin = new URL(srv.url).origin;
-  for (const o of sc(clean).offers) { assert.ok(o.image_url.startsWith(origin + '/media/items/'), o.image_url); assert.ok(o.image_alt); }
-  for (const l of sc(plan).plan.lines) assert.ok(l.image_url && l.image_alt, l.merchant);
+  for (const o of sc(food).offers.filter((x) => x.source === 'partner')) { assert.ok(o.image_url.startsWith(origin + '/media/items/'), o.image_url); assert.ok(o.image_alt); }
+  // a real business found in OpenStreetMap has no photo: its card keeps the category icon (never a stock photo)
+  for (const l of sc(plan).plan.lines.filter((x) => x.source !== 'local')) assert.ok(l.image_url && l.image_alt, l.merchant);
   const yes = await c.callTool({ name: 'confirm_plan', arguments: { plan_id: sc(plan).plan.id, confirmation_token: sc(plan).confirmation_token, user_confirmation: 'yes' } });
-  for (const o of sc(yes).receipt.orders) assert.ok(o.image_url, o.merchant);
+  for (const o of sc(yes).receipt.orders.filter((x) => x.source !== 'local')) assert.ok(o.image_url, o.merchant);
   // the card's CSP lists that one origin; the photo is served there as WebP
   const { contents } = await c.readResource({ uri: (await c.listResources()).resources.find((r) => r.uri.includes('/plan-')).uri });
-  assert.deepEqual(contents[0]._meta.ui.csp.resourceDomains, [new URL(sc(plan).plan.lines[0].image_url).origin]);
-  const img = await fetch(sc(plan).plan.lines[0].image_url);
+  const withPhoto = sc(plan).plan.lines.find((l) => l.image_url);
+  assert.deepEqual(contents[0]._meta.ui.csp.resourceDomains, [new URL(withPhoto.image_url).origin]);
+  const img = await fetch(withPhoto.image_url);
   assert.equal(img.status, 200);
   assert.equal(img.headers.get('content-type'), 'image/webp');
   await c.close();

@@ -53,7 +53,7 @@ test('Balanced: buys $34 on its own, asks for $52, and the daily limit stops the
   const r1 = await c.callTool({ name: 'confirm_plan', arguments: { plan_id: p1.plan.id, confirmation_token: p1.confirmation_token, user_confirmation: 'We are out of dog food' } });
   assert.ok(!r1.isError, text(r1));
   assert.equal(sc(r1).receipt.orders[0].auto, true);
-  const coffee = (await shopFor(c, 'Northbeam coffee')).offers.find((o) => /Northbeam/.test(o.title));
+  const coffee = (await shopFor(c, 'Seventh Generation laundry detergent')).offers.find((o) => /Seventh Generation/.test(o.title));
   assert.equal((await propose(c, coffee.id)).needs_user_yes, true, '$52 is above the $40 rule');
   // $34 already bought alone today: another $34 would pass the $60 daily limit
   const dog2 = (await shopFor(c, 'dog food')).offers.find((o) => /Salmon/.test(o.title));
@@ -67,7 +67,7 @@ test('Balanced: buys $34 on its own, asks for $52, and the daily limit stops the
 
 test('Hands-off within limits: $52 bought alone inside a $100 daily limit; the yes is re-checked at confirmation', async () => {
   const c = await setup('hands_off', { daily_cap: 100 });
-  const coffee = (await shopFor(c, 'Northbeam coffee')).offers.find((o) => /Northbeam/.test(o.title));
+  const coffee = (await shopFor(c, 'Seventh Generation laundry detergent')).offers.find((o) => /Seventh Generation/.test(o.title));
   const p = await propose(c, coffee.id);
   assert.equal(p.needs_user_yes, false);
   assert.equal(p.plan.auto_reason, 'hands_off');
@@ -109,10 +109,10 @@ test('emergency stop: voids every hold, drops plans waiting for a yes, refuses e
   const held = await c.callTool({ name: 'confirm_plan', arguments: { plan_id: p.plan.id, confirmation_token: p.confirmation_token, user_confirmation: 'Yes, book it' } });
   assert.equal(sc(held).receipt.orders.length, 3);
   const dog = (await shopFor(c, 'dog food')).offers[0];
-  const coffee = (await shopFor(c, 'Northbeam coffee')).offers.find((o) => /Northbeam/.test(o.title));
+  const coffee = (await shopFor(c, 'Seventh Generation laundry detergent')).offers.find((o) => /Seventh Generation/.test(o.title));
   const waiting = await propose(c, coffee.id);
   const stop = await c.callTool({ name: 'pause_spending', arguments: {} });
-  assert.match(text(stop), /Mandat is paused\. I voided 3 payment holds \(\$372\)/);
+  assert.match(text(stop), /Mandat is paused\. I voided 3 payment holds \(\$380\)/);
   assert.match(text(stop), /dropped 1 plan/);
   const st = sc(await c.callTool({ name: 'get_household_status', arguments: {} }));
   assert.equal(st.open_orders.length, 0);
@@ -219,7 +219,7 @@ test('item card: a dearer option shows its extra cost in amber, with what it is 
   const why = sc(r).why;
   assert.deepEqual(why.map((w) => w.tone).slice(0, 2), ['plus', 'cost']);
   assert.match(why[0].text, /^Chosen for cotton sateen, silky finish/);
-  assert.match(why[1].text, /^Costs \$12 more than Guest bed bundle, the cheapest similar option$/);
-  assert.match(text(r), /Chosen for cotton sateen.*Costs \$12 more/);
+  assert.match(why[1].text, /^Costs \$55 more than Queen microfiber sheet set, grey, the cheapest similar option$/);
+  assert.match(text(r), /Chosen for cotton sateen.*Costs \$55 more/);
   await c.close();
 });

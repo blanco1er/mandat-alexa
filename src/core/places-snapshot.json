@@ -1,0 +1,343 @@
+{
+ "built": "2026-10-19",
+ "source": "OpenStreetMap (Overpass API)",
+ "license": "ODbL 1.0, © OpenStreetMap contributors",
+ "home": "Capitol Hill, Seattle, WA",
+ "categories": {
+  "cleaning": [
+   {
+    "type": "node",
+    "id": 2158750245,
+    "lat": 47.5743485,
+    "lon": -122.3206367,
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "918",
+     "addr:postcode": "98134",
+     "addr:street": "South Horton Street",
+     "contact:website": "https://downtownhousecleaning.com/",
+     "craft": "cleaning",
+     "name": "Downtown House Cleaning",
+     "office": "company",
+     "opening_hours": "Mo-Fr 09:00-17:30; Sa-Su off; PH off"
+    }
+   },
+   {
+    "type": "node",
+    "id": 2268910762,
+    "lat": 47.6392044,
+    "lon": -122.323932,
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "2233",
+     "addr:postcode": "98102",
+     "addr:street": "Boylston Avenue East",
+     "name": "Pure House Cleaning",
+     "office": "company",
+     "website": "https://www.purehousecleaning.com/"
+    }
+   },
+   {
+    "type": "node",
+    "id": 2434399224,
+    "lat": 47.6871019,
+    "lon": -122.3129972,
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "8003",
+     "addr:postcode": "98115",
+     "addr:street": "Lake City Way Northeast",
+     "craft": "cleaning",
+     "name": "MaidPro",
+     "office": "company",
+     "opening_hours": "\"by appointment\"",
+     "website": "https://www.maidpro.com/seattle-bellevue/"
+    }
+   },
+   {
+    "type": "node",
+    "id": 9646972852,
+    "lat": 47.5516031,
+    "lon": -122.326406,
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "5700",
+     "addr:postcode": "98108",
+     "addr:street": "6th Avenue South",
+     "craft": "cleaning",
+     "name": "The Dazzle Cleaning Company",
+     "opening_hours": "Mo-Fr 08:00-17:00",
+     "website": "https://dazzlecompany.com"
+    }
+   },
+   {
+    "type": "node",
+    "id": 10132039119,
+    "lat": 47.6353064,
+    "lon": -122.339861,
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "1818",
+     "addr:postcode": "98109",
+     "addr:street": "Westlake Avenue North",
+     "craft": "cleaning",
+     "name": "Simply Clean",
+     "website": "https://www.seattlesimplyclean.com/"
+    }
+   },
+   {
+    "type": "node",
+    "id": 12985685111,
+    "lat": 47.6408716,
+    "lon": -122.3261631,
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "2341",
+     "addr:postcode": "98102",
+     "addr:street": "Eastlake Avenue East",
+     "name": "Rain City Maids of Seattle",
+     "office": "company",
+     "opening_hours": "Mo-Fr 08:00-17:00",
+     "website": "https://www.raincitymaids.com/"
+    }
+   },
+   {
+    "type": "way",
+    "id": 231276050,
+    "center": {
+     "lat": 47.5487299,
+     "lon": -122.3458889
+    },
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "5955",
+     "addr:postcode": "98106",
+     "addr:street": "West Marginal Way Southwest",
+     "name": "CleanEarth",
+     "office": "company"
+    }
+   }
+  ],
+  "catering": [
+   {
+    "type": "node",
+    "id": 1774033170,
+    "lat": 47.6209307,
+    "lon": -122.3332743,
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "1190",
+     "addr:postcode": "98109",
+     "addr:street": "Thomas Street",
+     "craft": "caterer",
+     "name": "Kati Vegan Thai",
+     "opening_hours": "Su-Th 11:30-15:00, 16:30-21:00; Fr-Sa 11:30-15:00, 16:30-22:00",
+     "website": "https://www.kativeganthai.com/"
+    }
+   },
+   {
+    "type": "node",
+    "id": 2396888089,
+    "lat": 47.5519833,
+    "lon": -122.3264304,
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "5620",
+     "addr:postcode": "98108",
+     "addr:street": "6th Avenue South",
+     "craft": "caterer",
+     "name": "Conscious Eatery",
+     "website": "https://consciouseatery.org/"
+    }
+   },
+   {
+    "type": "node",
+    "id": 12070756086,
+    "lat": 47.6149351,
+    "lon": -122.3157517,
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "1525",
+     "addr:postcode": "98122",
+     "addr:street": "13th Avenue",
+     "craft": "caterer",
+     "name": "Cap Hill Kitchens",
+     "website": "https://caphillkitchens.com/"
+    }
+   },
+   {
+    "type": "node",
+    "id": 13204174202,
+    "lat": 47.6169838,
+    "lon": -122.3083793,
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "1714",
+     "addr:postcode": "98122",
+     "addr:street": "18th Avenue",
+     "craft": "caterer",
+     "name": "Sebi's Kitchen",
+     "opening_hours": "Fr 05:00-09:00",
+     "website": "https://sebiskitchen.com"
+    }
+   },
+   {
+    "type": "way",
+    "id": 231287589,
+    "center": {
+     "lat": 47.5479194,
+     "lon": -122.3205864
+    },
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "921",
+     "addr:postcode": "98108",
+     "addr:street": "South Harney Street",
+     "craft": "caterer",
+     "name": "Foodz Catering"
+    }
+   }
+  ],
+  "plumbing": [
+   {
+    "type": "node",
+    "id": 2138389786,
+    "lat": 47.663931,
+    "lon": -122.3813965,
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "4776",
+     "addr:postcode": "98107",
+     "addr:street": "Shilshole Avenue Northwest",
+     "craft": "plumber",
+     "name": "Craftsman Plumbing",
+     "website": "https://www.nebaronline.com/"
+    }
+   },
+   {
+    "type": "node",
+    "id": 5589433779,
+    "lat": 47.5978829,
+    "lon": -122.3239498,
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "515",
+     "addr:postcode": "98104",
+     "addr:street": "7th Avenue South",
+     "craft": "plumber",
+     "name": "Beacon Plumbing",
+     "website": "https://www.beaconplumbing.net/"
+    }
+   },
+   {
+    "type": "node",
+    "id": 11118295052,
+    "lat": 47.6931718,
+    "lon": -122.3441555,
+    "tags": {
+     "craft": "plumber",
+     "name": "Best Plumbing"
+    }
+   },
+   {
+    "type": "way",
+    "id": 217585774,
+    "center": {
+     "lat": 47.6674574,
+     "lon": -122.3714133
+    },
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "1112",
+     "addr:postcode": "98107",
+     "addr:street": "Northwest 53rd Street",
+     "craft": "plumber",
+     "name": "Quality Plumbing",
+     "website": "https://www.qualityplumbing.cc/"
+    }
+   },
+   {
+    "type": "way",
+    "id": 221921424,
+    "center": {
+     "lat": 47.6510895,
+     "lon": -122.3779148
+    },
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "3425",
+     "addr:postcode": "98119",
+     "addr:street": "16th Avenue West",
+     "craft": "plumber",
+     "name": "Pioneer Plumbing & Sewer",
+     "opening_hours": "Mo-Fr 08:00-17:00",
+     "website": "https://pioneerplumbing.biz/"
+    }
+   },
+   {
+    "type": "way",
+    "id": 228915473,
+    "center": {
+     "lat": 47.5678241,
+     "lon": -122.3551932
+    },
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "4015",
+     "addr:postcode": "98106",
+     "addr:street": "16th Avenue Southwest",
+     "craft": "plumber",
+     "name": "Seattle Plumbing Pros",
+     "website": "https://www.seattleplumbingpros.net/"
+    }
+   },
+   {
+    "type": "way",
+    "id": 228921389,
+    "center": {
+     "lat": 47.5607035,
+     "lon": -122.3633062
+    },
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "2401",
+     "addr:postcode": "98106",
+     "addr:street": "Southwest Alaska Street",
+     "craft": "plumber",
+     "name": "South West Plumbing"
+    }
+   },
+   {
+    "type": "way",
+    "id": 231276074,
+    "center": {
+     "lat": 47.55372,
+     "lon": -122.3474279
+    },
+    "tags": {
+     "craft": "plumber",
+     "name": "O'Neil Plumbing"
+    }
+   },
+   {
+    "type": "way",
+    "id": 234830421,
+    "center": {
+     "lat": 47.5580916,
+     "lon": -122.2859015
+    },
+    "tags": {
+     "addr:city": "Seattle",
+     "addr:housenumber": "3704",
+     "addr:postcode": "98118",
+     "addr:street": "South Ferdinand Street",
+     "craft": "plumber",
+     "name": "Soreano's Plumbing Inc.",
+     "opening_hours": "Mo-Fr 08:00-17:30",
+     "website": "https://soreanosplumbing.com/"
+    }
+   }
+  ],
+  "handyman": []
+ }
+}

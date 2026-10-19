@@ -7,6 +7,7 @@
 // translated, so ids, prices and slots never drift between languages. The household's currency is kept (USD in this
 // sandbox); numbers, prices and times follow the locale ("372 $", "19 h 30", "las 19:30").
 import { SETTINGS_CARD, SETTINGS_MSG, SETTINGS_PHRASES } from './i18n-settings.mjs';
+import { REAL_CARD, REAL_MSG, REAL_PHRASES } from './i18n-real.mjs';
 
 export const LOCALES = ['en-US', 'fr-FR', 'es-ES', 'es-US'];
 export function normLocale(x) {
@@ -60,6 +61,37 @@ export function spokenSlot(label, loc = 'en-US') {
   if (lang === 'en') return String(label).replace(/^(\w+day) (\d)/, '$1 at $2');
   if (lang === 'fr') return `${dayName(p.day, loc)} à ${hhmm(p.h, p.m, lang)}`;
   return `el ${dayName(p.day, loc)} a ${p.h === 1 || p.h === 13 ? 'la' : 'las'} ${hhmm(p.h, p.m, lang)}`;
+}
+
+// ---- opening hours ({ mon: [[480, 1020]] } in minutes) -> "Mon–Fri 8 AM–5 PM · Sat 9 AM–4 PM", per language ----
+const SHORT = { en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], fr: ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'], es: ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'] };
+const KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+function clock(min, lang) {
+  const h = Math.floor(min / 60) % 24, m = min % 60;
+  if (lang === 'en') return `${h % 12 || 12}${m ? ':' + String(m).padStart(2, '0') : ''} ${h < 12 ? 'AM' : 'PM'}`;
+  return hhmm(h, m, lang);
+}
+export function hoursText(hours, loc = 'en-US') {
+  if (!hours) return '';
+  const lang = langOf(loc);
+  const order = [1, 2, 3, 4, 5, 6, 0]; // Monday first
+  const spans = (d) => (hours[KEYS[d]] || []).map(([a, b]) => (a === 0 && b >= 1440 ? '24h' : `${clock(a, lang)}–${clock(b % 1440, lang)}`)).join(', ');
+  const groups = [];
+  for (const d of order) {
+    const t = spans(d);
+    const g = groups[groups.length - 1];
+    if (g && g.t === t) g.to = d; else groups.push({ from: d, to: d, t });
+  }
+  const closed = { en: 'closed', fr: 'fermé', es: 'cerrado' }[lang];
+  return groups.filter((g) => g.t).map((g) => `${SHORT[lang][g.from]}${g.to !== g.from ? '–' + SHORT[lang][g.to] : ''} ${g.t}`).join(' · ') + (groups.some((g) => !g.t) ? ` · ${groups.filter((g) => !g.t).map((g) => `${SHORT[lang][g.from]}${g.to !== g.from ? '–' + SHORT[lang][g.to] : ''}`).join(', ')} ${closed}` : '');
+}
+// "2 h × $50/h" in each language (the estimate rule of a real business, src/core/estimate.mjs)
+export function estimateRule(e, loc = 'en-US') {
+  if (!e) return '';
+  const lang = langOf(loc), m = (n) => money(n, loc);
+  if (e.per === 'hour') return { en: `${e.qty} h × ${m(e.rate)} per hour`, fr: `${e.qty} h × ${m(e.rate)} de l’heure`, es: `${e.qty} h × ${m(e.rate)} la hora` }[lang];
+  if (e.per === 'guest') return { en: `${e.qty} guests × ${m(e.rate)}`, fr: `${e.qty} personnes × ${m(e.rate)}`, es: `${e.qty} personas × ${m(e.rate)}` }[lang];
+  return { en: `${m(e.rate)} per visit`, fr: `${m(e.rate)} la visite`, es: `${m(e.rate)} por visita` }[lang];
 }
 
 // ---- phrasebook: catalogue titles, service labels, deals, ingredients (shown on cards and said aloud) ----
@@ -188,7 +220,7 @@ export const MSG = {
     neg_says: (v) => `${v.m} says: ${v.reply}`,
     neg_agreed: (v) => `${v.m} agreed: ${v.total} instead of ${v.before}, ${v.slot}.`,
     plan_auto: (v) => `${v.items}. That is ${v.total}, under your ${v.auto} auto-approve rule, so I can buy it right away.`,
-    plan_ask: (v) => `Here is the plan: ${v.items}. Total ${v.total}${v.discount ? `, after ${v.discount} negotiated off` : ''}. That leaves ${v.left} of your ${v.budget}. ${v.why ? v.why + ' ' : ''}Should I book it?`,
+    plan_ask: (v) => `Here is the plan: ${v.items}. Total ${v.total}${v.discount ? `, after ${v.discount} negotiated off` : ''}. That leaves ${v.left} of your ${v.budget}. ${v.why ? v.why + ' ' : ''}${v.honest ? v.honest + ' ' : ''}Should I book it?`,
     booked: (v) => `${v.auto ? 'Bought, under your auto-approve rule.' : 'Booked.'} ${v.n === 1 ? 'One payment hold' : `${v.n} payment holds`} for ${v.total}; nothing is charged until ${v.n === 1 ? 'it is' : 'each is'} delivered. ${v.left} left in ${v.purpose}.`,
     already: () => 'Already booked: nothing new was charged.',
     chg_agreed: (v) => `${v.m} agreed: ${v.slot}, same hold of ${v.amount}.`,
@@ -276,7 +308,7 @@ export const MSG = {
     neg_says: (v) => `${v.m} répond : ${v.reply}`,
     neg_agreed: (v) => `${v.m} accepte : ${v.total} au lieu de ${v.before}, ${v.slot}.`,
     plan_auto: (v) => `${v.items}. Ça fait ${v.total}, sous votre règle des ${v.auto}, donc je peux l’acheter tout de suite.`,
-    plan_ask: (v) => `Voici le plan : ${v.items}. Total ${v.total}${v.discount ? `, après ${v.discount} négociés` : ''}. Il restera ${v.left} sur vos ${v.budget}. ${v.why ? v.why + ' ' : ''}Je réserve ?`,
+    plan_ask: (v) => `Voici le plan : ${v.items}. Total ${v.total}${v.discount ? `, après ${v.discount} négociés` : ''}. Il restera ${v.left} sur vos ${v.budget}. ${v.why ? v.why + ' ' : ''}${v.honest ? v.honest + ' ' : ''}Je réserve ?`,
     booked: (v) => `${v.auto ? 'Acheté, sous votre règle d’achat automatique.' : 'C’est réservé.'} ${v.n === 1 ? 'Un paiement réservé' : `${v.n} paiements réservés`} pour ${v.total} ; rien n’est débité avant la livraison. Il reste ${v.left} pour ${v.purpose}.`,
     already: () => 'Déjà réservé : rien de nouveau n’a été débité.',
     chg_agreed: (v) => `${v.m} accepte : ${v.slot}, même réservation de ${v.amount}.`,
@@ -361,7 +393,7 @@ export const MSG = {
     neg_says: (v) => `${v.m} responde: ${v.reply}`,
     neg_agreed: (v) => `${v.m} acepta: ${v.total} en lugar de ${v.before}, ${v.slot}.`,
     plan_auto: (v) => `${v.items}. Son ${v.total}, por debajo de tu regla de ${v.auto}, así que puedo comprarlo ya.`,
-    plan_ask: (v) => `Este es el plan: ${v.items}. Total ${v.total}${v.discount ? `, con ${v.discount} de descuento negociado` : ''}. Te quedarán ${v.left} de tus ${v.budget}. ${v.why ? v.why + ' ' : ''}¿Lo reservo?`,
+    plan_ask: (v) => `Este es el plan: ${v.items}. Total ${v.total}${v.discount ? `, con ${v.discount} de descuento negociado` : ''}. Te quedarán ${v.left} de tus ${v.budget}. ${v.why ? v.why + ' ' : ''}${v.honest ? v.honest + ' ' : ''}¿Lo reservo?`,
     booked: (v) => `${v.auto ? 'Comprado, dentro de tu regla de compra automática.' : 'Reservado.'} ${v.n === 1 ? 'Un pago retenido' : `${v.n} pagos retenidos`} por ${v.total}; no se cobra nada hasta la entrega. Quedan ${v.left} para ${v.purpose}.`,
     already: () => 'Ya estaba reservado: no se ha cobrado nada nuevo.',
     chg_agreed: (v) => `${v.m} acepta: ${v.slot}, con la misma retención de ${v.amount}.`,
@@ -542,10 +574,10 @@ const CANON = {
     [/\bne dépasse pas\b|\bpas plus de\b|\breste sous\b/gi, 'keep it under'],
     [/\bmes beaux-parents arrivent\b/gi, 'my in-laws land'], [/\bbeaux-parents\b/gi, 'in-laws'],
     [/\bun ménage\b|\bune femme de ménage\b|\bménage\b|\bnettoyage\b/gi, 'a cleaner'], [/\bdu linge de lit propre\b|\bdes draps propres\b/gi, 'fresh bedding'],
-    [/\blinge de lit\b|\bliterie\b/gi, 'bed linen'], [/\bparure en satin\b|\bdraps en satin\b/gi, 'sateen set'],
+    [/\blinge de lit\b|\bliterie\b/gi, 'bed linen'], [/\bdraps\b/gi, 'sheets'], [/\bparure en satin\b|\bdraps en satin\b/gi, 'sateen set'],
     [/\bun dîner\b|\bdîner\b|\bdiner\b|\brepas\b/gi, 'dinner'], [/\bpour six\b/gi, 'for six'], [/\bà la maison\b/gi, 'at home'],
     [/\btraiteurs?\b/gi, (m) => (/s$/i.test(m) ? 'caterers' : 'caterer')], [/\bplombier\b/gi, 'plumber'], [/\bbricoleur\b/gi, 'handyman'],
-    [/\b(on n['’]a presque plus de|il n['’]y a presque plus de|presque plus de)\b/gi, 'almost out of'], [/\bcroquettes\b/gi, 'dog food'], [/\bcafé\b/gi, 'coffee'], [/\btorréfaction\b/gi, 'roast'],
+    [/\b(on n['’]a presque plus de|il n['’]y a presque plus de|presque plus de)\b/gi, 'almost out of'], [/\bcroquettes\b/gi, 'dog food'], [/\b(de la |la )?lessive\b/gi, 'laundry detergent'], [/\bcafé\b/gi, 'coffee'], [/\btorréfaction\b/gi, 'roast'],
     [/\b(a été |est |sont )?(déplacé|décalé|repoussé|avancé)e?s?\b/gi, 'moved'],
     [/\bs['’]est bien passé\b|\btout s['’]est bien passé\b/gi, 'went well'], [/\bon solde\b|\bsolde\b|\bon règle\b/gi, 'settle up'], [/\ba facturé\b|\bfacture\b/gi, 'billed'],
     [/\brembourse(?:r)? les\b/gi, 'refund the'], [/\bdes taies d['’]oreiller\b/gi, 'for the pillowcases'], [/\btaies d['’]oreiller\b/gi, 'pillowcases'],
@@ -553,6 +585,7 @@ const CANON = {
     [/\bfuit\b|\bune fuite\b/gi, 'leaking'], [/\btrouve\b|\bcherche\b/gi, 'find'], [/\bmatin\b/gi, 'morning'], [/\bsoir\b/gi, 'evening'],
     [/\bmontre(?:-moi| moi)?\b|\bfais(?:-moi)? voir\b/gi, 'show me'], [/\bde plus près\b/gi, 'closer'], [/\bd['’]autres options\b|\bautres options\b|\bautre chose\b/gi, 'other options'],
     [/\bmoins cher\b/gi, 'cheaper'], [/\bplutôt\b|\bà la place\b/gi, 'instead'], [/\bremplace\b/gi, 'swap'], [/\bcompare\b/gi, 'compare'], [/\bdeux\b/gi, 'two'],
+    [/\bla première\b|\ble premier\b/gi, 'the first one'], [/\bla deuxième\b|\ble deuxième\b|\bla seconde\b|\ble second\b/gi, 'the second one'], [/\bla troisième\b|\ble troisième\b/gi, 'the third one'],
     [/\bretire\b|\benlève\b/gi, 'remove'], [/\bpourquoi\b/gi, 'why'], [/\bcelui-ci\b|\bcelle-ci\b/gi, 'this one'], [/\ble plan\b/gi, 'the plan'], [/\bprévois\b/gi, 'plan'], [/\bpour moi\b/gi, 'for me'],
   ],
   es: [
@@ -563,10 +596,10 @@ const CANON = {
     [/\bque no pase de\b|\bsin pasar de\b|\bno más de\b/gi, 'keep it under'],
     [/\bmis suegros llegan\b/gi, 'my in-laws land'], [/\bsuegros\b/gi, 'in-laws'],
     [/\buna limpieza\b|\blimpieza\b/gi, 'a cleaner'], [/\bropa de cama nueva\b|\bsábanas limpias\b/gi, 'fresh bedding'],
-    [/\bropa de cama\b|\bjuego de cama\b/gi, 'bed linen'], [/\bjuego de satén\b|\bsábanas de satén\b/gi, 'sateen set'],
+    [/\bropa de cama\b|\bjuego de cama\b/gi, 'bed linen'], [/\bsábanas\b/gi, 'sheets'], [/\bjuego de satén\b|\bsábanas de satén\b/gi, 'sateen set'],
     [/\buna cena\b|\bcena\b/gi, 'dinner'], [/\bpara seis\b/gi, 'for six'], [/\ben casa\b/gi, 'at home'],
     [/\b(empresas de catering|caterings)\b/gi, 'caterers'], [/\bfontanero\b/gi, 'plumber'], [/\bmanitas\b/gi, 'handyman'],
-    [/\b(casi no nos queda|casi no queda|se nos acaba)\b/gi, 'almost out of'], [/\bpienso(?: para el perro)?\b/gi, 'dog food'], [/\bcafé\b/gi, 'coffee'], [/\btueste\b/gi, 'roast'],
+    [/\b(casi no nos queda|casi no queda|se nos acaba)\b/gi, 'almost out of'], [/\bpienso(?: para el perro)?\b/gi, 'dog food'], [/\b(el )?detergente\b/gi, 'laundry detergent'], [/\bcafé\b/gi, 'coffee'], [/\btueste\b/gi, 'roast'],
     [/\b(se ha |ha )?(cambiado|movido|retrasado|pasado)\b/gi, 'moved'],
     [/\b(todo )?salió bien\b/gi, 'went well'], [/\bliquida\b|\bpaga todo\b/gi, 'settle up'], [/\bcobró\b|\bfacturó\b/gi, 'billed'],
     [/\bdevuelve los\b|\breembolsa los\b/gi, 'refund the'], [/\bde las fundas de almohada\b/gi, 'for the pillowcases'], [/\bfundas de almohada\b/gi, 'pillowcases'],
@@ -574,6 +607,7 @@ const CANON = {
     [/\bgotea\b|\bpierde agua\b/gi, 'leaking'], [/\bbusca\b|\bencuentra\b/gi, 'find'], [/\bpor la mañana\b/gi, 'morning'], [/\bpor la noche\b/gi, 'evening'],
     [/\b(enséñame|muéstrame|déjame ver)\b/gi, 'show me'], [/\bde cerca\b/gi, 'closer'], [/\botras opciones\b|\balgo más\b/gi, 'other options'],
     [/\bmás barato\b/gi, 'cheaper'], [/^\s*mejor\b|\ben su lugar\b|\bmejor\b/gi, 'instead'], [/\bcambia\b|\bsustituye\b/gi, 'swap'], [/\bcompara\b/gi, 'compare'], [/\bdos\b/gi, 'two'],
+    [/\bla primera\b|\bel primero\b/gi, 'the first one'], [/\bla segunda\b|\bel segundo\b/gi, 'the second one'], [/\bla tercera\b|\bel tercero\b/gi, 'the third one'],
     [/\bquita\b|\belimina\b/gi, 'remove'], [/\bpor qué\b/gi, 'why'], [/\beste\b|\besta\b/gi, 'this one'], [/\bel plan\b/gi, 'the plan'], [/\bprepárame\b|\bplanifica\b/gi, 'plan'], [/\bpara mí\b/gi, 'for me'],
   ],
 };
@@ -651,3 +685,6 @@ export const CARD_STRINGS = {
 // account linking, permissions, autonomy settings, emergency stop, delete my data (src/core/i18n-settings.mjs)
 for (const l of ['en', 'fr', 'es']) Object.assign(MSG[l], SETTINGS_MSG[l]);
 for (const l of ['fr', 'es']) { Object.assign(CARD_STRINGS[l], SETTINGS_CARD[l]); Object.assign(PHRASES[l], SETTINGS_PHRASES[l]); }
+// real data: real businesses, demo partners, real products, test money (src/core/i18n-real.mjs); wins over older keys
+for (const l of ['en', 'fr', 'es']) Object.assign(MSG[l], REAL_MSG[l]);
+for (const l of ['fr', 'es']) { Object.assign(CARD_STRINGS[l], REAL_CARD[l]); Object.assign(PHRASES[l], REAL_PHRASES[l]); }

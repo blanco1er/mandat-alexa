@@ -20,7 +20,7 @@ document.documentElement.lang = lang;
 const post = (type, data = {}) => { try { parent.postMessage({ source: 'alexa-app', type, ...data }, location.origin); } catch {} };
 
 // The Alexa profile the person shares (simulated: a demo Amazon account).
-export const PROFILE = { name: { full: 'Alex Rivera', given: 'Alex' }, email: 'alex.rivera@example.com', address: { line1: '1450 Maple Ave', city: 'Seattle', region: 'WA', postal: '98109' } };
+export const PROFILE = { name: { full: 'Alex Rivera', given: 'Alex' }, email: 'alex.rivera@example.com', address: { line1: 'Capitol Hill', city: 'Seattle', region: 'WA', postal: '98102' } };
 
 const T = {
   en: {
