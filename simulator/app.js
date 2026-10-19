@@ -182,7 +182,7 @@ async function showLinkCard(step) {
   const el = document.createElement('section');
   el.className = 'link-card';
   el.setAttribute('aria-label', t('Link Mandat'));
-  el.innerHTML = `<div class="lc-head"><span class="lc-mark" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M18 44V20l14 15 14-15v24"/></svg></span><div><b>${esc(t('Link Mandat'))}</b><span>${esc(t('Finish in the Alexa app on your phone'))}</span></div>
+  el.innerHTML = `<div class="lc-head"><span class="lc-mark" aria-hidden="true"><svg viewBox="0 0 512 512"><rect width="512" height="512" rx="114" fill="#141519"/><circle cx="238" cy="238" r="98" fill="none" stroke="#f4f1ec" stroke-width="50"/><circle cx="362" cy="362" r="49" fill="#ffc439"/></svg></span><div><b>${esc(t('Link Mandat'))}</b><span>${esc(t('Finish in the Alexa app on your phone'))}</span></div>
       <span class="lc-phone" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.6"/><path d="M10.5 18.5h3"/></svg></span></div>
     <ol class="lc-steps">${LINK_STEPS.map(([k, l], i) => `<li class="${i < at ? 'done' : i === at ? 'now' : ''}"${i === at ? ' aria-current="step"' : ''}><span class="lc-n">${i < at ? CHECK_SVG : i + 1}</span>${esc(t(l))}</li>`).join('')}</ol>
     <p class="lc-note">${esc(t('Alexa sent a notification to your phone. Mandat never sees your Amazon password.'))}</p>`;

@@ -304,8 +304,8 @@ body[data-state="listening"] .mic { background: color-mix(in srgb, var(--accent)
   background: color-mix(in srgb, var(--sc-surface) 86%, transparent); -webkit-backdrop-filter: blur(calc(var(--u) * 30)); backdrop-filter: blur(calc(var(--u) * 30));
   animation: live-in var(--dur-smooth) var(--ease-smooth) both; }
 .lc-head { display: grid; grid-template-columns: calc(var(--u) * 88) minmax(0, 1fr) auto; gap: calc(var(--u) * 26); align-items: center; }
-.lc-mark { width: calc(var(--u) * 88); height: calc(var(--u) * 88); border-radius: calc(var(--u) * 22); background: #000; display: grid; place-items: center; box-shadow: 0 0 0 1px rgba(255, 255, 255, .14); }
-.lc-mark svg { width: 60%; height: 60%; fill: none; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.lc-mark { width: calc(var(--u) * 88); height: calc(var(--u) * 88); border-radius: calc(var(--u) * 20); display: block; overflow: hidden; box-shadow: 0 0 0 1px rgba(255, 255, 255, .14); }
+.lc-mark svg { width: 100%; height: 100%; display: block; } /* Mandat's own logo (media/brand/icon.svg) */
 .lc-head b { display: block; font-size: calc(var(--u) * 50); font-weight: var(--weight-bold); letter-spacing: -0.026em; line-height: 1.08; }
 .lc-head div > span { display: block; font-size: calc(var(--u) * 28); color: var(--sc-label-2); margin-top: calc(var(--u) * 6); }
 .lc-phone { width: calc(var(--u) * 92); height: calc(var(--u) * 92); border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--sc-accent) 16%, transparent); color: var(--sc-accent-text); animation: breathe 2.2s ease-in-out infinite; }

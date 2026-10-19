@@ -225,3 +225,12 @@ Severity scale: **Blocker** (could not continue) · **High** (hours lost or a de
 - **Workaround:** a kind check on every product search; Google Places first, OpenStreetMap second, a saved OpenStreetMap snapshot last (also used by the tests); name filters for dry cleaners, commissary kitchens and supply stores; a shared 24-hour cache so judges almost always hit the cache.
 - **Suggestion (Alexa+):** a first-party way for an add-on to search Amazon's catalogue and local services with the customer's consent would remove the third-party keys and estimates altogether.
 
+
+### 23. "Other options?" changed the plan
+- **Task attempted:** play the in-laws story on the public URL like a judge (19 Oct 2026, Amazon Nova 2 Lite, Strands agent): "Show me the bed linen", then "Other options?".
+- **Steps taken:** the same tools as story 1; `list_alternatives`, `revise_plan` and `swap_item` all available to the model.
+- **Expected:** the other sheet sets listed, the plan unchanged until the user picks one.
+- **Actual:** the model called `list_alternatives` and then `revise_plan` in the same turn: the plan went from $357.99 to $330.99 with cheaper sheets nobody chose. No money moved (the new plan still needed a yes), but the user lost track of what they were approving.
+- **Severity:** Medium (no payment, but the plan the user approves must be the plan the user built).
+- **Workaround:** a host guard refuses `revise_plan` and `swap_item` when the user's words only ask to see, list or compare options ("other options?", "show me", "compare", in EN/FR/ES) and contain no change verb ("take", "instead", "swap", "remove"…); tested.
+- **Suggestion:** a tool annotation such as `requiresUserChoice` that a host enforces, and a line in the Alexa+ design guide: browsing never edits a pending transaction.
