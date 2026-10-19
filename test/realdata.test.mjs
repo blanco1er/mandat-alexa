@@ -192,3 +192,26 @@ test('a mixed plan, booked, moved and settled: honest from start to end (voice a
     assert.doesNotMatch(s.speech.replace(/Hearth Table Catering[^.]*\./g, ''), NEVER);
   }
 });
+
+test('honesty is kept by the host: a model that drops "test money" or "booking request" gets the sentence back', async () => {
+  const { ensureHonesty } = await import('../src/brain/honesty.mjs');
+  const step = (honesty) => ({ name: 'propose_plan', result: { structuredContent: { honesty } } });
+  const plan = [{ text: 'It is all paid with PayPal sandbox test money; the real business only gets a booking request at an estimated price.', must: 'test money|simulated' }, { text: 'It is all paid with PayPal sandbox test money; the real business only gets a booking request at an estimated price.', must: 'request' }];
+  const dropped = ensureHonesty({ speech: 'I found a cleaner, bedding and dinner. The total is $357.99. Should I book it?', steps: [step(plan)] });
+  assert.equal(dropped.speech, 'I found a cleaner, bedding and dinner. The total is $357.99. Should I book it? It is all paid with PayPal sandbox test money; the real business only gets a booking request at an estimated price.');
+  assert.equal(dropped.honesty_added, true);
+  const kept = ensureHonesty({ speech: 'Total $357.99, paid with test money; Seattle Green Maids only gets a request.', steps: [step(plan)] });
+  assert.equal(kept.honesty_added, undefined, 'said in its own words: nothing added');
+  const fr = ensureHonesty({ speech: 'Le total est 357,99 $.', steps: [step({ text: 'Tout est payé avec l’argent de test PayPal sandbox.', must: 'test money|argent de test' })] });
+  assert.match(fr.speech, /argent de test PayPal sandbox\.$/);
+  // the real tool results carry it
+  const c = await client(srv.mcpUrl);
+  await c.callTool({ name: 'set_spending_mandate', arguments: { budget: 400, period: 'once', purpose: 'Test' } });
+  const clean = sc(await c.callTool({ name: 'find_home_services', arguments: { need: 'clean', category: 'cleaning', when: 'Friday morning' } }));
+  assert.equal(clean.honesty.must, 'estimat|estim');
+  const p = sc(await c.callTool({ name: 'propose_plan', arguments: { item_ids: [clean.offers[0].id] } }));
+  assert.ok(p.honesty.some((h) => /^request/.test(h.must)));
+  const r = sc(await c.callTool({ name: 'confirm_plan', arguments: { plan_id: p.plan.id, confirmation_token: p.confirmation_token, user_confirmation: 'yes' } }));
+  assert.deepEqual(r.honesty.map((h) => h.must), ['test money|simulated|argent de test|simulés|dinero de prueba|simulados', 'request|demande|solicitud']);
+  await c.close();
+});

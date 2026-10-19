@@ -352,7 +352,7 @@ export class Mandat {
     const spoken = top.slice(0, 3).map((o, i) => T(o.source === 'local' ? 'svc_line_local' : 'svc_line_partner', { n: top.length, i, merchant: o.merchant, total: usd(o.total), slot: spokenSlot(o.slot_label), base: o.discount ? usd(o.base) : '', r: o.rating || '' }));
     return {
       speech: `${T('svc_found', { local: nLocal, partners: nPartners, noun: nounOf(cat, nLocal), area: home.area })} ${spoken.join('. ')}.${top.slice(0, 3).some((o) => o.source === 'local') ? ' ' + T('svc_estimate_note') : ''}`,
-      data: { category: cat, asked: nLocal + nPartners, found_local: nLocal, asked_partners: nPartners, area: home.area, places_source: local.source, attribution: local.attribution, requested_slot: slot, offers: top, declined },
+      data: { ...(top.slice(0, 3).some((o) => o.source === 'local') ? { honesty: { text: T('svc_estimate_note'), must: MUST.estimate } } : {}), category: cat, asked: nLocal + nPartners, found_local: nLocal, asked_partners: nPartners, area: home.area, places_source: local.source, attribution: local.attribution, requested_slot: slot, offers: top, declined },
       card: 'offers',
     };
   }
@@ -424,7 +424,7 @@ export class Mandat {
       speech: live
         ? `${T('prod_best_live', { usual: best.matches_preference, title: shortTitle(best.title), total: usd(best.total), merchant: best.merchant, skip })} ${T('prod_honest', { mode: this.payMode() })}`
         : T('prod_best', { usual: best.matches_preference, title: P(best.title), total: usd(best.total), merchant: best.merchant, skip }),
-      data: { query, offers, skipped, source: live ? 'channel3' : 'test catalogue', market: 'US', checked_for: [...banned.keys()] },
+      data: { query, offers, skipped, source: live ? 'channel3' : 'test catalogue', market: 'US', checked_for: [...banned.keys()], ...(live ? { honesty: { text: T('prod_honest', { mode: this.payMode() }), must: MUST.order } } : {}) },
       card: 'offers',
     };
   }
@@ -501,7 +501,8 @@ export class Mandat {
       ? `${T(plan.auto_reason === 'hands_off' ? 'plan_auto_hands_off' : 'plan_auto', { items: listWords(items), total: usd(breakdown.total), auto: usd(m.auto_approve_under), cap: usd(settings?.daily_cap || 0) })} ${honest}`.trim()
       : T('plan_ask', { items: listWords(items), total: usd(breakdown.total), discount: breakdown.discount ? usd(breakdown.discount) : '', left: usd(plan.remaining_after), budget: usd(t.total), why: settings ? T('ask_why_' + autonomy.reason, { amt: usd(auto), left: usd(autonomy.left ?? 0) }) : '', honest });
     const { token_hash, ...pub } = plan;
-    return { speech, data: { plan: pub, confirmation_token: token, needs_user_yes: !plan.auto_approved, envelope: this.envelopeView(m, env), autonomy: settings ? { level: settings.autonomy, reason: autonomy.reason } : undefined }, card: 'plan' };
+    const honesty = honest ? [{ text: honest, must: MUST.money }, ...(lines.some((l) => l.source === 'local') ? [{ text: honest, must: MUST.request }] : [])] : undefined;
+    return { speech, data: { honesty, plan: pub, confirmation_token: token, needs_user_yes: !plan.auto_approved, envelope: this.envelopeView(m, env), autonomy: settings ? { level: settings.autonomy, reason: autonomy.reason } : undefined }, card: 'plan' };
   }
 
   // How one plan line is said: "Pure House Cleaning, about $100 estimated", "Hearth Table Catering, a demo partner, $195",
@@ -592,7 +593,10 @@ export class Mandat {
         stores.length ? T('booked_no_order', { stores: listWords(stores) }) : '',
         T('left_in', { left: usd(t.remaining), purpose: m.purpose }),
       ].filter(Boolean).join(' ');
-      return this.receipt(hid, orders.map((o) => o.id), speech, { idempotency_key: plan.id });
+      const rec = await this.receipt(hid, orders.map((o) => o.id), speech, { idempotency_key: plan.id });
+      const mode = orders[0]?.paypal?.mode === 'sandbox' ? 'sandbox' : 'offline';
+      rec.data.honesty = [{ text: T('money_note', { mode }), must: MUST.money }, ...(requests.length ? [{ text: T('booked_requests', { names: listWords(requests), n: requests.length }), must: MUST.request }] : []), ...(stores.length ? [{ text: T('booked_no_order', { stores: listWords(stores) }), must: MUST.order }] : [])];
+      return rec;
     });
   }
 
@@ -861,7 +865,8 @@ export class Mandat {
     // say the reason, and the trade-off when there is one (a higher price is never presented as an advantage)
     const said = [why.find((w) => w.tone === 'plus'), why.find((w) => w.tone === 'cost')].filter(Boolean).map((w) => w.text + '.').join(' ');
     const speech = `${lead} ${said}${inPlan ? ' ' + T('in_plan', { total: usd(plan.breakdown.total) }) : ''}`.replace(/\s+/g, ' ').trim();
-    return { speech, data: { mode: 'detail', offer: o, images: galleryFor(o, this.publicUrl), specs, why, rule, history, in_plan: inPlan, plan_id: plan?.id || null, alternatives: sibs.filter((x) => x.id !== o.id).length, pay_mode: this.payMode(), link: o.live ? { url: o.url, label: o.merchant } : o.place?.maps_url ? { url: o.place.maps_url, label: o.place.source === 'google' ? 'Google Maps' : 'OpenStreetMap' } : null }, card: 'item' };
+    const honesty = o.live ? { text: T('prod_honest', { mode: this.payMode() }), must: MUST.order } : o.source === 'local' ? { text: T('why_request', { m: o.merchant }) + '.', must: MUST.request } : undefined;
+    return { speech, data: { honesty, mode: 'detail', offer: o, images: galleryFor(o, this.publicUrl), specs, why, rule, history, in_plan: inPlan, plan_id: plan?.id || null, alternatives: sibs.filter((x) => x.id !== o.id).length, pay_mode: this.payMode(), link: o.live ? { url: o.url, label: o.merchant } : o.place?.maps_url ? { url: o.place.maps_url, label: o.place.source === 'google' ? 'Google Maps' : 'OpenStreetMap' } : null }, card: 'item' };
   }
 
   // ---------- 12. list_alternatives ("other options?", "something cheaper") ----------
@@ -1279,6 +1284,15 @@ function liveSpecs(o, L, T, addr) {
     { k: T('spec_source'), v: T('spec_channel3') },
   ];
 }
+
+// Honesty sentences the host keeps in the spoken answer (src/brain/honesty.mjs): { text, must } where `must` is what
+// the model's own words have to contain for the sentence to count as said.
+export const MUST = {
+  money: 'test money|simulated|argent de test|simulés|dinero de prueba|simulados',
+  order: 'no order|aucune commande|ningún pedido',
+  request: 'request|demande|solicitud',
+  estimate: 'estimat|estim',
+};
 
 // ---------- real local businesses: requested slot, estimated price, booking request ----------
 const PART_HOUR = { morning: 10, afternoon: 14, evening: 19 };

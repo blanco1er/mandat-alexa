@@ -29,6 +29,7 @@ import { readFeed } from './core/activity.mjs';
 import { TURN_RE } from './core/context.mjs';
 import { authorizationServerMetadata, OAuthServer, privacyPage, protectedResourceMetadata, wwwAuthenticate } from './core/oauth.mjs';
 import { runHostIntent } from './brain/host-intents.mjs';
+import { ensureHonesty } from './brain/honesty.mjs';
 import { tr } from './core/i18n.mjs';
 import { serveImg } from './core/imgproxy.mjs';
 import { shopEnabled } from './core/shop.mjs';
@@ -202,7 +203,8 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
           const logTurn = (out) => visitLog(request, { type: 'turn', text, tools: (out.steps || []).map((x) => x.name), device: session.device, lang: locale, outcome: outcomeOf(out.steps || []) });
           if (fast) { await logTurn(fast); return json(200, fast); }
           // anything else is the model's turn: the settings card and the first-run questions are left behind
-          const out = await brain.runTurn({ text, session: { ...session, settingsOpen: false, onboarding: null, pendingDelete: false }, household, turn, locale, authorization });
+          // what is real and what is not is said by the code: a sentence the model dropped is added back (brain/honesty.mjs)
+          const out = ensureHonesty(await brain.runTurn({ text, session: { ...session, settingsOpen: false, onboarding: null, pendingDelete: false }, household, turn, locale, authorization }));
           await logTurn(out);
           return json(200, out);
         } catch (e) {
