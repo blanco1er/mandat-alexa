@@ -33,6 +33,7 @@ import { tr } from './core/i18n.mjs';
 import { serveImg } from './core/imgproxy.mjs';
 import { shopEnabled } from './core/shop.mjs';
 import { googleEnabled, placesMode } from './core/places.mjs';
+import { internalKey as visitKey, logVisit, outcomeOf } from './core/visits.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATIC = { '/simulator/': path.join(ROOT, 'simulator'), '/media/': path.join(ROOT, 'media') };
@@ -105,6 +106,11 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
       h.delete('x-mandat-household');
       request = new Request(request, { headers: h, ...(request.body ? { duplex: 'half' } : {}) });
     }
+    // anonymous usage: which tool an outside MCP client (a judge's Inspector, a card tap) called; never its arguments
+    if (request.method === 'POST' && !internal(request)) {
+      const body = await request.clone().json().catch(() => null);
+      for (const m of (Array.isArray(body) ? body : [body]).filter((x) => x && x.method === 'tools/call')) await visitLog(request, { type: 'tool', detail: String(m.params?.name || '') });
+    }
     const server = createMcpServer({ service });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
@@ -116,6 +122,9 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
       queueMicrotask(() => { transport.close().catch(() => {}); server.close().catch(() => {}); });
     }
   }
+
+  // never breaks a request: the visit log is best effort
+  const visitLog = (request, ev) => logVisit(service.store, request, ev).catch((e) => console.warn('[visits]', e.message));
 
   async function serveStatic(prefix, pathname) {
     const base = STATIC[prefix];
@@ -145,13 +154,31 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
         if (p === '/oauth/authorize' && request.method === 'GET') return auth.authorizePage(url);
         if (p === '/oauth/authorize' && request.method === 'POST') {
           if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { error: 'Forbidden origin' });
-          return await auth.authorizeSubmit(request);
+          const res = await auth.authorizeSubmit(request);
+          if (res.status >= 300 && res.status < 400) await visitLog(request, { type: 'link' });
+          return res;
         }
         if (p === '/oauth/token' && request.method === 'POST') return await auth.token(request);
         if (p === '/oauth/revoke' && request.method === 'POST') return await auth.revoke(request);
         return json(405, { error: 'method not allowed' });
       }
       if (p === '/privacy') return privacyPage();
+      // anonymous usage of the simulator page (page opened, device, language, card tapped): no IP, no personal data
+      if (p === '/visit' && request.method === 'POST') {
+        if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { error: 'Forbidden origin' });
+        const l = limits.activity(clientIp(request));
+        if (!l.ok) return tooMany(l.retryAfter);
+        const b = await request.json().catch(() => ({}));
+        const type = ['page', 'device', 'lang', 'card'].includes(b.type) ? b.type : null;
+        if (type) await visitLog(request, { type, device: b.device, lang: b.lang, ref: typeof b.ref === 'string' ? b.ref.replace(/[^a-z0-9.-]/gi, '').slice(0, 60) : undefined });
+        return new Response(null, { status: 204 });
+      }
+      // the owner opens this secret link once on each of his devices: their visits are never logged
+      if (p === '/visit/internal' && request.method === 'GET') {
+        const page = (msg, status = 200, headers = {}) => new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Mandat</title><body style="font:20px/1.4 system-ui;padding:40px;max-width:640px">${msg}</body>`, { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...headers } });
+        if (url.searchParams.get('k') !== visitKey()) return page('Not found.', 404);
+        return page('This device is now marked <b>internal</b>: its visits to the Mandat demo are not logged. You can close this tab.', 200, { 'set-cookie': `mandat_internal=${visitKey()}; Max-Age=31536000; Path=/; Secure; HttpOnly; SameSite=Lax` });
+      }
       if (p === '/healthz') return json(200, { ok: true, protocol: LATEST_PROTOCOL_VERSION, auth: required ? 'oauth2.1 required' : 'oauth2.1 optional', model: service.provider.name, store: service.store.kind, paypal: PAYPAL_MODE, paypal_buyer: PAYPAL_MODE === 'sandbox' ? ((await service.demoBuyer().catch(() => null)) ? 'linked' : 'not linked') : undefined, brain: brain?.name || null, tts: tts?.name || 'browser', products: shopEnabled() ? 'channel3' : 'test catalogue', places: placesMode() === 'live' ? (googleEnabled() ? 'google+osm' : 'osm') : placesMode(), llm_budget: (({ usd, budget, left, paused }) => ({ usd, budget, left, paused }))(await spendViewShared()) });
       if (p === '/turn' && request.method === 'POST') {
         if (!originAllowed(request.headers.get('origin'), origins)) return json(403, { error: 'Forbidden origin' });
@@ -171,10 +198,12 @@ export function createApp({ service, brain = null, allowedOrigins, demoToken = p
           const authorization = link ? request.headers.get('authorization') : undefined;
           const session = { ...(body.session || {}), device: body.device || 'show' };
           // Settings by voice, the emergency stop and "delete my data" never depend on a model (src/brain/host-intents.mjs).
-          const fast = await runHostIntent({ text, session, locale, household, turn, authorization, mcpUrl: selfMcp(), headers: internalKey ? { 'X-Mandat-Internal': internalKey } : {} });
-          if (fast) return json(200, fast);
+          const fast = await runHostIntent({ text, session, locale, household, turn, authorization, mcpUrl: selfMcp(), headers: { 'X-Mandat-Visit': 'internal', ...(internalKey ? { 'X-Mandat-Internal': internalKey } : {}) } });
+          const logTurn = (out) => visitLog(request, { type: 'turn', text, tools: (out.steps || []).map((x) => x.name), device: session.device, lang: locale, outcome: outcomeOf(out.steps || []) });
+          if (fast) { await logTurn(fast); return json(200, fast); }
           // anything else is the model's turn: the settings card and the first-run questions are left behind
           const out = await brain.runTurn({ text, session: { ...session, settingsOpen: false, onboarding: null, pendingDelete: false }, household, turn, locale, authorization });
+          await logTurn(out);
           return json(200, out);
         } catch (e) {
           if (e.code === 'LLM_BUDGET') return json(503, { error: 'Model budget used up', speech: e.message });

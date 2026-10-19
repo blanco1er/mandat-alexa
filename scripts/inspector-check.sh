@@ -25,7 +25,7 @@ fi
 BASE="${MCP_URL%/mcp}"
 # Account linking (OAuth 2.1 + PKCE S256), like Alexa: link a fresh empty household, then every call carries its token.
 AT="$(cd "$ROOT" && node scripts/link-demo.mjs "$BASE" new --token)"
-insp() { npx -y "$INSPECTOR" --cli "$MCP_URL" --transport http --header "Authorization: Bearer $AT" --format json -q "$@"; }
+insp() { npx -y "$INSPECTOR" --cli "$MCP_URL" --transport http --header "Authorization: Bearer $AT" --header "X-Mandat-Visit: internal" --format json -q "$@"; }
 check() { # name, condition (shell test result 0/1), detail
   local line
   if [ "$2" = 0 ]; then PASS=$((PASS + 1)); line="PASS  $1"; else FAIL=$((FAIL + 1)); line="FAIL  $1  ${3:-}"; fi

@@ -102,7 +102,8 @@ jq -n --arg region "$REGION" --arg account "$ACCOUNT" --arg table "$TABLE" --arg
     { Sid: "Table", Effect: "Allow", Action: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:DeleteItem", "dynamodb:UpdateItem"],
       Resource: "arn:aws:dynamodb:\($region):\($account):table/\($table)" },
     { Sid: "Models", Effect: "Allow", Action: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], Resource: ($models | unique) },
-    { Sid: "Voice", Effect: "Allow", Action: "polly:SynthesizeSpeech", Resource: "*" }
+    { Sid: "Voice", Effect: "Allow", Action: "polly:SynthesizeSpeech", Resource: "*" },
+    { Sid: "VisitAlerts", Effect: "Allow", Action: "sns:Publish", Resource: "arn:aws:sns:\($region):\($account):mandat-visits" }
   ] }' > "$TMP/policy.json"
 NEW_ROLE=0
 if exists iam get-role --role-name "$ROLE"; then say "role $ROLE exists"; else
@@ -190,6 +191,8 @@ BRAIN_ID="$BRAIN_ID" MERCHANT_ID="$MERCHANT_ID" BRAIN_FALLBACK="$BRAIN_FALLBACK"
     // without it the demo still shows real businesses from OpenStreetMap (MANDAT_PLACES=live in both cases)
     GOOGLE_PLACES_KEY: e.GOOGLE_PLACES_KEY || cur.GOOGLE_PLACES_KEY,
     MANDAT_PLACES: e.MANDAT_PLACES || cur.MANDAT_PLACES || "live",
+    // e-mail alert on outside visits (topic set once with scripts/set-visit-alert.sh), KEPT on every redeploy
+    MANDAT_ALERT_TOPIC: e.MANDAT_ALERT_TOPIC || cur.MANDAT_ALERT_TOPIC,
     NODE_OPTIONS: "--enable-source-maps",
   };
   for (const k of Object.keys(v)) if (v[k] === undefined || v[k] === "") delete v[k];

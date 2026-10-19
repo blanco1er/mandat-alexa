@@ -58,7 +58,8 @@ test('deploy: empty account -> table, role, function, URL, permissions, env, in 
   assert.deepEqual([...at].sort((a, b) => a - b), at, 'calls out of order');
 
   const policy = JSON.parse(fs.readFileSync(path.join(dir, 'policy.json'), 'utf8'));
-  assert.deepEqual(policy.Statement.map((s) => s.Sid), ['Table', 'Models', 'Voice']);
+  assert.deepEqual(policy.Statement.map((s) => s.Sid), ['Table', 'Models', 'Voice', 'VisitAlerts']);
+  assert.deepEqual(policy.Statement[3], { Sid: 'VisitAlerts', Effect: 'Allow', Action: 'sns:Publish', Resource: 'arn:aws:sns:us-east-1:111122223333:mandat-visits' }, 'only its own alert topic');
   assert.equal(policy.Statement[0].Resource, 'arn:aws:dynamodb:us-east-1:111122223333:table/mandat');
   assert.ok(!JSON.stringify(policy).includes('"dynamodb:*"') && !JSON.stringify(policy).includes('"bedrock:*"'), 'least privilege');
   const models = policy.Statement[1].Resource;

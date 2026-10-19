@@ -79,7 +79,7 @@ const cacheGet = async (k) => {
   return null;
 };
 const cachePut = async (k, data) => {
-  const row = { at: Date.now(), data };
+  const row = { at: Date.now(), data, until: Date.now() + TTL };
   cache.set(k, row);
   if (cache.size > 300) cache.delete(cache.keys().next().value);
   if (store) { try { await store.put('SYSTEM#shop', 'CACHE#' + k, row); } catch {} }

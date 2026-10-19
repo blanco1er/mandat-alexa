@@ -10,7 +10,7 @@ import { linkHousehold } from './link-demo.mjs';
 const base = (process.argv[2] || 'https://fonzkp2f5pszfit6xmqqiw7qdm0dybyu.lambda-url.us-east-1.on.aws').replace(/\/$/, '');
 const household = 'paypal-check-' + Date.now().toString(36);
 const { access_token } = await linkHousehold(base, { choice: 'new' });
-const { client } = await connectMcp(`${base}/mcp`, { household, name: 'live-paypal-check', headers: { Authorization: `Bearer ${access_token}` } });
+const { client } = await connectMcp(`${base}/mcp`, { household, name: 'live-paypal-check', headers: { Authorization: `Bearer ${access_token}`, 'X-Mandat-Visit': 'internal' } });
 const call = async (name, args) => {
   const r = await client.callTool({ name, arguments: args });
   if (r.isError) throw new Error(`${name}: ${r.content?.[0]?.text}`);

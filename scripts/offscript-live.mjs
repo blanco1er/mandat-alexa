@@ -15,7 +15,7 @@ const sc = (r) => r?.structuredContent || {};
 
 async function household() {
   const t = await linkHousehold(BASE, { choice: 'new' });
-  const { client } = await connectMcp(`${BASE}/mcp`, { name: 'offscript-live', headers: { Authorization: `Bearer ${t.access_token}` } });
+  const { client } = await connectMcp(`${BASE}/mcp`, { name: 'offscript-live', headers: { Authorization: `Bearer ${t.access_token}`, 'X-Mandat-Visit': 'internal' } });
   const call = async (name, args = {}) => { const r = await client.callTool({ name, arguments: args }); if (r.isError) throw new Error(`${name}: ${r.content?.[0]?.text}`); return r; };
   let session = { device: 'show' };
   return {
@@ -34,7 +34,7 @@ async function household() {
       return session.pending;
     },
     async say(text, locale = 'en-US') {
-      const r = await fetch(`${BASE}/turn`, { method: 'POST', headers: { 'content-type': 'application/json', origin: BASE, authorization: `Bearer ${t.access_token}` }, body: JSON.stringify({ text, session, device: 'show', locale }) });
+      const r = await fetch(`${BASE}/turn`, { method: 'POST', headers: { 'content-type': 'application/json', origin: BASE, authorization: `Bearer ${t.access_token}`, 'X-Mandat-Visit': 'internal' }, body: JSON.stringify({ text, session, device: 'show', locale }) });
       const out = await r.json();
       if (r.ok) session = out.session || session;
       return { status: r.status, ...out };

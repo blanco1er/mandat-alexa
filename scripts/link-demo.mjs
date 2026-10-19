@@ -7,6 +7,8 @@
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
+// our own scripts never count as visits of the public demo (src/core/visits.mjs)
+export const INTERNAL = { 'X-Mandat-Visit': 'internal' };
 const b64u = (b) => Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 export async function linkHousehold(base, { choice = 'demo', clientId = 'alexa-plus-simulator', scope = 'household spend', locale = 'en-US' } = {}) {
@@ -16,11 +18,11 @@ export async function linkHousehold(base, { choice = 'demo', clientId = 'alexa-p
   const challenge = b64u(crypto.createHash('sha256').update(verifier).digest());
   const state = b64u(crypto.randomBytes(12));
   const q = new URLSearchParams({ client_id: clientId, redirect_uri: redirect, response_type: 'code', scope, state, code_challenge: challenge, code_challenge_method: 'S256', resource: `${base}/mcp`, ui_locales: locale });
-  const page = await fetch(`${base}/oauth/authorize?${q}`);
+  const page = await fetch(`${base}/oauth/authorize?${q}`, { headers: INTERNAL });
   const html = await page.text();
   const txn = /name="txn" value="([^"]+)"/.exec(html)?.[1];
   if (!page.ok || !txn) throw new Error(`authorize page: HTTP ${page.status}`);
-  const back = await fetch(`${base}/oauth/authorize`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: base }, body: new URLSearchParams({ txn, choice }) });
+  const back = await fetch(`${base}/oauth/authorize`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: base, ...INTERNAL }, body: new URLSearchParams({ txn, choice }) });
   const loc = new URL(back.headers.get('location') || 'about:blank');
   if (loc.searchParams.get('state') !== state) throw new Error('state mismatch');
   const code = loc.searchParams.get('code');

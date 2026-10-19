@@ -275,7 +275,7 @@ const host = new AppsHost({
   container: $('#cardSlot'), mcp,
   hostContext: { theme: screenTheme(), displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], locale, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, platform: 'web', userAgent: 'alexa-plus-web-simulator', deviceCapabilities: { touch: true, hover: false, deviceClass: device }, containerDimensions: {} },
   onLog: (dir, msg) => log('view', dir, msg),
-  onMessage: (text) => turn(text),
+  onMessage: (text) => { visit('card'); return turn(text); },
   onModelContext: (p) => { session = { ...session, modelContext: p.structuredContent || null }; },
   onDisplayMode: (mode) => { document.body.classList.toggle('fullscreen', mode === 'fullscreen'); requestAnimationFrame(() => host.setContext({ containerDimensions: slotSize() })); },
   onToolResult: (name, args, result) => {
@@ -724,11 +724,21 @@ function applyLanguage() {
   host.setContext({ locale });
 }
 $('#lang').addEventListener('change', (e) => {
-  locale = pickLocale(e.target.value); setLang(locale); store.set('mandat.lang', locale); tick();
+  locale = pickLocale(e.target.value); setLang(locale); store.set('mandat.lang', locale); tick(); visit('lang');
   mcp.headers['x-mandat-locale'] = locale;
   speechSynthesis?.cancel?.();
   applyLanguage();
 });
+
+// ---------- anonymous usage log (src/core/visits.mjs: no IP, no personal data; the page says so, /privacy) ----------
+function visit(type, extra = {}) {
+  try {
+    let ref = '';
+    try { ref = document.referrer ? new URL(document.referrer).hostname.replace(/^www\./, '') : ''; } catch {}
+    if (ref === location.hostname) ref = '';
+    fetch('/visit', { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type, device, lang: locale, ref, ...extra }) }).catch(() => {});
+  } catch {}
+}
 
 // ---------- device, theme, boot ----------
 function setDevice(d) {
@@ -740,7 +750,7 @@ function setDevice(d) {
   wallpaper.setDevice(d);
   requestAnimationFrame(fit);
 }
-for (const r of document.querySelectorAll('input[name="device"]')) r.addEventListener('change', () => { if (r.checked && r.value !== device) setDevice(r.value); });
+for (const r of document.querySelectorAll('input[name="device"]')) r.addEventListener('change', () => { if (r.checked && r.value !== device) { setDevice(r.value); visit('device'); } });
 $('#theme').onclick = () => {
   const t = screenTheme() === 'dark' ? 'light' : 'dark';
   document.documentElement.dataset.theme = t; store.set('mandat.theme', t);
@@ -788,6 +798,7 @@ applyLanguage();
 host.setContext({ theme: screenTheme() });
 renderScript();
 setDevice(device);
+visit('page');
 window.addEventListener('resize', fit);
 new ResizeObserver(fit).observe($('#room'));
 let slotRaf = 0;
@@ -802,7 +813,8 @@ new ResizeObserver(() => { cancelAnimationFrame(slotRaf); slotRaf = requestAnima
       const brain = /nova-2-lite/.test(health.brain || '') ? t('Amazon Nova 2 Lite on Bedrock') : /bedrock/.test(health.brain || '') ? 'Amazon Bedrock' : t('a scripted demo brain');
       // say what really runs: sandbox holds only once the owner linked the demo buyer
       const pay = health.paypal === 'sandbox' && health.paypal_buyer === 'linked' ? t('PayPal sandbox (test money)') : t('payments are simulated (PayPal sandbox not connected)');
-      return t('Unofficial Alexa+ simulator. Brain: {brain}; {pay}. No real money.', { brain, pay });
+      const data = health.products === 'channel3' && /google|osm/.test(health.places || '') ? ' ' + t('Real products and real local businesses (estimated prices); demo partners are simulated.') : '';
+      return t('Unofficial Alexa+ simulator. Brain: {brain}; {pay}. No real money.', { brain, pay }) + data;
     };
     if (health.ok) $('#fine').textContent = fineText();
     useLink(link);

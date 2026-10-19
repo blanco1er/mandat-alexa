@@ -24,7 +24,7 @@ async function appFor(origin) {
   const service = new Mandat({ store, provider: createProvider(), publicUrl });
   serviceRef = service;
   const internalKey = internalKeyOf(process.env.MANDAT_NETWORK_SECRET);
-  const headers = { ...(process.env.MANDAT_DEMO_TOKEN ? { Authorization: `Bearer ${process.env.MANDAT_DEMO_TOKEN}` } : {}), ...(internalKey ? { 'X-Mandat-Internal': internalKey } : {}) };
+  const headers = { 'X-Mandat-Visit': 'internal', ...(process.env.MANDAT_DEMO_TOKEN ? { Authorization: `Bearer ${process.env.MANDAT_DEMO_TOKEN}` } : {}), ...(internalKey ? { 'X-Mandat-Internal': internalKey } : {}) };
   // The brain calls this same function's /mcp over HTTPS, like any external MCP client would.
   const brain = process.env.MANDAT_BRAIN === 'strands'
     ? await (await import('../orchestrator/brain.mjs')).createStrandsBrain({ mcpUrl: `${publicUrl}/mcp`, headers })

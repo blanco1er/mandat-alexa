@@ -296,6 +296,7 @@ body[data-state="listening"] .mic { background: color-mix(in srgb, var(--accent)
 .line.next::after { content: attr(data-next); position: absolute; right: 10px; top: 10px; font-size: var(--text-footnote); font-weight: var(--weight-semibold); color: var(--accent-text); }
 .line.next .t { padding-right: 38px; }
 .fine { margin: 0; font-size: var(--text-footnote); color: var(--label-secondary); text-align: center; }
+.fine a { color: inherit; text-decoration: underline; text-underline-offset: 2px; display: inline-block; padding: 12px 4px; margin: -12px -4px; }
 
 /* ---------- account linking: Alexa's own panel on the Echo Show (not an add-on card) ---------- */
 .link-card { display: grid; gap: calc(var(--u) * 30); align-content: start; padding: calc(var(--u) * 44) calc(var(--u) * 48); border-radius: calc(var(--u) * 30);

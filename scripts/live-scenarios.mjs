@@ -96,7 +96,7 @@ const links = new Map();
 const tokenFor = async (household) => { if (!links.has(household)) links.set(household, (await linkHousehold(LIVE, { choice: 'new' })).access_token); return links.get(household); };
 const remoteBrain = () => ({
   async runTurn({ text, session, household }) {
-    const r = await fetch(`${LIVE}/turn`, { method: 'POST', headers: { 'content-type': 'application/json', origin: LIVE, authorization: `Bearer ${await tokenFor(household)}` }, body: JSON.stringify({ text, session, household, device: session.device || 'show' }) });
+    const r = await fetch(`${LIVE}/turn`, { method: 'POST', headers: { 'content-type': 'application/json', origin: LIVE, authorization: `Bearer ${await tokenFor(household)}`, 'X-Mandat-Visit': 'internal' }, body: JSON.stringify({ text, session, household, device: session.device || 'show' }) });
     const out = await r.json();
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${out.speech || out.error}`);
     return out;
