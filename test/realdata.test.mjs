@@ -198,7 +198,11 @@ test('honesty is kept by the host: a model that drops "test money" or "booking r
   const step = (honesty) => ({ name: 'propose_plan', result: { structuredContent: { honesty } } });
   const plan = [{ text: 'It is all paid with PayPal sandbox test money; the real business only gets a booking request at an estimated price.', must: 'test money|simulated' }, { text: 'It is all paid with PayPal sandbox test money; the real business only gets a booking request at an estimated price.', must: 'request' }];
   const dropped = ensureHonesty({ speech: 'I found a cleaner, bedding and dinner. The total is $357.99. Should I book it?', steps: [step(plan)] });
-  assert.equal(dropped.speech, 'I found a cleaner, bedding and dinner. The total is $357.99. Should I book it? It is all paid with PayPal sandbox test money; the real business only gets a booking request at an estimated price.');
+  assert.equal(dropped.speech, 'I found a cleaner, bedding and dinner. The total is $357.99. It is all paid with PayPal sandbox test money; the real business only gets a booking request at an estimated price. Should I book it?');
+  // only the latest result counts: the plan's sentence covers the product search before it
+  const two = ensureHonesty({ speech: 'Plan ready. ¿Lo reservo?', steps: [{ name: 'find_products', result: { structuredContent: { honesty: { text: 'No order.', must: 'no order' } } } }, step([{ text: 'Paid with test money.', must: 'test money' }])] });
+  assert.equal(two.speech, 'Plan ready. Paid with test money. ¿Lo reservo?');
+  assert.equal(ensureHonesty({ speech: 'Total $380. Say yes to confirm the plan.', steps: [step([{ text: 'Paid with test money.', must: 'test money' }])] }).speech, 'Total $380. Paid with test money. Say yes to confirm the plan.');
   assert.equal(dropped.honesty_added, true);
   const kept = ensureHonesty({ speech: 'Total $357.99, paid with test money; Seattle Green Maids only gets a request.', steps: [step(plan)] });
   assert.equal(kept.honesty_added, undefined, 'said in its own words: nothing added');
