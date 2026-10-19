@@ -8,7 +8,7 @@
 // Rules: OpenStreetMap usage policies (identified User-Agent, low rate, results cached, "© OpenStreetMap contributors"
 // shown); Google Maps Platform terms (attribution "Google Maps" and the photo author shown with the data). Every demo
 // household lives in the same neighbourhood, so one search per trade serves everyone: results are cached per
-// neighbourhood and trade (MANDAT_PLACES_CACHE_HOURS, 24 by default) in memory and in the store (DynamoDB), photos
+// neighbourhood and trade (MANDAT_PLACES_CACHE_HOURS, 0 by default: see below) in memory and in the store (DynamoDB), photos
 // too. Google Maps Platform terms only allow storing place ids (and coordinates up to 30 days): the 24-hour cache of
 // names, ratings and photos is a cost choice for the public demo, documented in the README; set
 // MANDAT_PLACES_CACHE_HOURS=0 for Google data in memory only (1 hour). Hard daily caps per person and in total.
@@ -61,7 +61,9 @@ const memo = new Map();
 let store = null;
 export function setPlacesStore(s) { store = s || null; }
 const CACHE_PK = 'SYSTEM#places';
-const cacheHours = () => { const v = process.env.MANDAT_PLACES_CACHE_HOURS; return v === undefined || v === '' ? 24 : Math.max(0, Number(v) || 0); };
+// Default 0: Google Maps Platform terms allow keeping place ids only, so Google content stays in memory (1 hour) and is
+// never written to the store; OpenStreetMap results (ODbL) may still be stored. Set it above 0 only with Google's agreement.
+const cacheHours = () => { const v = process.env.MANDAT_PLACES_CACHE_HOURS; return v === undefined || v === '' ? 0 : Math.max(0, Number(v) || 0); };
 async function recall(k) {
   const h = memo.get(k);
   if (h && h.until > Date.now()) return h.data;

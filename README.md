@@ -284,15 +284,15 @@ handyman rates are rough US ranges, not verified. The business sets the real pri
 
 | Source | Price (2026) | Free each month | Mandat's caps | Typical demo use |
 |---|---|---|---|---|
-| Google Places Text Search (Enterprise fields: rating, reviews, hours) | $35 per 1,000 | 1,000 | 30 a day, 6 per person a day | ~4 a day: results are shared by every household for 24 h (one neighbourhood, four trades) |
-| Google Place Photos | $7 per 1,000 | 1,000 | 30 a day | ~16 a day, each photo cached 24 h |
+| Google Places Text Search (Enterprise fields: rating, reviews, hours) | $35 per 1,000 | 1,000 | 30 a day, 6 per person a day | a few a day: Google results are reused for one hour in memory only (one neighbourhood, four trades) |
+| Google Place Photos | $7 per 1,000 | 1,000 | 30 a day | a few a day, each photo reused for one hour in memory only |
 | OpenStreetMap (Nominatim / Overpass) | free | — | cached 24 h, identified User-Agent | fallback only |
 | Channel3 product search | see Channel3's plan [not verified] | — | 200 a day, 15 per person a day | cached 12 h |
 | Amazon Nova 2 Lite (brain) | per token | — | $15 hard budget shared by every container | one turn ≈ $0.002–0.01 |
 
-With these caps a busy month stays inside Google's free use (30 × 30 = 900 of each). Google's terms allow keeping
-place ids; the 24-hour cache of names, ratings and photos is a cost choice for this public demo
-(`MANDAT_PLACES_CACHE_HOURS=0` keeps Google data in memory for one hour only). Live check without any model turn:
+With these caps a busy month stays inside Google's free use (30 × 30 = 900 of each). Google's terms allow storing
+place ids only, so Google names, ratings and photos are never written to the database: they live in memory for one
+hour (`MANDAT_PLACES_CACHE_HOURS`, 0 by default). Past the daily cap, real businesses come from OpenStreetMap. Live check without any model turn:
 `node scripts/live-real-data-check.mjs` (about 3 Channel3 searches, 2 Google searches, up to 6 photos, or none from the cache).
 
 ### Visits of the public demo (owner only)
