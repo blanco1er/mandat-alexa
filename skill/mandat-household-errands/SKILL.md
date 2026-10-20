@@ -45,6 +45,9 @@ Every tool result has two text blocks. Say **only the first one** aloud. The sec
    Mandat has already voided that hold: tell the user nothing was charged and offer the replacement.
 8. **Close orders explicitly**: `close_order` with `capture` when the service is done (pass the final bill as
    `amount` if it is lower: the rest is released), `cancel` before it happens, `refund` after payment.
+   **Find the order from what the user named**: "the sheets" is the bed-linen order, "Olive" is Olive & Thyme
+   Kitchen; match the item, trade or merchant against the receipts (never another order of the same budget). If
+   the server answers that the order does not match, call again with the order_id it gives.
 
 ## Playbooks
 

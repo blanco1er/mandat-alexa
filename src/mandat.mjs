@@ -45,6 +45,40 @@ export class ToolError extends Error {
 const OFFER_TTL = 30 * 60 * 1000;
 const PAYPAL_PK = 'SYSTEM#paypal'; // the demo buyer's sandbox payment token (shared by every household of the demo)
 const PLAN_TTL = 15 * 60 * 1000;
+// ---------- which order did the user name? ("refund $10 on the sheets") ----------
+// Seen live on 20 Oct: the model applied "refund $10 on the sheets" to the dog food order. close_order now gets the
+// user's exact words (user_request, filled by the host) and refuses a refund or a cancel aimed at an order the
+// sentence does not name, giving the matching order instead, so the model corrects itself on the next call.
+const normWords = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’‘`´]/g, "'").replace(/\s+/g, ' ').trim();
+const ITEM_FAMILY = {
+  bedding: /\b(sheets?|sheet ?sets?|bedding|bed ?linens?|linens?|duvets?|pillowcases?|pillows?|towels?|draps?|linge|parure|housse|sabanas?|ropa de cama|toallas?)\b/,
+  dog: /\b(dog ?food|dog|dogs|kibble|puppy|croquettes?|chien|pienso|perro)\b/,
+  detergent: /\b(detergent|laundry|lessive|detergente)\b/,
+  coffee: /\b(coffee|cafe|beans)\b/,
+  cleaning: /\b(cleaners?|cleaning|clean|maids?|menage|limpieza|limpiadora?s?)\b/,
+  catering: /\b(caterers?|catering|dinner|traiteurs?|diner|cena)\b/,
+  plumbing: /\b(plumbers?|plumbing|plombiers?|fontaneros?)\b/,
+  handyman: /\b(handyman|bricoleur|manitas)\b/,
+};
+const NAME_STOP = new Set(['home', 'house', 'kitchen', 'table', 'green', 'basics', 'free', 'clear', 'piece', 'recipe', 'with', 'from', 'your', 'this', 'that', 'queen', 'king', 'size', 'pack', 'liquid', 'natural', 'original', 'signature', 'everyday', 'truly', 'soft', 'company', 'store', 'catering', 'cleaning', 'services', 'service']);
+const familyOfOrder = (o) => o.category || (/sheet|bed|duvet|towel|pillow|linen/i.test(o.label || '') ? 'bedding' : /dog|kibble|puppy/i.test(o.label || '') ? 'dog' : /detergent|laundry/i.test(o.label || '') ? 'detergent' : /coffee|roast/i.test(o.label || '') ? 'coffee' : null);
+const namesOf = (o) => [...new Set(normWords(`${o.merchant || ''} ${o.retailer || ''}`).split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !NAME_STOP.has(w)))];
+export const orderNamedIn = (o, text) => { const f = ITEM_FAMILY[familyOfOrder(o)]; return !!(f && f.test(text)) || namesOf(o).some((w) => new RegExp(`\\b${w}\\b`).test(text)); };
+const ACTION_WORDS = { refund: /\b(refund\w*|money back|rembours\w*|reembols\w*|devuelve|devolver)\b/, cancel: /\b(cancel\w*|call (it )?off|annul\w*|cancela\w*)\b/ };
+// the part of the sentence that carries this action ("…, and refund $10 on the sheets"), else none
+// ("refund $10 on the sheets and the dog food": a part without a verb of its own belongs to the verb before it)
+const OTHER_ACTION = /\b(bill\w*|paid|pay|captur\w*|settle\w*|factur\w*|cobr\w*|solde|liquida\w*|refund\w*|rembours\w*|reembols\w*|cancel\w*|annul\w*)\b/;
+export function clauseFor(text, action) {
+  const parts = normWords(text).split(/[,;.!?]|\b(?:and|et|y|then|puis|luego)\b/);
+  let on = false;
+  const out = [];
+  for (const p of parts) {
+    if (!p || !p.trim()) continue;
+    if (ACTION_WORDS[action]?.test(p)) on = true; else if (OTHER_ACTION.test(p)) on = false;
+    if (on) out.push(p.trim());
+  }
+  return out.join(' ');
+}
 const LOCK_TTL_MS = 60 * 1000; // a lease outlives the slowest money step (PayPal calls), then frees itself
 const LOCK_WAIT_MS = 25 * 1000;
 const MAX_BUDGET = 5000; // sandbox demo cap
@@ -766,10 +800,11 @@ export class Mandat {
   }
 
   // ---------- 10. close_order ----------
-  async closeOrder(hid, { order_id, action, amount, confirmation_token }) {
+  async closeOrder(hid, { order_id, action, amount, confirmation_token, user_request }) {
     return this.locked(hid, async () => {
       const o = await this.order(hid, order_id);
       if (!sameHash(String(confirmation_token || ''), o.close_token)) throw new ToolError('That confirmation does not match this order, so nothing moved.', 'Use the close token from this order\'s receipt.');
+      await this.checkNamedOrder(hid, o, action, user_request);
       const m = (await this.mandates(hid)).find((x) => x.id === o.mandate_id);
       if (!m) throw new ToolError('I cannot find the budget this order belongs to, so nothing moved.', 'Check the order with get_household_status.');
       const { env, key } = await this.envelopeForOrder(hid, m, o);
@@ -834,6 +869,23 @@ export class Mandat {
       const t = envelope.totals(env);
       return this.receipt(hid, [o.id], `${speech} ${T('left_in', { left: usd(t.remaining), purpose: m.purpose })}`);
     });
+  }
+
+  // A refund or a cancel must be aimed at the order the user named, when they named one (an item, a trade or a
+  // merchant in the part of the sentence that asks for it). Settling up (capture) may pay every order of the event.
+  async checkNamedOrder(hid, o, action, user_request) {
+    if (!user_request || !ACTION_WORDS[action]) return;
+    const clause = clauseFor(user_request, action);
+    if (!clause) return;
+    const all = (await this.store.query(pkOf(hid), 'ORDER#')).map((r) => r.value);
+    const open = all.filter((x) => (action === 'refund' ? ['held', 'captured'].includes(x.state) : x.state === 'held'));
+    const named = open.filter((x) => orderNamedIn(x, clause));
+    if (!named.length || named.some((x) => x.id === o.id)) return;
+    const what = (x) => `${x.merchant}${x.label ? `, ${x.label}` : ''} (order_id ${x.id}, ${x.state})`;
+    throw new ToolError(
+      `The user asked to ${action} "${String(user_request).slice(0, 120)}", but order ${o.id} is ${o.merchant}${o.label ? ` (${o.label})` : ''}, which they did not name. Nothing moved.`,
+      named.length === 1 ? `Call close_order again with order_id ${named[0].id} (${what(named[0])}) and that order's close token.` : `Ask the user which one they mean: ${named.map(what).join('; ')}.`,
+    );
   }
 
   // ---------- 11. get_offer_details ("show me the bed linen", "why this one?") ----------

@@ -73,6 +73,13 @@ test('host guardrail: asking to see options never changes the plan; a stated cho
   assert.ok(!guardToolCall('list_alternatives', { offer_id: 'o' }, 'Other options?').cancel);
 });
 
+test('host guardrail: close_order carries the user\'s exact words, so the server checks the order they named', () => {
+  const u = 'Everything went well. Settle up: Olive billed $180, and refund $10 on the sheets.';
+  const g = guardToolCall('close_order', { order_id: 'ord_dog', action: 'refund', amount: 10, confirmation_token: 't'.repeat(12), user_request: 'refund the dog food' }, u);
+  assert.equal(g.input.user_request, u, 'the model cannot rewrite what the user asked');
+  assert.equal(g.input.order_id, 'ord_dog');
+});
+
 test('host guardrail: no budget is created or changed unless the user said an amount', () => {
   assert.ok(guardToolCall('set_spending_mandate', { budget: 200 }, 'Yes, go ahead.').cancel);
   assert.ok(!guardToolCall('set_spending_mandate', { budget: 400 }, 'Keep it under $400.').cancel);

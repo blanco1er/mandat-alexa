@@ -68,6 +68,8 @@ export function guardToolCall(name, input, utterance) {
   if (name === 'close_order' && !SETTLE_WORDS.test(norm(utterance))) {
     return { cancel: 'Refused by the host: the user did not ask to pay, cancel or refund an order in this request. A yes is not a request to settle up.' };
   }
+  // the server checks that a refund or a cancel is aimed at the order the user named ("refund $10 on the sheets")
+  if (name === 'close_order') return { input: { ...input, user_request: String(utterance).slice(0, 400) } };
   if (name === 'delete_my_data' && !/\b(delete|erase|wipe|supprime|supprimer|efface|effacer|borra|borrar|elimina|eliminar)\b/.test(norm(utterance))) {
     return { cancel: 'Refused by the host: the user did not ask to delete their data in this request.' };
   }

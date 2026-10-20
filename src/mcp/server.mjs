@@ -292,12 +292,13 @@ export function createMcpServer({ service, household = householdFrom }) {
 
   tool('close_order', {
     title: 'Pay, cancel or refund an order',
-    description: 'Use when a service is done (capture: pays the merchant, a lower final bill captures less and releases the rest), when the user cancels before it happens (cancel: voids the hold), or for money back (refund, full or partial: on an order still on hold, a part refund first pays the rest). To settle up after an event, capture every held order of that event, with the final bill as amount when the user gives one. Needs the order\'s close_token from its receipt.',
+    description: 'Use when a service is done (capture: pays the merchant, a lower final bill captures less and releases the rest), when the user cancels before it happens (cancel: voids the hold), or for money back (refund, full or partial: on an order still on hold, a part refund first pays the rest). To settle up after an event, capture every held order of that event, with the final bill as amount when the user gives one. Needs the order\'s close_token from its receipt. Pick the order_id from what the user named: match the item, trade or merchant they said ("the sheets" = the bed-linen order, "Olive" = Olive & Thyme Kitchen) against the receipts or get_household_status (item, merchant); never use another order of the same budget. If the server says the order does not match, retry with the order it names.',
     input: {
       order_id: z.string().min(3).max(40).describe('order_id from a receipt or get_household_status.'),
       action: z.enum(['capture', 'cancel', 'refund']).describe('capture: the service is done, pay the merchant; cancel: call it off before it happens (voids the hold); refund: money back on a paid order.'),
       amount: z.number().positive().max(5000).optional().describe('For capture: the final bill if lower than the hold. For refund: the amount back; omit for a full refund.'),
       confirmation_token: z.string().min(8).max(64).describe('close_token of this order, from its receipt.'),
+      user_request: z.string().max(400).optional().describe('The user\'s exact words of this turn (filled by the host).'),
     },
     card: 'receipt', annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   }, (hid, a) => service.closeOrder(hid, a));

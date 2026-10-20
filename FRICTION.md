@@ -234,3 +234,12 @@ Severity scale: **Blocker** (could not continue) · **High** (hours lost or a de
 - **Severity:** Medium (no payment, but the plan the user approves must be the plan the user built).
 - **Workaround:** a host guard refuses `revise_plan` and `swap_item` when the user's words only ask to see, list or compare options ("other options?", "show me", "compare", in EN/FR/ES) and contain no change verb ("take", "instead", "swap", "remove"…); tested.
 - **Suggestion:** a tool annotation such as `requiresUserChoice` that a host enforces, and a line in the Alexa+ design guide: browsing never edits a pending transaction.
+
+### 24. "Refund $10 on the sheets" went to the dog food
+- **Task attempted:** settle the in-laws visit on the public URL (20 Oct 2026, Amazon Nova 2 Lite): "Everything went well. Settle up: Olive billed $180, and refund $10 on the sheets."
+- **Steps taken:** the household had five open orders on two budgets (the visit, and the weekly restock of story 2); the context line carried every order's close token.
+- **Expected:** a capture on Olive & Thyme Kitchen and a $10 refund on the bed-linen order.
+- **Actual:** the model sent the refund to the dog food order (the other budget). The server accepted the order id and token, so money moved on the wrong order (sandbox).
+- **Severity:** High (a refund on an order the user never named).
+- **Workaround:** the host passes the user's exact words to `close_order` (`user_request`); the server refuses a refund or a cancel aimed at an order the sentence does not name (item, trade or merchant, EN/FR/ES) and answers with the matching order id, so the model corrects itself on the next call; tested.
+- **Suggestion:** an MCP pattern for "the user's utterance" on destructive tools, so a server can check intent without trusting the model's arguments.
