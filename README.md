@@ -182,7 +182,7 @@ Requirements: Node.js 22+.
 
 ```bash
 npm ci
-npm test                      # 112 tests: protocol, account linking, autonomy levels, money rules, the 3 stories in EN/FR/ES, PayPal flow, deploy (no network, no AWS)
+npm test                      # 119 tests: protocol, account linking, autonomy levels, money rules, the 3 stories in EN/FR/ES, PayPal flow, deploy (no network, no AWS)
 npm run demo                  # open http://127.0.0.1:8787/simulator/ (account linking required, as on the public demo; PORT=8790 npm run demo if 8787 is taken)
 ```
 
@@ -373,12 +373,12 @@ from Mandat") copies the core modules unchanged so the diff shows exactly what i
   enforced by the server, **emergency stop** and **delete my data**.
 - Removed from the core: the Nebius/OpenAI-compatible LLM client and the R2 store.
 
-Numbers: see `git diff --stat $(git rev-list --max-parents=0 HEAD) HEAD`; 127 automated tests (112 + 15), 34 MCP Inspector checks, 3 stories replayed
+Numbers: see `git diff --stat $(git rev-list --max-parents=0 HEAD) HEAD`; 134 automated tests (119 + 15), 34 MCP Inspector checks, 3 stories replayed
 against real Amazon Bedrock.
 
 ## Testing
 
-- `npm test`: 112 tests (real data with fake Channel3, Google Places and OpenStreetMap answers: kind check, allergens
+- `npm test`: 119 tests (money steps under parallel calls: a lease across containers, an order missing from its envelope, a refund failing after the capture, the emergency stop on an already captured hold; real data with fake Channel3, Google Places and OpenStreetMap answers: kind check, allergens
   in descriptions, ranking by rating and reviews, closed days, caps, cache, fallbacks, the image proxy, and the rule that
   a real business never "agreed"; the anonymous visit log: hashing, masking, internal visits, TTL, alert, report; off-script turns: swap described in words, nothing-matches answers, remove without
   opening, total mid-way, a yes too early or twice, a language change mid-way; account linking: PKCE, single-use codes, refresh rotation and reuse detection, revocation,
