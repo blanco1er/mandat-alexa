@@ -35,6 +35,19 @@ export class LocalJsonStore {
       .sort((a, b) => (a.sk < b.sk ? -1 : a.sk > b.sk ? 1 : 0));
   }
   async delete(pk, sk) { this.rows.delete(this.key(pk, sk)); this.flush(); }
+  // A lease with an expiry, same rule as DynamoDB (one process here, but the same code path is exercised by tests that
+  // run two Mandat instances on one store, like two Lambda containers on one table). Not written to the file.
+  async lock(pk, sk, owner, ttlMs) {
+    const k = '\u0001lock' + this.key(pk, sk);
+    const cur = this.leases?.get(k);
+    if (cur && cur.owner !== owner && cur.until > Date.now()) return false;
+    (this.leases ||= new Map()).set(k, { owner, until: Date.now() + ttlMs });
+    return true;
+  }
+  async unlock(pk, sk, owner) {
+    const k = '\u0001lock' + this.key(pk, sk);
+    if (this.leases?.get(k)?.owner === owner) this.leases.delete(k);
+  }
   flush() {
     if (!this.file) return;
     fs.mkdirSync(path.dirname(this.file), { recursive: true });

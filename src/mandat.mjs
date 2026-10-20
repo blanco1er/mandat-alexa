@@ -45,6 +45,8 @@ export class ToolError extends Error {
 const OFFER_TTL = 30 * 60 * 1000;
 const PAYPAL_PK = 'SYSTEM#paypal'; // the demo buyer's sandbox payment token (shared by every household of the demo)
 const PLAN_TTL = 15 * 60 * 1000;
+const LOCK_TTL_MS = 60 * 1000; // a lease outlives the slowest money step (PayPal calls), then frees itself
+const LOCK_WAIT_MS = 25 * 1000;
 const MAX_BUDGET = 5000; // sandbox demo cap
 const round = (x) => Math.round(Number(x) * 100) / 100;
 // What is said follows the user's locale (X-Mandat-Locale, see src/core/i18n.mjs); data stays canonical.
@@ -93,13 +95,31 @@ export class Mandat {
   // What pays: PayPal sandbox test money, or simulated payments when the sandbox is not connected.
   payMode() { return this.paypal.MODE === 'sandbox' ? 'sandbox' : 'offline'; }
   // Serialize writes per household (one warm Lambda handles one request at a time; this covers the local server).
+  // One money operation at a time per household. The in-process queue alone was not enough on AWS: a model makes
+  // parallel tool calls, each one reaches the MCP endpoint over HTTP and may land on another Lambda container, and two
+  // confirm_plan calls rewrote the same envelope from stale copies (seen live on 20 Oct: one auto-buy vanished from the
+  // weekly envelope). The store's lease (a conditional write in DynamoDB) serialises them across containers too.
   async locked(hid, fn) {
     const prev = this.locks.get(hid) || Promise.resolve();
     let release;
     const next = new Promise((r) => (release = r));
     this.locks.set(hid, prev.then(() => next));
     await prev;
-    try { return await fn(); } finally { release(); if (this.locks.get(hid) === next) this.locks.delete(hid); }
+    const owner = crypto.randomBytes(8).toString('hex');
+    let leased = false;
+    try {
+      if (typeof this.store.lock === 'function') {
+        const until = Date.now() + LOCK_WAIT_MS;
+        while (!(leased = await this.store.lock(pkOf(hid), 'LOCK', owner, LOCK_TTL_MS))) {
+          if (Date.now() > until) throw new ToolError('Mandat is still finishing another step for this household.', 'Wait a moment, then call get_household_status before trying again.');
+          await new Promise((r) => setTimeout(r, 80 + Math.random() * 120));
+        }
+      }
+      return await fn();
+    } finally {
+      if (leased) { try { await this.store.unlock(pkOf(hid), 'LOCK', owner); } catch {} }
+      release(); if (this.locks.get(hid) === next) this.locks.delete(hid);
+    }
   }
   // One line on the live activity screen (real progress of this voice turn; a no-op outside a turn).
   live(ev) { return note(this.store, ev); }
@@ -134,7 +154,26 @@ export class Mandat {
     }
     return env;
   }
-  async saveEnvelope(hid, m, env) { await this.store.put(pkOf(hid), this.envKey(m), env); }
+  async saveEnvelope(hid, m, env, key = this.envKey(m)) { await this.store.put(pkOf(hid), key, env); }
+  // The envelope an order was held in. Its key is recorded on the order at hold time (envelope_key); older orders are
+  // found by searching the mandate's envelopes. If the order is in none of them (an entry lost by an old concurrent
+  // write), the entry is put back from the order row, which is the per-order truth: money operations never fail with
+  // "Unknown payment" after PayPal moved, and the budget counts the order again.
+  async envelopeForOrder(hid, m, o) {
+    let key = o.envelope_key || null;
+    let env = key ? await this.store.get(pkOf(hid), key) : null;
+    if (!env?.entries?.some((e) => e.id === o.id)) {
+      const hit = (await this.store.query(pkOf(hid), `ENVELOPE#${m.id}#`)).find((r) => (r.value.entries || []).some((e) => e.id === o.id));
+      if (hit) { key = hit.sk; env = hit.value; }
+    }
+    if (!env) { key = this.envKey(m); env = await this.envelopeOf(hid, m); }
+    if (!env.entries.some((e) => e.id === o.id)) {
+      env.entries.push({ id: o.id, merchant: o.merchant, label: o.label, amount: o.amount, state: o.state === 'changed' ? 'held' : o.state, paypal: { ...(o.paypal || {}) }, at: o.timeline?.[0]?.at || new Date(this.now()).toISOString(),
+        ...(o.captured != null ? { captured: o.captured } : {}), ...(o.refunded ? { refunded: o.refunded } : {}), restored: true });
+      console.warn(`[mandat] envelope entry restored from order ${o.id} (${key})`);
+    }
+    return { env, key };
+  }
   envelopeView(m, env) {
     const t = envelope.totals(env);
     return { mandate_id: m.id, purpose: m.purpose, period: m.period, period_key: periodKey(m.period, this.now()), budget: t.total, held: t.held, spent: t.spent, remaining: t.remaining, currency: t.currency, auto_approve_under: m.auto_approve_under, paypal_mode: m.paypal?.mode || 'offline' };
@@ -564,7 +603,7 @@ export class Mandat {
           await this.live({ step: `h-${oid}`, state: 'done', text: T('l_holding', { amt: usd(l.total), m: l.merchant }), detail: T('l_not_charged'), image_url: l.image_url });
           const at = new Date(this.now()).toISOString();
           orders.push({
-            id: oid, plan_id: plan.id, mandate_id: m.id, kind: l.kind, category: l.category ?? null, merchant_id: l.merchant_id, merchant: l.merchant, label: l.title, slotLabel: l.detail,
+            id: oid, plan_id: plan.id, mandate_id: m.id, envelope_key: this.envKey(m), kind: l.kind, category: l.category ?? null, merchant_id: l.merchant_id, merchant: l.merchant, label: l.title, slotLabel: l.detail,
             guests: l.guests, quantity: l.quantity, amount: l.total, currency: m.currency, state: 'held', paypal: { orderId: pp.orderId, authorizationId: pp.authorizationId, mode: pp.mode },
             close_token: crypto.randomBytes(12).toString('hex'), timeline: [{ state: 'held', amount: l.total, at }], auto: !!alone && !isExplicitYes(user_confirmation),
             source: l.source || null, live: !!l.live, estimated: !!l.estimated, retailer: l.retailer || null, offer_id: l.offer_id,
@@ -630,7 +669,7 @@ export class Mandat {
         if (d && !mer.open.includes(d)) Object.assign(r, { accepted: false, reply: merchantSay(loc(), 'closed_move', { day: I.dayName(DAY_NAMES[d], loc()) }) });
       }
       const m = (await this.mandates(hid)).find((x) => x.id === o.mandate_id);
-      const env = await this.envelopeOf(hid, m);
+      const { env, key: envKey } = await this.envelopeForOrder(hid, m, o);
       const at = new Date(this.now()).toISOString();
       if (r.accepted) {
         const total = round(r.total ?? o.amount);
@@ -646,13 +685,14 @@ export class Mandat {
       }
       // Declined: void the hold so the money is free again, then line up a replacement.
       await this.live({ step: `c-${o.id}`, state: 'failed', text: T('l_cant_move', { m: mer.name }), detail: firstSentence(r.reply), image_url: o.image_url });
+      envelope.release(structuredClone(env), o.id); // checked locally before PayPal moves anything
       const pp = await this.paypal.release({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId });
       await this.live({ step: `r-${o.id}`, state: 'done', text: T('l_released', { amt: usd(o.amount) }), detail: T('l_nothing') });
       envelope.release(env, o.id, pp);
       o.state = 'released';
       o.timeline.push({ state: 'released', amount: o.amount, note: `${mer.name} declined: ${r.reply}`, at });
       await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
-      await this.saveEnvelope(hid, m, env);
+      await this.saveEnvelope(hid, m, env, envKey);
       await this.event(hid, 'order.released', { order_id: o.id, reason: 'merchant declined change', merchant: o.merchant, amount: o.amount });
       let alternatives = [];
       if (change.field === 'date') {
@@ -731,13 +771,20 @@ export class Mandat {
       const o = await this.order(hid, order_id);
       if (!sameHash(String(confirmation_token || ''), o.close_token)) throw new ToolError('That confirmation does not match this order, so nothing moved.', 'Use the close token from this order\'s receipt.');
       const m = (await this.mandates(hid)).find((x) => x.id === o.mandate_id);
-      const env = await this.envelopeOf(hid, m);
+      if (!m) throw new ToolError('I cannot find the budget this order belongs to, so nothing moved.', 'Check the order with get_household_status.');
+      const { env, key } = await this.envelopeForOrder(hid, m, o);
       const at = new Date(this.now()).toISOString();
+      // Every local check runs first, on a copy, before PayPal moves any money (seen live on 20 Oct: PayPal captured,
+      // then a local step failed and the order stayed "held"). After each PayPal call the new state is saved at once.
+      const persist = async () => { await this.store.put(pkOf(hid), `ORDER#${o.id}`, o); await this.saveEnvelope(hid, m, env, key); };
+      const dry = (f) => { try { f(structuredClone(env)); } catch (e) { throw new ToolError(`${e.message} Nothing moved.`, 'Check the order with get_household_status.'); } };
       let speech;
+      if (!['capture', 'cancel', 'refund'].includes(action)) throw new ToolError('The action must be capture, cancel or refund.', 'Pick one.');
       if (action === 'capture') {
         if (o.state !== 'held') throw new ToolError(`That order is ${o.state}; only a held payment can be captured.`, 'Check the order with get_household_status.');
         const take = round(amount ?? o.expected_total ?? o.amount);
         if (!(take > 0) || take > o.amount + 1e-9) throw new ToolError(`I can capture at most the ${usd(o.amount)} on hold.`, 'Capture a smaller amount or approve a new plan for the difference.');
+        dry((e) => envelope.capture(e, o.id, {}, take));
         const pp = await this.paypal.capture({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId, amount: take < o.amount ? take : undefined, currency: o.currency });
         envelope.capture(env, o.id, pp, take);
         Object.assign(o, { state: 'captured', captured: take, paypal: { ...o.paypal, captureId: pp.captureId } });
@@ -747,35 +794,42 @@ export class Mandat {
         speech = take < o.amount ? T('cap_partial' + kindKey, { m: o.merchant, take: usd(take), diff: usd(o.amount - take) }) : T('cap_full' + kindKey, { m: o.merchant, take: usd(take) });
       } else if (action === 'cancel') {
         if (o.state !== 'held') throw new ToolError(`That order is ${o.state}; only a held payment can be cancelled. A paid order can be refunded.`, 'Use action refund instead.');
+        dry((e) => envelope.release(e, o.id));
         const pp = await this.paypal.release({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId });
         envelope.release(env, o.id, pp);
         o.state = 'released';
         o.timeline.push({ state: 'released', amount: o.amount, note: 'cancelled', at });
         speech = T('cancelled', { m: o.merchant, amount: usd(o.amount) });
-      } else if (action === 'refund') {
+      } else {
         // A part refund on an order still on hold means "delivered, part sent back": settle the hold, then refund.
+        const settle = o.state === 'held' && amount > 0 && amount < o.amount - 1e-9;
+        if (!settle && o.state !== 'captured') throw new ToolError(`That order is ${o.state}; only a paid order can be refunded.`, o.state === 'held' ? 'If it was delivered, capture it first (close_order capture), then refund the amount; to call the whole order off, use cancel.' : 'Check the order with get_household_status.');
+        const take = settle ? round(o.expected_total ?? o.amount) : null;
+        const paid = settle ? take : round((o.captured ?? o.amount) - (o.refunded || 0));
+        const back = round(amount ?? paid);
+        if (!(back > 0) || back > paid + 1e-9) throw new ToolError(`At most ${usd(paid)} can be refunded on this order.`, 'Refund a smaller amount.');
+        dry((e) => { if (settle) envelope.capture(e, o.id, {}, take); envelope.refund(e, o.id, back); });
         let settled = '';
-        if (o.state === 'held' && amount > 0 && amount < o.amount - 1e-9) {
-          const take = round(o.expected_total ?? o.amount);
+        if (settle) {
           const pc = await this.paypal.capture({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId, amount: take < o.amount ? take : undefined, currency: o.currency });
           envelope.capture(env, o.id, pc, take);
           Object.assign(o, { state: 'captured', captured: take, paypal: { ...o.paypal, captureId: pc.captureId } });
           o.timeline.push({ state: 'captured', amount: take, note: 'settled before a part refund', at });
+          await persist(); // PayPal has captured: the records say so before anything else can fail
           settled = T('settled_pre', { m: o.merchant, take: usd(take) });
         }
-        if (o.state !== 'captured') throw new ToolError(`That order is ${o.state}; only a paid order can be refunded.`, o.state === 'held' ? 'If it was delivered, capture it first (close_order capture), then refund the amount; to call the whole order off, use cancel.' : 'Check the order with get_household_status.');
-        const paid = round((o.captured ?? o.amount) - (o.refunded || 0));
-        const back = round(amount ?? paid);
-        if (!(back > 0) || back > paid + 1e-9) throw new ToolError(`At most ${usd(paid)} can be refunded on this order.`, 'Refund a smaller amount.');
-        const pp = await this.paypal.refund({ mode: o.paypal.mode, captureId: o.paypal.captureId, amount: back, currency: o.currency, note: 'Mandat for Alexa+ refund' });
+        let pp;
+        try { pp = await this.paypal.refund({ mode: o.paypal.mode, captureId: o.paypal.captureId, amount: back, currency: o.currency, note: 'Mandat for Alexa+ refund' }); } catch (e) {
+          await this.event(hid, 'order.refund_failed', { order_id: o.id, amount: back, error: String(e.message || e).slice(0, 200) });
+          throw new ToolError(`${settled ? settled + ' ' : ''}PayPal did not accept the ${usd(back)} refund (${e.message}). The order is paid; no refund was made.`, 'Try the refund again in a minute.');
+        }
         envelope.refund(env, o.id, back, pp);
         o.refunded = round((o.refunded || 0) + back);
         if (o.refunded >= (o.captured ?? o.amount) - 1e-9) o.state = 'refunded';
         o.timeline.push({ state: 'refunded', amount: back, at });
         speech = T('refund', { settled, back: usd(back), m: o.merchant });
-      } else throw new ToolError('The action must be capture, cancel or refund.', 'Pick one.');
-      await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
-      await this.saveEnvelope(hid, m, env);
+      }
+      await persist();
       await this.event(hid, `order.${action}`, { order_id: o.id, amount: amount ?? o.amount, merchant: o.merchant });
       const t = envelope.totals(env);
       return this.receipt(hid, [o.id], `${speech} ${T('left_in', { left: usd(t.remaining), purpose: m.purpose })}`);
@@ -1162,17 +1216,37 @@ export class Mandat {
       const s = (await this.settings(hid)) || { ...S.DEFAULTS, categories: [...S.CATEGORIES], created: new Date(this.now()).toISOString() };
       s.paused = true; s.paused_at = new Date(this.now()).toISOString();
       await this.store.put(pkOf(hid), 'SETTINGS', s);
-      const voided = [];
+      // The stop never fails because of one order: each hold is voided on its own. PayPal saying an authorization was
+      // already captured (seen live on 20 Oct: 422 PREVIOUSLY_CAPTURED after a refund that failed half-way) brings
+      // Mandat's records in line (paid) and the stop goes on; an authorization already void counts as voided.
+      const voided = [], paid = [], failed = [];
       const at = new Date(this.now()).toISOString();
+      const mandates = await this.mandates(hid);
       for (const o of (await this.store.query(pkOf(hid), 'ORDER#')).map((r) => r.value).filter((x) => x.state === 'held')) {
-        const pp = await this.paypal.release({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId });
-        const m = (await this.mandates(hid)).find((x) => x.id === o.mandate_id);
-        if (m) { const env = await this.envelopeOf(hid, m); try { envelope.release(env, o.id, pp); } catch {} await this.saveEnvelope(hid, m, env); }
-        o.state = 'released';
-        o.timeline.push({ state: 'released', amount: o.amount, note: 'emergency stop', at });
-        await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
-        await this.live({ step: `p-${o.id}`, state: 'done', text: T('l_released', { amt: usd(o.amount) }), detail: o.merchant, image_url: o.image_url });
-        voided.push(o);
+        const m = mandates.find((x) => x.id === o.mandate_id);
+        const book = async (apply) => {
+          if (m) { const { env, key } = await this.envelopeForOrder(hid, m, o); try { apply(env); } catch {} await this.saveEnvelope(hid, m, env, key); }
+          await this.store.put(pkOf(hid), `ORDER#${o.id}`, o);
+        };
+        let pp = null, why = '';
+        try { pp = await this.paypal.release({ mode: o.paypal.mode, authorizationId: o.paypal.authorizationId }); } catch (e) { why = String(e?.message || e); }
+        if (pp || /PREVIOUSLY_VOIDED|AUTHORIZATION_VOIDED|AUTHORIZATION_EXPIRED/i.test(why)) {
+          o.state = 'released';
+          o.timeline.push({ state: 'released', amount: o.amount, note: pp ? 'emergency stop' : 'emergency stop (already void at PayPal)', at });
+          await book((env) => envelope.release(env, o.id, pp || {}));
+          await this.live({ step: `p-${o.id}`, state: 'done', text: T('l_released', { amt: usd(o.amount) }), detail: o.merchant, image_url: o.image_url });
+          voided.push(o);
+        } else if (/PREVIOUSLY_CAPTURED|ALREADY_CAPTURED/i.test(why)) {
+          Object.assign(o, { state: 'captured', captured: o.amount });
+          o.timeline.push({ state: 'captured', amount: o.amount, note: 'already paid at PayPal; records updated during the emergency stop', at });
+          await book((env) => envelope.capture(env, o.id, {}, o.amount));
+          await this.event(hid, 'order.resynced', { order_id: o.id, state: 'captured', reason: 'PREVIOUSLY_CAPTURED' });
+          paid.push(o);
+        } else {
+          console.warn(`[mandat] emergency stop could not void ${o.id}: ${why}`);
+          await this.event(hid, 'order.void_failed', { order_id: o.id, error: why.slice(0, 200) });
+          failed.push(o);
+        }
       }
       let plans = 0;
       for (const p of (await this.store.query(pkOf(hid), 'PLAN#')).map((r) => r.value).filter((x) => x.status === 'proposed')) {
@@ -1180,12 +1254,17 @@ export class Mandat {
         await this.store.put(pkOf(hid), `PLAN#${p.id}`, p);
       }
       const amount = round(voided.reduce((x, o) => x + o.amount, 0));
-      await this.event(hid, 'spending.paused', { voided: voided.length, amount, plans });
-      return { voided, amount, plans };
+      await this.event(hid, 'spending.paused', { voided: voided.length, amount, plans, already_paid: paid.length, not_voided: failed.length });
+      return { voided, amount, plans, paid, failed };
     });
     const status = await this.getHouseholdStatus(hid, {});
-    const speech = T('pause_done', { n: out.voided.length, amt: usd(out.amount), names: listWords(out.voided.slice(0, 3).map((o) => o.merchant)), plans: out.plans });
-    return { speech, data: { ...status.data, stop: { voided: out.voided.map(publicOrder), amount: out.amount, plans: out.plans } }, card: 'status' };
+    const names = (list) => listWords(list.slice(0, 3).map((o) => o.merchant));
+    const head = T('pause_done', { n: out.voided.length, amt: usd(out.amount), names: names(out.voided), plans: out.plans, other: out.paid.length + out.failed.length });
+    // the extra sentences go before "Nothing will be bought until…" (the last sentence of pause_done)
+    const extra = [out.paid.length ? T('pause_paid', { n: out.paid.length, names: names(out.paid), amt: usd(round(out.paid.reduce((x, o) => x + o.amount, 0))) }) : '', out.failed.length ? T('pause_failed', { n: out.failed.length, names: names(out.failed) }) : ''].join('');
+    const cut = head.lastIndexOf('. ', head.length - 2);
+    const speech = extra && cut > 0 ? `${head.slice(0, cut + 2)}${extra}${head.slice(cut + 2)}` : head;
+    return { speech, data: { ...status.data, stop: { voided: out.voided.map(publicOrder), amount: out.amount, plans: out.plans, already_paid: out.paid.map(publicOrder), not_voided: out.failed.map(publicOrder) } }, card: 'status' };
   }
   // ---------- 19. resume_spending ----------
   async resumeSpending(hid) {

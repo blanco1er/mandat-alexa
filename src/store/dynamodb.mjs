@@ -20,6 +20,11 @@ export const commands = {
     ConsistentRead: true,
   }),
   delete: (pk, sk) => ({ TableName: TABLE(), Key: { PK: pk, SK: sk } }),
+  // A lease shared by every Lambda container (one household at a time): written only if absent or expired; removed
+  // only by its owner. "ttl" lets the table drop a lease a crashed container left behind.
+  lock: (pk, sk, owner, ttlMs, now = Date.now()) => ({ TableName: TABLE(), Item: { PK: pk, SK: sk, v: { owner, until: now + ttlMs }, lockOwner: owner, until: now + ttlMs, ttl: Math.floor((now + ttlMs) / 1000) + 3600 },
+    ConditionExpression: 'attribute_not_exists(PK) OR #u < :now OR lockOwner = :me', ExpressionAttributeNames: { '#u': 'until' }, ExpressionAttributeValues: { ':now': now, ':me': owner } }),
+  unlock: (pk, sk, owner) => ({ TableName: TABLE(), Key: { PK: pk, SK: sk }, ConditionExpression: 'lockOwner = :me', ExpressionAttributeValues: { ':me': owner } }),
   // Atomic counter (the shared LLM spend ledger): ADD n to attribute "n".
   add: (pk, sk, n) => ({ TableName: TABLE(), Key: { PK: pk, SK: sk }, UpdateExpression: 'ADD n :n SET updatedAt = :t', ExpressionAttributeValues: { ':n': n, ':t': new Date().toISOString() } }),
 };
@@ -60,6 +65,17 @@ export class DynamoDbStore {
     return out;
   }
   async delete(pk, sk) { const c = await this.client(); await c.send(new this.lib.DeleteCommand(commands.delete(pk, sk))); }
+  async lock(pk, sk, owner, ttlMs) {
+    const c = await this.client();
+    try { await c.send(new this.lib.PutCommand(commands.lock(pk, sk, owner, ttlMs))); return true; } catch (e) {
+      if (e.name === 'ConditionalCheckFailedException') return false;
+      throw e;
+    }
+  }
+  async unlock(pk, sk, owner) {
+    const c = await this.client();
+    try { await c.send(new this.lib.DeleteCommand(commands.unlock(pk, sk, owner))); } catch (e) { if (e.name !== 'ConditionalCheckFailedException') throw e; }
+  }
   // Shared spend ledger for core/spend.mjs: one item, PK "SPEND", SK "LLM", attribute n = USD spent on models.
   ledger(pk = 'SPEND', sk = 'LLM') {
     return {

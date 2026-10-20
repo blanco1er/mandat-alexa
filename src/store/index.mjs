@@ -7,6 +7,9 @@
 //   putIfAbsent(pk, sk, value) -> boolean         (false if the key exists: idempotency, no double payment)
 //   query(pk, skPrefix)        -> [{ sk, value }] (sorted by sk)
 //   delete(pk, sk)             -> void
+//   lock(pk, sk, owner, ttlMs) -> boolean         (a lease shared by every process/container: false while another
+//                                                  owner holds an unexpired one)
+//   unlock(pk, sk, owner)      -> void            (only the owner's lease is removed)
 // MANDAT_STORE: "memory" (tests), "json" (default, local file data/store.json), "dynamodb" (AWS, table MANDAT_TABLE).
 import { LocalJsonStore } from './local-json.mjs';
 import { DynamoDbStore } from './dynamodb.mjs';
