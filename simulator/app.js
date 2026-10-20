@@ -899,7 +899,10 @@ document.addEventListener('keydown', (e) => {
 });
 $('#mic').onclick = listen;
 $('#typeInput').addEventListener('input', () => { if (!busy) $('#send').disabled = !$('#typeInput').value.trim(); });
-$('#typeForm').onsubmit = (e) => { e.preventDefault(); const v = $('#typeInput').value.trim(); if (v && !busy) { $('#typeInput').value = ''; turn(v); } };
+// After a typed sentence the field gives the focus back to the page, so the keyboard shortcuts (D for the MCP
+// traffic, Space to talk) work again and a phone keyboard closes; Escape in the field does the same.
+$('#typeForm').onsubmit = (e) => { e.preventDefault(); const v = $('#typeInput').value.trim(); if (v && !busy) { $('#typeInput').value = ''; $('#typeInput').blur(); turn(v); } };
+$('#typeInput').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); e.target.blur(); } });
 const tick = () => {
   const now = new Date();
   const hm = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/\s?[AP]M$/, '');

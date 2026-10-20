@@ -36,6 +36,12 @@ test('Bedrock: Converse input for a merchant agent carries its private terms and
 
 test('Polly: neural mp3 request, one neural voice per language', async () => {
   assert.deepEqual(pollyInput('Hello'), { Engine: 'neural', OutputFormat: 'mp3', VoiceId: 'Danielle', Text: 'Hello', TextType: 'text' });
+  // "Mandat" is said "MAN-dat" in English and Spanish (SSML phoneme), left to the French voice in French; text escaped
+  const en = pollyInput('Mandat is paused. Tom & Jerry <3', 'Danielle', 'en-US');
+  assert.equal(en.TextType, 'ssml');
+  assert.equal(en.Text, '<speak><phoneme alphabet="ipa" ph="ˈmæn.dæt">Mandat</phoneme> is paused. Tom &amp; Jerry &lt;3</speak>');
+  assert.match(pollyInput('Mandat está en pausa.', 'Lucia', 'es-ES').Text, /ph="ˈman\.dat">Mandat</);
+  assert.deepEqual(pollyInput('Mandat est en pause.', 'Lea', 'fr-FR'), { Engine: 'neural', OutputFormat: 'mp3', VoiceId: 'Lea', Text: 'Mandat est en pause.', TextType: 'text' });
   const { voiceFor } = await import('../src/providers/tts.mjs');
   assert.deepEqual(['en-US', 'fr-FR', 'fr', 'es-ES', 'es-US', 'es'].map(voiceFor), ['Danielle', 'Lea', 'Lea', 'Lucia', 'Lupe', 'Lucia']);
 });

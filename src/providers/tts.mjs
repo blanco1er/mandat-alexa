@@ -12,8 +12,17 @@ export function voiceFor(locale) {
   if (l.startsWith('es')) return POLLY_VOICES['es-ES'];
   return process.env.MANDAT_POLLY_VOICE || 'Danielle';
 }
-export function pollyInput(text, voice = process.env.MANDAT_POLLY_VOICE || 'Danielle') {
-  return { Engine: 'neural', OutputFormat: 'mp3', VoiceId: voice, Text: String(text).slice(0, 1500), TextType: 'text' };
+// How "Mandat" is said (seen on 20 Oct: the English voice said "Mondaw" / "Manda"). SSML <phoneme> in IPA, supported by
+// Polly neural voices: English "MAN-dat", Spanish "MAN-dat"; in French "Mandat" is the French word (/mɑ̃.da/) and Léa
+// already says it right, so the text is left as it is. Tags are not billed; the text is escaped for SSML.
+export const NAME_IPA = { en: 'ˈmæn.dæt', es: 'ˈman.dat' };
+const xml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+export function pollyInput(text, voice = process.env.MANDAT_POLLY_VOICE || 'Danielle', locale = 'en-US') {
+  const t = String(text).slice(0, 1500);
+  const ipa = NAME_IPA[String(locale || 'en').slice(0, 2).toLowerCase()];
+  if (!ipa || !/\bMandat\b/i.test(t)) return { Engine: 'neural', OutputFormat: 'mp3', VoiceId: voice, Text: t, TextType: 'text' };
+  const ssml = xml(t).replace(/\bMandat\b/gi, (w) => `<phoneme alphabet="ipa" ph="${ipa}">${w}</phoneme>`);
+  return { Engine: 'neural', OutputFormat: 'mp3', VoiceId: voice, Text: `<speak>${ssml}</speak>`, TextType: 'ssml' };
 }
 
 export function createTts(kind = process.env.MANDAT_TTS || 'browser') {
@@ -26,7 +35,7 @@ export function createTts(kind = process.env.MANDAT_TTS || 'browser') {
         try { sdk = await import('@aws-sdk/client-polly'); } catch { throw new Error('MANDAT_TTS=polly needs @aws-sdk/client-polly (bundled in the Lambda Node.js runtime).'); }
         client = new sdk.PollyClient({ region: process.env.AWS_REGION || 'us-east-1' });
       }
-      const out = await client.send(new sdk.SynthesizeSpeechCommand(pollyInput(text, voiceFor(locale))));
+      const out = await client.send(new sdk.SynthesizeSpeechCommand(pollyInput(text, voiceFor(locale), locale)));
       return Buffer.from(await out.AudioStream.transformToByteArray());
     },
   };
