@@ -833,7 +833,9 @@ function applyLanguage() {
   $('#askText').textContent = session.pending ? t('Say “yes” to confirm the plan · {amt}', { amt: usd(session.pending.total) }) : t('Say “yes” to confirm');
   $('#micLabel').textContent = label(document.body.dataset.state || 'idle');
   $('#fine').textContent = fineText();
-  $('#lang').value = locale;
+  // the segmented control shows the active language (its indicator follows the change event)
+  const r = document.querySelector(`input[name="lang"][value="${locale}"]`) || document.querySelector(`input[name="lang"][value^="${locale.slice(0, 2)}"]`);
+  if (r && !r.checked) { r.checked = true; syncingLang = true; try { r.dispatchEvent(new Event('change', { bubbles: true })); } finally { syncingLang = false; } }
   syncThemeButton();
   SCRIPT = SCRIPTS[lang()];
   played = new Set(store.get(playedKey(), []));
@@ -841,7 +843,9 @@ function applyLanguage() {
   if (lastStatus || !link) renderHome(lastStatus);
   host.setContext({ locale });
 }
+let syncingLang = false; // set while the page itself shows the language (not a choice by the person)
 $('#lang').addEventListener('change', (e) => {
+  if (syncingLang || e.target.name !== 'lang' || !e.target.checked || pickLocale(e.target.value) === locale) return;
   locale = pickLocale(e.target.value); setLang(locale); store.set('mandat.lang', locale); tick(); visit('lang');
   mcp.headers['x-mandat-locale'] = locale;
   stopSpeaking();

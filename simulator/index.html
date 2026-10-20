@@ -38,12 +38,18 @@
       <label><input type="radio" name="device" value="show8">Echo Show 8</label>
       <label><input type="radio" name="device" value="dot">Echo Dot</label>
     </fieldset>
+    <div class="sim-right">
+    <fieldset class="ui-segmented sim-langs" id="lang" aria-label="Language" data-i18n-aria="Language">
+      <label title="English" lang="en"><input type="radio" name="lang" value="en-US" aria-label="English">EN</label>
+      <label title="Français" lang="fr"><input type="radio" name="lang" value="fr-FR" aria-label="Français">FR</label>
+      <label title="Español" lang="es"><input type="radio" name="lang" value="es-ES" aria-label="Español">ES</label>
+    </fieldset>
     <div class="sim-tools ui-toolbar__group ui-glass">
-      <label class="sim-lang" data-i18n-title="Language" title="Language"><select id="lang" aria-label="Language" data-i18n-aria="Language"><option value="en-US">EN</option><option value="fr-FR">FR</option><option value="es-ES">ES</option></select></label>
       <button class="ui-icon-button" id="theme" type="button" aria-label="Dark appearance" aria-pressed="false" title="Light or dark appearance" data-i18n-title="Light or dark appearance"><svg class="ui-icon"><use href="#i-moon"/></svg></button>
       <button class="ui-icon-button" id="alexaApp" type="button" aria-label="Alexa app" data-i18n-aria="Alexa app" title="Open the Alexa app (simulated)" data-i18n-title="Open the Alexa app (simulated)"><svg class="ui-icon"><use href="#i-phone"/></svg></button>
       <button class="ui-icon-button" id="newHousehold" type="button" aria-label="Start over" data-i18n-aria="Start over" title="Unlink and start over" data-i18n-title="Unlink and start over"><svg class="ui-icon"><use href="#i-restart"/></svg></button>
       <button class="ui-button sim-dev" id="devToggle" type="button" aria-expanded="false" aria-controls="drawer" title="MCP traffic (D)" data-i18n-title="MCP traffic (D)"><svg class="ui-icon"><use href="#i-braces"/></svg><span class="lbl" data-i18n="MCP traffic">MCP traffic</span><kbd>D</kbd></button>
+    </div>
     </div>
   </header>
 
